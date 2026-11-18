@@ -21,6 +21,11 @@ const MAPEO_BASE: Record<string, string[]> = {
   idioma: ['language', 'locale', 'idioma', 'subscriber.language'],
   avatar_url: ['profile_pic', 'avatar', 'profile_pic_url', 'subscriber.profile_pic'],
 
+  // Datos de calificación (el flujo de DM de ManyChat los deja en custom_fields)
+  modelo_negocio: ['modelo_negocio', 'business', 'business_model', 'custom_fields.modelo_negocio', 'custom_fields.negocio'],
+  ingresos_aprox: ['ingresos', 'ingresos_aprox', 'revenue', 'facturacion', 'custom_fields.ingresos', 'custom_fields.facturacion'],
+  cuello_botella: ['cuello_botella', 'bottleneck', 'problema_principal', 'custom_fields.cuello_botella', 'custom_fields.problema'],
+
   // Señales de atribución de contenido
   ig_media_id: ['ig_media_id', 'media_id', 'post_id', 'instagram_media_id', 'custom_fields.ig_media_id', 'data.media_id'],
   permalink: ['permalink', 'post_url', 'media_url', 'custom_fields.permalink'],
@@ -143,6 +148,9 @@ export function normalizarPayload(
     avatarUrl: v('avatar_url'),
     camposExtra: extraerCamposExtra(payload),
     consentimiento: true,
+    modeloNegocio: v('modelo_negocio'),
+    ingresosAprox: v('ingresos_aprox'),
+    cuelloBotella: v('cuello_botella'),
   };
 
   const senales: SenalesAtribucion = {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDinero, fmtFecha, fmtNum } from '../api';
 import { Cargando } from './Graficas';
+import { CALIFICACION, colorScore } from '../infoprod';
 
 const ETIQUETA_EVENTO: Record<string, string> = {
   lead_creado: 'Entró como lead',
@@ -142,6 +143,59 @@ export default function FichaLead({
             </header>
 
             <div className="px-5 py-4">
+              {/* Calidad del lead (score + filtro antipodridos) */}
+              <section className="mb-4 rounded-lg p-3" style={{ background: 'var(--page-plane)' }}>
+                <div className="flex items-start gap-4">
+                  <div className="shrink-0 text-center">
+                    <div className="cifras text-[30px] font-semibold leading-none"
+                      style={{ color: colorScore(Number(lead.score ?? 0)) }}>
+                      {Number(lead.score ?? 0)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] uppercase tracking-wide text-[var(--text-muted)]">Score</div>
+                    {lead.calificacion && CALIFICACION[lead.calificacion] && (
+                      <div className="mt-1 text-[11px]" style={{ color: CALIFICACION[lead.calificacion].color }}>
+                        {CALIFICACION[lead.calificacion].etiqueta}
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="mb-1.5 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                      Por qué este score
+                    </h3>
+                    {Array.isArray(lead.score_detalle) && lead.score_detalle.length > 0 ? (
+                      <ul className="space-y-0.5 text-[12px]">
+                        {lead.score_detalle.map((d: any, i: number) => (
+                          <li key={i} className="flex items-baseline justify-between gap-2">
+                            <span className="text-[var(--text-secondary)]">{d.motivo}</span>
+                            <span className="cifras shrink-0 font-medium" style={{ color: 'var(--status-good)' }}>
+                              +{d.puntos}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-[12px] text-[var(--text-muted)]">
+                        Todavía no ha hecho nada que sume: solo pidió el recurso. Es el patrón del cazador de freebies.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {(lead.modelo_negocio || lead.ingresos_aprox || lead.cuello_botella) && (
+                  <div className="mt-3 grid grid-cols-1 gap-2 border-t border-[var(--border-hairline)] pt-3 text-[12px] sm:grid-cols-3">
+                    {lead.modelo_negocio && (
+                      <div><div className="text-[10px] uppercase text-[var(--text-muted)]">Negocio</div>{lead.modelo_negocio}</div>
+                    )}
+                    {lead.ingresos_aprox && (
+                      <div><div className="text-[10px] uppercase text-[var(--text-muted)]">Ingresos</div>{lead.ingresos_aprox}</div>
+                    )}
+                    {lead.cuello_botella && (
+                      <div><div className="text-[10px] uppercase text-[var(--text-muted)]">Cuello de botella</div>{lead.cuello_botella}</div>
+                    )}
+                  </div>
+                )}
+              </section>
+
               {/* Atribución */}
               <section className="rounded-lg p-3" style={{ background: 'var(--page-plane)' }}>
                 <h3 className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">

@@ -5,6 +5,7 @@ import { noEncontrado } from '../lib/errores.js';
 import { listarContenidos, sincronizarInstagram, probarConexion, guardarCredenciales } from '../modules/instagram.js';
 import { reatribuir } from '../modules/atribucion.js';
 import { calidadAtribucion } from '../modules/analitica.js';
+import { etapaEmbudoDe, ANGULOS } from '../modules/infoproduccion.js';
 
 const esquemaContenido = z.object({
   titulo: z.string().min(1),
@@ -15,6 +16,10 @@ const esquemaContenido = z.object({
   thumbnail_url: z.string().optional(),
   publicado_en: z.string().optional(),
   etiquetas: z.array(z.string()).optional(),
+  angulo: z.enum(ANGULOS).nullable().optional(),
+  gancho: z.string().nullable().optional(),
+  rol_manual: z.enum(['prospector', 'closer', 'caballo', 'calificador', 'abridor', 'lastre', 'explorador'])
+    .nullable().optional(),
 });
 
 const esquemaAutomatizacion = z.object({
@@ -39,12 +44,13 @@ export default async function rutasContenidos(app: FastifyInstance) {
     const d = esquemaContenido.parse(req.body);
     const fila = await queryOne(
       `INSERT INTO contenidos (cuenta_id, titulo, tipo, ig_media_id, permalink, caption,
-                               thumbnail_url, publicado_en, etiquetas)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+                               thumbnail_url, publicado_en, etiquetas, angulo, etapa_embudo, gancho, rol_manual)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [
         req.sesion.cuentaId, d.titulo, d.tipo, d.ig_media_id ?? null, d.permalink ?? null,
         d.caption ?? null, d.thumbnail_url ?? null,
         d.publicado_en ? new Date(d.publicado_en) : null, d.etiquetas ?? [],
+        d.angulo ?? null, etapaEmbudoDe(d.angulo), d.gancho ?? null, d.rol_manual ?? null,
       ],
     );
     return reply.code(201).send(fila);
@@ -62,6 +68,11 @@ export default async function rutasContenidos(app: FastifyInstance) {
       params.push(c === 'publicado_en' && v ? new Date(v) : v);
       return `${c} = $${params.length}`;
     });
+    // Si cambia el ángulo, la etapa del embudo se recalcula sola.
+    if ('angulo' in d) {
+      params.push(etapaEmbudoDe(d.angulo));
+      sets.push(`etapa_embudo = $${params.length}`);
+    }
 
     const fila = await queryOne(
       `UPDATE contenidos SET ${sets.join(', ')} WHERE cuenta_id = $1 AND id = $2 RETURNING *`, params);

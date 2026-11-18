@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api, fmtDinero, fmtNum, fmtPct } from '../api';
 import { MiniSerie, Embudo, Kpi, BarraCalidad, Cargando } from '../componentes/Graficas';
 import Cabecera, { RangoFechas, usarRango } from '../componentes/Cabecera';
+import { COLOR_EMBUDO, ROLES } from '../infoprod';
 
 export default function Panel() {
   const { rango, setRango, params } = usarRango();
@@ -101,6 +102,78 @@ export default function Panel() {
         </section>
       </div>
 
+      {/* Ángulos: de qué tipo de contenido viene el dinero */}
+      {datos.angulos?.some((a: any) => a.leads > 0) && (
+        <section className="tarjeta mt-4 min-w-0 p-4">
+          <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-[14px] font-semibold">De qué ángulo viene el dinero</h2>
+            <div className="flex items-center gap-3 text-[11px] text-[var(--text-muted)]">
+              {['TOFU', 'MOFU', 'BOFU'].map((e) => (
+                <span key={e} className="flex items-center gap-1">
+                  <span className="inline-block h-2 w-2 rounded-full" style={{ background: COLOR_EMBUDO[e] }} aria-hidden />
+                  {e}
+                </span>
+              ))}
+            </div>
+          </div>
+          <p className="mb-4 text-[12px] text-[var(--text-muted)]">
+            No todo el contenido hace el mismo trabajo. El de abajo del embudo (BOFU) cierra; el de
+            arriba (TOFU) capta. Júzgalos distinto.
+          </p>
+
+          {(() => {
+            const maxIng = Math.max(...datos.angulos.map((a: any) => a.ingresos), 1);
+            const maxLeads = Math.max(...datos.angulos.map((a: any) => a.leads), 1);
+            return (
+              <div className="space-y-3">
+                {datos.angulos.filter((a: any) => a.leads > 0).map((a: any) => (
+                  <div key={a.angulo}>
+                    <div className="mb-1 flex items-baseline justify-between text-[12px]">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2 w-2 rounded-full"
+                          style={{ background: COLOR_EMBUDO[a.etapa_embudo] ?? 'var(--text-muted)' }} aria-hidden />
+                        <span className="font-medium">{a.etiqueta}</span>
+                        <span className="text-[var(--text-muted)]">{a.etapa_embudo ?? ''}</span>
+                      </span>
+                      <span className="cifras text-[var(--text-muted)]">
+                        <span className="font-semibold text-[var(--text-primary)]">{fmtDinero(a.ingresos)}</span>
+                        {'  ·  '}{fmtNum(a.leads)} leads · {fmtNum(a.ventas)} ventas · L→V {fmtPct(a.tasa_lead_venta)}
+                      </span>
+                    </div>
+                    {/* dos barras finas: ingresos (fuerte) y leads (tenue) a la misma escala relativa */}
+                    <div className="space-y-1">
+                      <div className="h-2.5 overflow-hidden rounded" style={{ background: 'var(--gridline)' }}>
+                        <div className="h-full rounded" style={{
+                          width: `${Math.max((a.ingresos / maxIng) * 100, a.ingresos > 0 ? 2 : 0)}%`,
+                          background: COLOR_EMBUDO[a.etapa_embudo] ?? 'var(--text-muted)',
+                        }} title={`Ingresos ${fmtDinero(a.ingresos)}`} />
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded" style={{ background: 'var(--gridline)' }}>
+                        <div className="h-full rounded opacity-40" style={{
+                          width: `${Math.max((a.leads / maxLeads) * 100, 2)}%`,
+                          background: COLOR_EMBUDO[a.etapa_embudo] ?? 'var(--text-muted)',
+                        }} title={`${fmtNum(a.leads)} leads`} />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
+          {datos.mezcla?.aviso && (
+            <div className="mt-4 flex items-start gap-1.5 rounded-md p-2.5 text-[11px]"
+              style={{ background: 'var(--page-plane)' }}>
+              <span style={{ color: 'var(--status-warning)' }} aria-hidden>⚠</span>
+              <span className="text-[var(--text-secondary)]">
+                {datos.mezcla.aviso} ({datos.mezcla.dias_muestra} días de muestra,
+                {' '}{datos.mezcla.clasificados}/{datos.mezcla.total} contenidos con ángulo asignado)
+              </span>
+            </div>
+          )}
+        </section>
+      )}
+
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         {/* Top contenidos */}
         <section className="tarjeta min-w-0 p-4 lg:col-span-2">
@@ -126,7 +199,16 @@ export default function Panel() {
               {topContenidos.map((c: any) => (
                 <tr key={c.id} className="border-b border-[var(--border-hairline)] last:border-0">
                   <td className="py-2 pr-3">
-                    <div className="max-w-[320px] truncate">{c.titulo}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="max-w-[260px] truncate">{c.titulo}</span>
+                      {c.rol && ROLES[c.rol] && c.rol !== 'estable' && c.rol !== 'sin_atribuir' && (
+                        <span className="shrink-0 rounded px-1.5 py-[1px] text-[10px]"
+                          style={{ background: 'var(--gridline)', color: ROLES[c.rol].color }}
+                          title={ROLES[c.rol].ayuda}>
+                          {ROLES[c.rol].etiqueta}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-[11px] text-[var(--text-muted)]">
                       {c.tipo} · {fmtNum(c.ig_reproducciones)} repr.
                     </div>

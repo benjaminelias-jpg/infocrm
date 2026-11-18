@@ -34,24 +34,62 @@ export default function Conexiones() {
   const [endpoints, setEndpoints] = useState<any[]>([]);
   const [integraciones, setIntegraciones] = useState<any[]>([]);
   const [eventos, setEventos] = useState<any[]>([]);
+  const [salientes, setSalientes] = useState<any[]>([]);
+  const [entregas, setEntregas] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [igUserId, setIgUserId] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
 
   async function cargar() {
     const p = new URLSearchParams({ limite: '60' });
     if (filtroEstado) p.set('estado', filtroEstado);
-    const [e, i, w] = await Promise.all([
+    const [e, i, w, s, es] = await Promise.all([
       api<any[]>('/webhooks/endpoints'),
       api<any[]>('/integraciones'),
       api<any[]>(`/webhooks/eventos?${p}`),
+      api<any[]>('/webhooks/salida'),
+      api<any[]>('/webhooks/salida/entregas?limite=40'),
     ]);
     setEndpoints(e);
     setIntegraciones(i);
     setEventos(w);
+    setSalientes(s);
+    setEntregas(es);
     setCargando(false);
+  }
+
+  async function crearSalida(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nuevoSal.nombre || !nuevoSal.url) return;
+    try {
+      await api('/webhooks/salida', { method: 'POST', json: nuevoSal });
+      setNuevoSal({ nombre: '', url: '', eventos: ['*'] });
+      setAviso('Webhook de salida creado. Pulsa "Probar" para comprobar la conexión.');
+      await cargar();
+    } catch (err: any) { setAviso(err.message); }
+  }
+
+  async function probarSalida(id: string) {
+    try {
+      const r = await api<any>(`/webhooks/salida/${id}/probar`, { method: 'POST' });
+      setAviso(r.estado === 'entregado'
+        ? `Prueba entregada correctamente (HTTP ${r.http_status}).`
+        : `La prueba falló: ${r.error ?? 'sin respuesta'}`);
+      await cargar();
+    } catch (err: any) { setAviso(err.message); }
+  }
+
+  async function toggleSalida(s: any) {
+    await api(`/webhooks/salida/${s.id}`, { method: 'PATCH', json: { activo: !s.activo } });
+    await cargar();
+  }
+
+  async function borrarSalida(id: string) {
+    await api(`/webhooks/salida/${id}`, { method: 'DELETE' });
+    await cargar();
   }
 
   useEffect(() => { cargar(); }, [filtroEstado]);
@@ -213,6 +251,118 @@ export default function Conexiones() {
             </button>
           </form>
         </div>
+      </section>
+
+      {/* Webhooks de salida */}
+      <section className="mt-6">
+        <h2 className="mb-2 text-[14px] font-semibold">Webhooks de salida</h2>
+        <p className="mb-3 text-[12px] text-[var(--text-muted)]">
+          Que el CRM avise a otras apps (Zapier, Make, n8n, Slack, tu backend) cuando pasa algo. Cada
+          envío va firmado con HMAC en la cabecera <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>x-infocrm-firma</code>.
+        </p>
+
+        <form onSubmit={crearSalida} className="tarjeta mb-3 p-3.5">
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={nuevoSal.nombre}
+              onChange={(e) => setNuevoSal((s) => ({ ...s, nombre: e.target.value }))}
+              placeholder="Nombre (p. ej. Zapier ventas)"
+              className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+            />
+            <input
+              value={nuevoSal.url}
+              onChange={(e) => setNuevoSal((s) => ({ ...s, url: e.target.value }))}
+              placeholder="https://hooks.zapier.com/..."
+              className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+            />
+            <button type="submit"
+              className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white"
+              style={{ background: 'var(--series-1)' }}>
+              Crear
+            </button>
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-secondary)]">
+            <span className="text-[var(--text-muted)]">Eventos:</span>
+            {['*', 'lead_creado', 'reunion_agendada', 'reunion_no_asistio', 'venta', 'reembolso'].map((ev) => {
+              const checked = nuevoSal.eventos.includes(ev);
+              return (
+                <label key={ev} className="flex cursor-pointer items-center gap-1">
+                  <input type="checkbox" checked={checked}
+                    onChange={() => setNuevoSal((s) => {
+                      if (ev === '*') return { ...s, eventos: ['*'] };
+                      const sin = s.eventos.filter((x) => x !== '*');
+                      return { ...s, eventos: checked ? sin.filter((x) => x !== ev) : [...sin, ev] };
+                    })} />
+                  {ev === '*' ? 'todos' : ev}
+                </label>
+              );
+            })}
+          </div>
+        </form>
+
+        {salientes.length > 0 && (
+          <div className="tarjeta mb-3 divide-y divide-[var(--border-hairline)]">
+            {salientes.map((s) => (
+              <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 text-[13px] font-medium">
+                    <span className="inline-block h-2 w-2 rounded-full"
+                      style={{ background: s.activo ? 'var(--status-good)' : 'var(--baseline)' }} aria-hidden />
+                    {s.nombre}
+                  </div>
+                  <div className="truncate text-[11px] text-[var(--text-muted)]">{s.url}</div>
+                  <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+                    {(s.eventos ?? []).join(', ')} · {s.total_enviados} enviados
+                    {Number(s.total_fallos) > 0 && <span style={{ color: 'var(--status-critical)' }}> · {s.total_fallos} fallos</span>}
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-1.5">
+                  <button onClick={() => probarSalida(s.id)}
+                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">Probar</button>
+                  <button onClick={() => toggleSalida(s)}
+                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">
+                    {s.activo ? 'Pausar' : 'Activar'}</button>
+                  <button onClick={() => borrarSalida(s.id)}
+                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]"
+                    style={{ color: 'var(--status-critical)' }}>Borrar</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {entregas.length > 0 && (
+          <div className="tarjeta overflow-x-auto">
+            <table className="w-full min-w-[560px] text-[12px]">
+              <thead>
+                <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
+                  <th className="px-4 py-2 font-medium">Estado</th>
+                  <th className="px-3 py-2 font-medium">Evento</th>
+                  <th className="px-3 py-2 font-medium">Suscripción</th>
+                  <th className="px-3 py-2 font-medium">HTTP</th>
+                  <th className="px-3 py-2 text-right font-medium">Cuándo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entregas.map((e) => (
+                  <tr key={e.id} className="border-b border-[var(--border-hairline)] last:border-0">
+                    <td className="px-4 py-2">
+                      <span className="flex items-center gap-1.5">
+                        <span className="inline-block h-2 w-2 rounded-full"
+                          style={{ background: e.estado === 'entregado' ? 'var(--status-good)' : 'var(--status-critical)' }} aria-hidden />
+                        {e.estado}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2">{e.tipo_evento}</td>
+                    <td className="px-3 py-2 text-[var(--text-secondary)]">{e.suscripcion}</td>
+                    <td className="px-3 py-2 cifras">{e.http_status ?? (e.error ? '—' : '')}</td>
+                    <td className="px-3 py-2 text-right text-[var(--text-muted)]">{fmtFecha(e.creado_en, true)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       {/* Bandeja cruda */}

@@ -1,12 +1,15 @@
 import type { PoolClient } from 'pg';
 import { transaction, pool } from '../db/pool.js';
 import { limpiarUsername } from '../lib/utils.js';
+import { noEncontrado } from '../lib/errores.js';
 import {
   resolverAtribucion, registrarToque,
   type SenalesAtribucion, type ResultadoAtribucion, type Ejecutor,
 } from './atribucion.js';
 import { oportunidadAbierta, moverEtapa, etapaParaEvento } from './pipeline.js';
 import { ejecutarReglas } from './reglas.js';
+import { recomputarScore } from './infoproduccion.js';
+import { despacharEvento } from './webhooks_salida.js';
 
 /** Eventos que mueven la oportunidad aunque suponga retroceder de etapa. */
 const EVENTOS_FUERTES = new Set([
@@ -28,6 +31,10 @@ export interface IdentidadLead {
   avatarUrl?: string;
   camposExtra?: Record<string, unknown>;
   consentimiento?: boolean;
+  // Datos que descubre la fase de calificación del flujo de DM
+  modeloNegocio?: string;
+  ingresosAprox?: string;
+  cuelloBotella?: string;
 }
 
 export interface EntradaEvento {
@@ -183,10 +190,30 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
 
     // 2. Lead
     let leadId = entrada.leadId;
-    if (!leadId) {
+    if (leadId) {
+      // Seguridad multi-cuenta: un lead_id pasado desde fuera DEBE pertenecer
+      // a la cuenta de la sesión. Si no, se rechaza — nunca se opera sobre un
+      // lead ajeno (ni su score, ni su estado, ni sus oportunidades).
+      const dueno = await c.query(
+        `SELECT 1 FROM leads WHERE id = $1 AND cuenta_id = $2`, [leadId, entrada.cuentaId]);
+      if (!dueno.rows[0]) throw noEncontrado('Lead');
+    } else {
       if (!entrada.identidad) throw new Error('Hace falta leadId o identidad para registrar un evento');
       const { lead } = await resolverLead(entrada.cuentaId, entrada.identidad, c, ocurridoEn);
       leadId = lead.id;
+    }
+
+    // Datos de calificación (rellenan huecos, no pisan lo que ya había)
+    const id = entrada.identidad;
+    if (leadId && id && (id.modeloNegocio || id.ingresosAprox || id.cuelloBotella)) {
+      await c.query(
+        `UPDATE leads SET
+           modelo_negocio = COALESCE(modelo_negocio, $2),
+           ingresos_aprox = COALESCE(ingresos_aprox, $3),
+           cuello_botella = COALESCE(cuello_botella, $4)
+         WHERE id = $1`,
+        [leadId, id.modeloNegocio ?? null, id.ingresosAprox ?? null, id.cuelloBotella ?? null],
+      );
     }
 
     // 3. Atribución
@@ -292,6 +319,22 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
   if (!entrada.sinReglas && !resultado.duplicado && resultado.eventoCompleto) {
     await ejecutarReglas(entrada.cuentaId, resultado.eventoCompleto).catch((err) => {
       console.error('[reglas] error ejecutando reglas:', err?.message);
+    });
+  }
+
+  // 10. Score del lead (filtro antipodridos). Después de reglas, para que
+  //     recoja cualquier cambio que una regla haya hecho en el lead.
+  if (!resultado.duplicado && resultado.leadId) {
+    await recomputarScore(resultado.leadId).catch((err) => {
+      console.error('[score] error recomputando score:', err?.message);
+    });
+  }
+
+  // 11. Webhooks de salida: avisar a las apps suscritas (Zapier, Make, …).
+  //     En segundo plano; un receptor caído no debe afectar al evento.
+  if (!entrada.sinReglas && !resultado.duplicado && resultado.eventoCompleto) {
+    await despacharEvento(entrada.cuentaId, resultado.eventoCompleto).catch((err) => {
+      console.error('[webhooks-salida] error despachando:', err?.message);
     });
   }
 

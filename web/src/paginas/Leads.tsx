@@ -3,10 +3,13 @@ import { api, fmtDinero, fmtNum, hace } from '../api';
 import { Cargando, Vacio } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 import FichaLead from '../componentes/FichaLead';
+import { CALIFICACION, colorScore } from '../infoprod';
 
 export default function Leads() {
   const [q, setQ] = useState('');
   const [etiqueta, setEtiqueta] = useState('');
+  const [calificacion, setCalificacion] = useState('');
+  const [ordenScore, setOrdenScore] = useState(false);
   const [sinAtribuir, setSinAtribuir] = useState(false);
   const [datos, setDatos] = useState<any>(null);
   const [etiquetas, setEtiquetas] = useState<any[]>([]);
@@ -28,15 +31,17 @@ export default function Leads() {
       });
       if (q) p.set('q', q);
       if (etiqueta) p.set('etiqueta', etiqueta);
+      if (calificacion) p.set('calificacion', calificacion);
+      if (ordenScore) p.set('orden', 'score');
       if (sinAtribuir) p.set('sin_atribuir', 'true');
 
       setCargando(true);
       api(`/leads?${p}`).then(setDatos).finally(() => setCargando(false));
     }, 220);
     return () => clearTimeout(t);
-  }, [q, etiqueta, sinAtribuir, pagina]);
+  }, [q, etiqueta, calificacion, ordenScore, sinAtribuir, pagina]);
 
-  useEffect(() => { setPagina(0); }, [q, etiqueta, sinAtribuir]);
+  useEffect(() => { setPagina(0); }, [q, etiqueta, calificacion, ordenScore, sinAtribuir]);
 
   const leads = datos?.leads ?? [];
   const total = datos?.total ?? 0;
@@ -67,6 +72,20 @@ export default function Leads() {
             </option>
           ))}
         </select>
+        <select
+          value={calificacion}
+          onChange={(e) => setCalificacion(e.target.value)}
+          className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2.5 py-1.5 text-[13px] outline-none"
+        >
+          <option value="">Toda calificación</option>
+          <option value="calificado">Calificados</option>
+          <option value="sin_calificar">Sin calificar</option>
+          <option value="no_calificado">No calificados</option>
+        </select>
+        <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
+          <input type="checkbox" checked={ordenScore} onChange={(e) => setOrdenScore(e.target.checked)} />
+          Ordenar por score
+        </label>
         <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
           <input
             type="checkbox"
@@ -84,10 +103,11 @@ export default function Leads() {
       ) : (
         <>
           <div className="tarjeta mt-4 overflow-x-auto">
-            <table className="w-full min-w-[760px] text-[13px]">
+            <table className="w-full min-w-[840px] text-[13px]">
               <thead>
                 <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
                   <th className="px-4 py-2.5 font-medium">Lead</th>
+                  <th className="px-3 py-2.5 text-center font-medium" title="Score de calidad del lead (0-100)">Score</th>
                   <th className="px-3 py-2.5 font-medium">Etapa</th>
                   <th className="px-3 py-2.5 font-medium">Vino de</th>
                   <th className="px-3 py-2.5 text-right font-medium">Valor</th>
@@ -102,11 +122,25 @@ export default function Leads() {
                     className="cursor-pointer border-b border-[var(--border-hairline)] last:border-0 hover:bg-[var(--page-plane)]"
                   >
                     <td className="px-4 py-2.5">
-                      <div className="font-medium">{l.nombre || l.ig_username || '—'}</div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{l.nombre || l.ig_username || '—'}</span>
+                        {l.calificacion && l.calificacion !== 'sin_calificar' && CALIFICACION[l.calificacion] && (
+                          <span className="h-1.5 w-1.5 rounded-full"
+                            style={{ background: CALIFICACION[l.calificacion].color }}
+                            title={CALIFICACION[l.calificacion].etiqueta} aria-hidden />
+                        )}
+                      </div>
                       <div className="text-[11px] text-[var(--text-muted)]">
                         {l.ig_username ? `@${l.ig_username}` : l.email ?? ''}
                         {l.pais ? ` · ${l.pais}` : ''}
                       </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="cifras inline-block min-w-[30px] rounded px-1.5 py-0.5 text-[12px] font-semibold"
+                        style={{ background: 'var(--gridline)', color: colorScore(Number(l.score ?? 0)) }}
+                        title="Score de calidad (filtro antipodridos)">
+                        {Number(l.score ?? 0)}
+                      </span>
                     </td>
                     <td className="px-3 py-2.5">
                       {l.etapa_nombre && (

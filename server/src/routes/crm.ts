@@ -49,6 +49,7 @@ export default async function rutasCrm(app: FastifyInstance) {
       etiqueta: q.etiqueta,
       propietarioId: q.propietario_id,
       estado: q.estado,
+      calificacion: q.calificacion,
       desde: q.desde,
       hasta: q.hasta,
       sinAtribuir: q.sin_atribuir === 'true',
@@ -99,6 +100,31 @@ export default async function rutasCrm(app: FastifyInstance) {
   app.get('/kanban', async (req) => {
     const q = req.query as Record<string, string>;
     return kanban(req.sesion.cuentaId, q.pipeline_id);
+  });
+
+  /** Paso del flujo de DM y seguimientos de una oportunidad (método Cubria). */
+  app.patch('/oportunidades/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const d = z.object({
+      dm_paso: z.enum(['apertura', 'calificacion', 'dolor', 'solucion', 'cierre', 'seguimiento'])
+        .nullable().optional(),
+      seguimientos: z.number().int().min(0).optional(),
+      proximo_seguimiento_en: z.string().datetime({ offset: true }).nullable().optional(),
+    }).parse(req.body);
+
+    const campos = Object.keys(d);
+    if (campos.length === 0) throw peticionInvalida('Nada que actualizar');
+    const params: any[] = [req.sesion.cuentaId, id];
+    const sets = campos.map((c) => {
+      const v = (d as any)[c];
+      params.push(c === 'proximo_seguimiento_en' && v ? new Date(v) : v);
+      return `${c} = $${params.length}`;
+    });
+    const fila = await queryOne(
+      `UPDATE oportunidades SET ${sets.join(', ')} WHERE cuenta_id = $1 AND id = $2 RETURNING *`,
+      params);
+    if (!fila) throw noEncontrado('Oportunidad');
+    return fila;
   });
 
   app.get('/etiquetas', async (req) => etiquetasUsadas(req.sesion.cuentaId));

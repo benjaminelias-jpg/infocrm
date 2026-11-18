@@ -1,5 +1,6 @@
 import { query, queryOne } from '../db/pool.js';
 import { noEncontrado } from '../lib/errores.js';
+import { recomputarScore } from './infoproduccion.js';
 
 export interface FiltrosLeads {
   q?: string;
@@ -10,12 +11,13 @@ export interface FiltrosLeads {
   etiqueta?: string;
   propietarioId?: string;
   estado?: string;
+  calificacion?: string;
   desde?: string;
   hasta?: string;
   sinAtribuir?: boolean;
   limite?: number;
   offset?: number;
-  orden?: 'reciente' | 'valor' | 'antiguo';
+  orden?: 'reciente' | 'valor' | 'antiguo' | 'score';
 }
 
 const SELECT_LEAD = `
@@ -72,6 +74,7 @@ export async function listarLeads(cuentaId: string, f: FiltrosLeads = {}) {
   if (f.etiqueta) add('$n = ANY(l.etiquetas)', f.etiqueta);
   if (f.propietarioId) add('l.propietario_id = $n::uuid', f.propietarioId);
   if (f.estado) add('l.estado = $n', f.estado);
+  if (f.calificacion) add('l.calificacion = $n', f.calificacion);
   if (f.desde) add('l.primer_contacto_en >= $n::timestamptz', f.desde);
   if (f.hasta) add('l.primer_contacto_en < $n::timestamptz', f.hasta);
   if (f.sinAtribuir) condiciones.push('l.primer_contenido_id IS NULL');
@@ -79,6 +82,7 @@ export async function listarLeads(cuentaId: string, f: FiltrosLeads = {}) {
   const orden =
     f.orden === 'valor' ? 'l.valor_total DESC, l.ultimo_contacto_en DESC'
     : f.orden === 'antiguo' ? 'l.primer_contacto_en ASC'
+    : f.orden === 'score' ? 'l.score DESC, l.ultimo_contacto_en DESC'
     : 'l.ultimo_contacto_en DESC';
 
   const where = condiciones.join(' AND ');
@@ -134,7 +138,9 @@ export async function obtenerLead(cuentaId: string, leadId: string) {
 
 export async function actualizarLead(cuentaId: string, leadId: string, datos: Record<string, any>) {
   const permitidos = ['nombre', 'apellido', 'email', 'telefono', 'pais', 'idioma',
-                      'estado', 'etiquetas', 'propietario_id', 'ig_username'];
+                      'estado', 'etiquetas', 'propietario_id', 'ig_username',
+                      'modelo_negocio', 'ingresos_aprox', 'cuello_botella',
+                      'calificacion', 'motivo_descarte'];
   const sets: string[] = [];
   const params: any[] = [cuentaId, leadId];
 
@@ -151,6 +157,13 @@ export async function actualizarLead(cuentaId: string, leadId: string, datos: Re
     params,
   );
   if (!fila) throw noEncontrado('Lead');
+
+  // Si cambió algo que afecta al score (datos de calificación), recalcúlalo.
+  // La calificación puesta a mano NO se pisa: recomputarScore solo promueve
+  // desde "sin_calificar".
+  if (['modelo_negocio', 'ingresos_aprox', 'cuello_botella'].some((c) => c in datos)) {
+    await recomputarScore(leadId);
+  }
   return obtenerLead(cuentaId, leadId);
 }
 

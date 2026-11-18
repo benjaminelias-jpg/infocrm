@@ -11,6 +11,7 @@ import { runMigrations } from './migrate.js';
 import { crearCuenta } from '../modules/cuentas.js';
 import { registrarEvento } from '../modules/eventos.js';
 import { hashPassword } from '../lib/auth.js';
+import { etapaEmbudoDe, recomputarScore } from '../modules/infoproduccion.js';
 
 const SLUG_DEMO = 'academia-demo';
 
@@ -30,19 +31,19 @@ const DIA = 86_400_000;
 // `peso` = cuántos leads trae en proporción. `calidad` = cómo de bien
 // convierten esos leads. Un reel puede traer mucho y vender poco.
 const CONTENIDOS = [
-  { titulo: '3 errores que te impiden vender tu infoproducto', tipo: 'reel', dias: 86, peso: 14, calidad: 0.9, repro: 184_000, palabra: 'ERRORES' },
-  { titulo: 'Cómo conseguí 47 clientes en 30 días sin pauta', tipo: 'reel', dias: 78, peso: 26, calidad: 1.6, repro: 412_000, palabra: 'SISTEMA' },
-  { titulo: 'El guion de DM que me cambió el negocio', tipo: 'reel', dias: 71, peso: 18, calidad: 1.2, repro: 236_000, palabra: 'GUION' },
-  { titulo: 'Por qué tu lead magnet no convierte', tipo: 'reel', dias: 64, peso: 9, calidad: 0.6, repro: 97_000, palabra: 'GUIA' },
-  { titulo: 'Mi embudo completo de Instagram explicado', tipo: 'carrusel', dias: 57, peso: 11, calidad: 1.1, repro: 64_000, palabra: 'EMBUDO' },
-  { titulo: 'Lo que nadie te cuenta sobre vender cursos online', tipo: 'reel', dias: 50, peso: 7, calidad: 0.5, repro: 128_000, palabra: 'GUIA' },
-  { titulo: 'De 0 a 10K al mes: el sistema exacto', tipo: 'reel', dias: 43, peso: 31, calidad: 1.8, repro: 673_000, palabra: '10K' },
-  { titulo: 'Cómo cualificar leads antes de la llamada', tipo: 'reel', dias: 36, peso: 8, calidad: 1.4, repro: 71_000, palabra: 'FILTRO' },
-  { titulo: 'El error de precio que te cuesta miles', tipo: 'reel', dias: 29, peso: 12, calidad: 1.3, repro: 159_000, palabra: 'PRECIOS' },
-  { titulo: 'Reel viral vs reel que vende: la diferencia', tipo: 'reel', dias: 22, peso: 10, calidad: 0.8, repro: 221_000, palabra: 'GUIA' },
-  { titulo: 'Plantilla de contenido para 30 días', tipo: 'carrusel', dias: 15, peso: 16, calidad: 0.7, repro: 88_000, palabra: 'PLANTILLA' },
-  { titulo: 'Cómo cerrar sin parecer vendedor', tipo: 'reel', dias: 8, peso: 13, calidad: 1.5, repro: 142_000, palabra: 'CIERRE' },
-  { titulo: 'Story: detrás de una llamada de venta', tipo: 'historia', dias: 4, peso: 3, calidad: 1.0, repro: 12_000, palabra: 'LLAMADA' },
+  { titulo: '3 errores que te impiden vender tu infoproducto', tipo: 'reel', dias: 86, peso: 14, calidad: 0.9, repro: 184_000, palabra: 'ERRORES', angulo: 'problema' },
+  { titulo: 'Cómo conseguí 47 clientes en 30 días sin pauta', tipo: 'reel', dias: 78, peso: 26, calidad: 1.6, repro: 412_000, palabra: 'SISTEMA', angulo: 'producto' },
+  { titulo: 'El guion de DM que me cambió el negocio', tipo: 'reel', dias: 71, peso: 18, calidad: 1.2, repro: 236_000, palabra: 'GUION', angulo: 'solucion' },
+  { titulo: 'Por qué tu lead magnet no convierte', tipo: 'reel', dias: 64, peso: 9, calidad: 0.6, repro: 97_000, palabra: 'GUIA', angulo: 'problema' },
+  { titulo: 'Mi embudo completo de Instagram explicado', tipo: 'carrusel', dias: 57, peso: 11, calidad: 1.1, repro: 64_000, palabra: 'EMBUDO', angulo: 'solucion' },
+  { titulo: 'Lo que nadie te cuenta sobre vender cursos online', tipo: 'reel', dias: 50, peso: 7, calidad: 0.5, repro: 128_000, palabra: 'GUIA', angulo: 'mentalidad' },
+  { titulo: 'De 0 a 10K al mes: el sistema exacto', tipo: 'reel', dias: 43, peso: 31, calidad: 1.8, repro: 673_000, palabra: '10K', angulo: 'producto' },
+  { titulo: 'Cómo cualificar leads antes de la llamada', tipo: 'reel', dias: 36, peso: 8, calidad: 1.4, repro: 71_000, palabra: 'FILTRO', angulo: 'solucion' },
+  { titulo: 'El error de precio que te cuesta miles', tipo: 'reel', dias: 29, peso: 12, calidad: 1.3, repro: 159_000, palabra: 'PRECIOS', angulo: 'problema' },
+  { titulo: 'Reel viral vs reel que vende: la diferencia', tipo: 'reel', dias: 22, peso: 10, calidad: 0.8, repro: 221_000, palabra: 'GUIA', angulo: 'mentalidad' },
+  { titulo: 'Plantilla de contenido para 30 días', tipo: 'carrusel', dias: 15, peso: 16, calidad: 0.7, repro: 88_000, palabra: 'PLANTILLA', angulo: 'solucion' },
+  { titulo: 'Cómo cerrar sin parecer vendedor', tipo: 'reel', dias: 8, peso: 13, calidad: 1.5, repro: 142_000, palabra: 'CIERRE', angulo: 'solucion' },
+  { titulo: 'Story: detrás de una llamada de venta', tipo: 'historia', dias: 4, peso: 3, calidad: 1.0, repro: 12_000, palabra: 'LLAMADA', angulo: 'narrativa' },
 ];
 
 const NOMBRES = ['Lucía', 'Mateo', 'Sofía', 'Diego', 'Valentina', 'Santiago', 'Camila', 'Nicolás',
@@ -105,8 +106,8 @@ export async function sembrar() {
     const fila = await queryOne(
       `INSERT INTO contenidos (cuenta_id, ig_media_id, tipo, titulo, caption, permalink,
                                publicado_en, ig_reproducciones, ig_alcance, ig_likes, ig_comentarios,
-                               ig_guardados, ig_metricas_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now()) RETURNING *`,
+                               ig_guardados, ig_metricas_en, angulo, etapa_embudo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, now(),$13,$14) RETURNING *`,
       [
         cuenta.id, mediaId, c.tipo, c.titulo,
         `${c.titulo}\n\nComenta ${c.palabra} y te mando el recurso 👇`,
@@ -114,6 +115,7 @@ export async function sembrar() {
         new Date(ahora - c.dias * DIA),
         c.repro, Math.round(c.repro * 0.78), Math.round(c.repro * 0.041),
         Math.round(c.repro * 0.006), Math.round(c.repro * 0.017),
+        c.angulo, etapaEmbudoDe(c.angulo),
       ],
     );
     contenidos.push({ ...fila, ...c });
@@ -261,6 +263,11 @@ export async function sembrar() {
       }
     }
   }
+
+  // Score de cada lead (filtro antipodridos): se calcula desde sus datos,
+  // sus eventos y el ángulo del contenido que lo trajo.
+  const todosLeads = await query(`SELECT id FROM leads WHERE cuenta_id = $1`, [cuenta.id]);
+  for (const l of todosLeads) await recomputarScore(l.id);
 
   // Un par de automatizaciones huérfanas, como pasa en la vida real:
   // palabras clave que el equipo puso en ManyChat y nadie enlazó al reel.

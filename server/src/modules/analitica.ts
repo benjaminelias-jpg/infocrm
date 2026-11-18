@@ -58,6 +58,7 @@ export async function rendimientoPorContenido(cuentaId: string, f: Filtros = {})
      )
      SELECT c.id, c.titulo, c.tipo, c.permalink, c.thumbnail_url, c.publicado_en,
             c.ig_alcance, c.ig_reproducciones, c.ig_comentarios, c.etiquetas,
+            c.angulo, c.etapa_embudo, c.rol_manual,
             COALESCE(a.leads, 0)                 AS leads,
             COALESCE(a.reuniones_agendadas, 0)   AS reuniones_agendadas,
             COALESCE(a.reuniones_realizadas, 0)  AS reuniones_realizadas,

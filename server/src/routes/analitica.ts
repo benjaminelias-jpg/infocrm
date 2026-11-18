@@ -3,6 +3,9 @@ import {
   resumen, rendimientoPorContenido, embudo, serieTemporal,
   rendimientoClosers, calidadAtribucion, type Filtros,
 } from '../modules/analitica.js';
+import {
+  rendimientoPorAngulo, mezclaContenido, clasificarRoles,
+} from '../modules/infoproduccion.js';
 
 function filtros(q: Record<string, string>): Filtros {
   return {
@@ -17,9 +20,16 @@ export default async function rutasAnalitica(app: FastifyInstance) {
   app.get('/resumen', async (req) =>
     resumen(req.sesion.cuentaId, filtros(req.query as any)));
 
-  /** La pantalla estrella: de qué contenido viene cada lead, reunión y venta. */
-  app.get('/contenidos', async (req) =>
-    rendimientoPorContenido(req.sesion.cuentaId, filtros(req.query as any)));
+  /** La pantalla estrella: de qué contenido viene cada lead, reunión y venta.
+      Cada contenido llega clasificado por su ROL (prospector/closer/…). */
+  app.get('/contenidos', async (req) => {
+    const filas = await rendimientoPorContenido(req.sesion.cuentaId, filtros(req.query as any));
+    return clasificarRoles(filas as any);
+  });
+
+  /** De qué ÁNGULO (no solo de qué reel) viene cada lead, reunión y venta. */
+  app.get('/angulos', async (req) =>
+    rendimientoPorAngulo(req.sesion.cuentaId, filtros(req.query as any)));
 
   app.get('/embudo', async (req) =>
     embudo(req.sesion.cuentaId, filtros(req.query as any)));
@@ -42,15 +52,18 @@ export default async function rutasAnalitica(app: FastifyInstance) {
     const q = req.query as Record<string, string>;
     const gran = q.granularidad === 'semana' ? 'semana' : q.granularidad === 'mes' ? 'mes' : 'dia';
 
-    const [kpis, contenidos, pasos, serie, closers, calidad] = await Promise.all([
+    const [kpis, contenidosRaw, pasos, serie, closers, calidad, angulos, mezcla] = await Promise.all([
       resumen(req.sesion.cuentaId, f),
       rendimientoPorContenido(req.sesion.cuentaId, f),
       embudo(req.sesion.cuentaId, f),
       serieTemporal(req.sesion.cuentaId, gran, f),
       rendimientoClosers(req.sesion.cuentaId, f),
       calidadAtribucion(req.sesion.cuentaId),
+      rendimientoPorAngulo(req.sesion.cuentaId, f),
+      mezclaContenido(req.sesion.cuentaId),
     ]);
+    const contenidos = clasificarRoles(contenidosRaw as any);
 
-    return { kpis, contenidos, embudo: pasos, serie, closers, calidad };
+    return { kpis, contenidos, embudo: pasos, serie, closers, calidad, angulos, mezcla };
   });
 }
