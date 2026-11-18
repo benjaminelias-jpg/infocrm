@@ -20,6 +20,8 @@ const esquemaContenido = z.object({
   gancho: z.string().nullable().optional(),
   rol_manual: z.enum(['prospector', 'closer', 'caballo', 'calificador', 'abridor', 'lastre', 'explorador'])
     .nullable().optional(),
+  objetivo: z.enum(['venta', 'audiencia', 'alcance']).nullable().optional(),
+  estado_validacion: z.enum(['probando', 'posible', 'comprobado']).optional(),
 });
 
 const esquemaAutomatizacion = z.object({

@@ -37,6 +37,20 @@ export const ETIQUETA_ANGULO: Record<string, string> = {
 };
 
 // =====================================================================
+// Grado del lead (sistema "DSBA" del vídeo)
+// =====================================================================
+// Tres criterios → grado por cuántos se cumplen. A (perfecto), B (apto),
+// S (aún no), D (malísimo). Es el juicio EXPLÍCITO del setter, distinto del
+// score conductual que se calcula solo.
+
+export function gradoDe(c1: boolean, c2: boolean, c3: boolean): string {
+  const n = [c1, c2, c3].filter(Boolean).length;
+  return ['D', 'S', 'B', 'A'][n];
+}
+
+export const GRADOS = ['A', 'B', 'S', 'D'] as const;
+
+// =====================================================================
 // Score del lead (filtro antipodridos, transparente 0-100)
 // =====================================================================
 // La idea del método: el recurso gratis atrae a muchos, pero solo unos
@@ -282,6 +296,49 @@ export async function rendimientoPorAngulo(
     tasa_lead_venta: pct(Number(r.ventas), Number(r.leads)),
     valor_por_lead: Number(r.leads) > 0 ? Math.round((Number(r.ingresos) / Number(r.leads)) * 100) / 100 : 0,
   }));
+}
+
+/** Objetivo del mes y progreso real (leads, calificados, ventas, ingresos). */
+export async function metasProgreso(cuentaId: string) {
+  const [meta] = await query(
+    `SELECT * FROM metas WHERE cuenta_id = $1 AND mes = date_trunc('month', now())::date`,
+    [cuentaId]);
+
+  const [real] = await query(
+    `SELECT
+       (SELECT COUNT(*) FROM leads l
+          WHERE l.cuenta_id = $1 AND l.primer_contacto_en >= date_trunc('month', now())) AS leads,
+       (SELECT COUNT(*) FROM leads l
+          WHERE l.cuenta_id = $1 AND l.primer_contacto_en >= date_trunc('month', now())
+            AND l.calificacion = 'calificado') AS calificados,
+       (SELECT COUNT(*) FROM eventos e
+          WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now())) AS ventas,
+       (SELECT COALESCE(SUM(e.valor),0) FROM eventos e
+          WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now())) AS ingresos`,
+    [cuentaId]);
+
+  const n = (v: any) => Number(v ?? 0);
+  const pct = (a: number, b: number) => (b > 0 ? Math.min(100, Math.round((a / b) * 100)) : 0);
+  const real_ = {
+    leads: n(real?.leads), calificados: n(real?.calificados),
+    ventas: n(real?.ventas), ingresos: n(real?.ingresos),
+  };
+  const objetivo = meta
+    ? { leads: n(meta.leads_meta), calificados: n(meta.calificados_meta),
+        ventas: n(meta.ventas_meta), ingresos: n(meta.ingresos_meta) }
+    : null;
+
+  return {
+    tiene_meta: Boolean(meta),
+    objetivo,
+    real: real_,
+    progreso: objetivo ? {
+      leads: pct(real_.leads, objetivo.leads),
+      calificados: pct(real_.calificados, objetivo.calificados),
+      ventas: pct(real_.ventas, objetivo.ventas),
+      ingresos: pct(real_.ingresos, objetivo.ingresos),
+    } : null,
+  };
 }
 
 /** Mezcla de contenido 70-20-10 y madurez de la muestra. */

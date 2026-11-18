@@ -62,3 +62,38 @@ export function colorScore(score: number): string {
   if (score >= 25) return 'var(--status-warning)';
   return 'var(--text-muted)';
 }
+
+// Grado de calificación (sistema "DSBA" del vídeo): A (perfecto) → D (malísimo)
+export const GRADOS: Record<string, { etiqueta: string; color: string }> = {
+  A: { etiqueta: 'A · perfecto para la venta', color: 'var(--status-good)' },
+  B: { etiqueta: 'B · apto para la venta', color: 'var(--series-3)' },
+  S: { etiqueta: 'S · aún no calificado', color: 'var(--status-warning)' },
+  D: { etiqueta: 'D · malísimo', color: 'var(--text-muted)' },
+};
+export function colorGrado(g: string): string {
+  return GRADOS[g]?.color ?? 'var(--text-muted)';
+}
+
+export const OBJETIVOS: Array<{ valor: string; etiqueta: string }> = [
+  { valor: 'venta', etiqueta: 'Venta' },
+  { valor: 'audiencia', etiqueta: 'Audiencia' },
+  { valor: 'alcance', etiqueta: 'Alcance' },
+];
+
+export const ESTADO_VALIDACION: Record<string, { etiqueta: string; color: string }> = {
+  comprobado: { etiqueta: 'Comprobado', color: 'var(--status-good)' },
+  posible: { etiqueta: 'Posible', color: 'var(--status-warning)' },
+  probando: { etiqueta: 'Probando', color: 'var(--text-muted)' },
+};
+
+export const TIPO_PAGO: Record<string, string> = {
+  completo: 'Pago completo',
+  cuotas: 'En cuotas',
+};
+
+// Criterios por defecto del sistema de grados (editables por cuenta).
+export const CRITERIOS_CALIF = [
+  'Tiene presupuesto',
+  'Es el decisor',
+  'Tiene el problema que resolvemos',
+];

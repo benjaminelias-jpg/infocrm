@@ -1,6 +1,6 @@
 import { query, queryOne } from '../db/pool.js';
 import { noEncontrado } from '../lib/errores.js';
-import { recomputarScore } from './infoproduccion.js';
+import { recomputarScore, gradoDe } from './infoproduccion.js';
 
 export interface FiltrosLeads {
   q?: string;
@@ -140,7 +140,8 @@ export async function actualizarLead(cuentaId: string, leadId: string, datos: Re
   const permitidos = ['nombre', 'apellido', 'email', 'telefono', 'pais', 'idioma',
                       'estado', 'etiquetas', 'propietario_id', 'ig_username',
                       'modelo_negocio', 'ingresos_aprox', 'cuello_botella',
-                      'calificacion', 'motivo_descarte'];
+                      'calificacion', 'motivo_descarte',
+                      'calif_c1', 'calif_c2', 'calif_c3'];
   const sets: string[] = [];
   const params: any[] = [cuentaId, leadId];
 
@@ -150,6 +151,20 @@ export async function actualizarLead(cuentaId: string, leadId: string, datos: Re
       sets.push(`${campo} = $${params.length}`);
     }
   }
+
+  // Si tocó algún criterio de calificación, recalcula el grado (DSBA).
+  if (['calif_c1', 'calif_c2', 'calif_c3'].some((c) => c in datos)) {
+    const actual = await queryOne(
+      `SELECT calif_c1, calif_c2, calif_c3 FROM leads WHERE cuenta_id = $1 AND id = $2`,
+      [cuentaId, leadId]);
+    if (!actual) throw noEncontrado('Lead');
+    const c1 = 'calif_c1' in datos ? !!datos.calif_c1 : actual.calif_c1;
+    const c2 = 'calif_c2' in datos ? !!datos.calif_c2 : actual.calif_c2;
+    const c3 = 'calif_c3' in datos ? !!datos.calif_c3 : actual.calif_c3;
+    params.push(gradoDe(c1, c2, c3));
+    sets.push(`grado = $${params.length}`);
+  }
+
   if (sets.length === 0) return obtenerLead(cuentaId, leadId);
 
   const fila = await queryOne(

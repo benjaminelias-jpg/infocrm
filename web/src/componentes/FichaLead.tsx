@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, fmtDinero, fmtFecha, fmtNum } from '../api';
 import { Cargando } from './Graficas';
-import { CALIFICACION, colorScore } from '../infoprod';
+import { CALIFICACION, colorScore, GRADOS, colorGrado, CRITERIOS_CALIF, TIPO_PAGO } from '../infoprod';
 
 const ETIQUETA_EVENTO: Record<string, string> = {
   lead_creado: 'Entró como lead',
@@ -53,6 +53,13 @@ export default function FichaLead({
     window.addEventListener('keydown', escape);
     return () => window.removeEventListener('keydown', escape);
   }, [alCerrar]);
+
+  async function marcarCriterio(campo: string, valor: boolean) {
+    // Optimista: actualiza ya y recarga para traer el grado recalculado.
+    setLead((l: any) => ({ ...l, [campo]: valor }));
+    await api(`/leads/${leadId}`, { method: 'PATCH', json: { [campo]: valor } });
+    await cargar();
+  }
 
   async function anadirNota(e: React.FormEvent) {
     e.preventDefault();
@@ -178,6 +185,32 @@ export default function FichaLead({
                         Todavía no ha hecho nada que sume: solo pidió el recurso. Es el patrón del cazador de freebies.
                       </p>
                     )}
+                  </div>
+                </div>
+
+                {/* Grado (sistema DSBA): 3 criterios → grado */}
+                <div className="mt-3 border-t border-[var(--border-hairline)] pt-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+                      Calificación (grado)
+                    </span>
+                    <span className="rounded px-2 py-0.5 text-[12px] font-semibold"
+                      style={{ background: 'var(--gridline)', color: colorGrado(lead.grado) }}
+                      title={GRADOS[lead.grado]?.etiqueta}>
+                      {lead.grado}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {['calif_c1', 'calif_c2', 'calif_c3'].map((campo, i) => (
+                      <label key={campo} className="flex cursor-pointer items-center gap-2 text-[12px]">
+                        <input type="checkbox" checked={!!lead[campo]}
+                          onChange={(e) => marcarCriterio(campo, e.target.checked)} />
+                        {CRITERIOS_CALIF[i]}
+                      </label>
+                    ))}
+                  </div>
+                  <div className="mt-1.5 text-[11px]" style={{ color: colorGrado(lead.grado) }}>
+                    {GRADOS[lead.grado]?.etiqueta}
                   </div>
                 </div>
 

@@ -123,6 +123,32 @@ export default async function rutasConfiguracion(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
+  // ---------------- Objetivo del mes ----------------
+
+  app.get('/metas', async (req) =>
+    query(`SELECT * FROM metas WHERE cuenta_id = $1 ORDER BY mes DESC LIMIT 12`,
+      [req.sesion.cuentaId]));
+
+  /** Fija (o actualiza) el objetivo de un mes. mes = 'YYYY-MM' o fecha; se trunca al mes. */
+  app.put('/metas', async (req) => {
+    const d = z.object({
+      mes: z.string().optional(),
+      leads_meta: z.number().int().min(0).default(0),
+      calificados_meta: z.number().int().min(0).default(0),
+      ventas_meta: z.number().int().min(0).default(0),
+      ingresos_meta: z.number().min(0).default(0),
+    }).parse(req.body);
+    const mes = d.mes ? new Date(d.mes) : new Date();
+    return queryOne(
+      `INSERT INTO metas (cuenta_id, mes, leads_meta, calificados_meta, ventas_meta, ingresos_meta)
+       VALUES ($1, date_trunc('month', $2::timestamptz)::date, $3, $4, $5, $6)
+       ON CONFLICT (cuenta_id, mes) DO UPDATE SET
+         leads_meta = EXCLUDED.leads_meta, calificados_meta = EXCLUDED.calificados_meta,
+         ventas_meta = EXCLUDED.ventas_meta, ingresos_meta = EXCLUDED.ingresos_meta
+       RETURNING *`,
+      [req.sesion.cuentaId, mes, d.leads_meta, d.calificados_meta, d.ventas_meta, d.ingresos_meta]);
+  });
+
   // ---------------- Cuenta ----------------
 
   app.get('/cuenta', async (req) =>

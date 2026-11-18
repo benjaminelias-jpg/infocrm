@@ -3,7 +3,9 @@ import { query, queryOne, closePool } from '../src/db/pool.js';
 import { registrarEvento } from '../src/modules/eventos.js';
 import {
   etapaEmbudoDe, recomputarScore, clasificarRoles, rendimientoPorAngulo,
+  gradoDe, metasProgreso,
 } from '../src/modules/infoproduccion.js';
+import { oportunidadDe } from './ayuda.js';
 import { recibirWebhook } from '../src/modules/ingesta.js';
 import { cuentaDePrueba, crearContenido, crearAutomatizacion, leadPorId } from './ayuda.js';
 
@@ -207,6 +209,48 @@ describe('roles de contenido (cartera, no ranking)', () => {
     const a = r.find((x) => x.id === 'a')!;
     // share de 'a' es 50/50 = 100%, no 50/1050
     expect(a.share_leads).toBe(100);
+  });
+});
+
+describe('reconciliación del vídeo (grado, pago, metas)', () => {
+  it('el grado sale del número de criterios cumplidos (DSBA)', () => {
+    expect(gradoDe(false, false, false)).toBe('D');
+    expect(gradoDe(true, false, false)).toBe('S');
+    expect(gradoDe(true, true, false)).toBe('B');
+    expect(gradoDe(true, true, true)).toBe('A');
+  });
+
+  it('guarda el tipo de pago en la oportunidad al registrar la venta', async () => {
+    const { cuenta } = await cuentaDePrueba('Pago');
+    const r = await registrarEvento({
+      cuentaId: cuenta.id, tipo: 'lead_creado', identidad: { igUsername: 'paga.cuotas' }, sinReglas: true,
+    });
+    await registrarEvento({
+      cuentaId: cuenta.id, tipo: 'venta', leadId: r.leadId, valor: 2000,
+      tipoPago: 'cuotas', pagoCompletado: false, sinReglas: true,
+    });
+    const opp = await oportunidadDe(r.leadId);
+    expect(opp!.tipo_pago).toBe('cuotas');
+    expect(opp!.pago_completado).toBe(false);
+  });
+
+  it('metasProgreso compara el objetivo con lo real del mes', async () => {
+    const { cuenta } = await cuentaDePrueba('Metas');
+    await queryOne(
+      `INSERT INTO metas (cuenta_id, mes, leads_meta, ventas_meta)
+       VALUES ($1, date_trunc('month', now())::date, 10, 2)`, [cuenta.id]);
+
+    // 2 leads, 1 venta este mes
+    await registrarEvento({ cuentaId: cuenta.id, tipo: 'lead_creado', identidad: { igUsername: 'm1' }, sinReglas: true });
+    const r = await registrarEvento({ cuentaId: cuenta.id, tipo: 'lead_creado', identidad: { igUsername: 'm2' }, sinReglas: true });
+    await registrarEvento({ cuentaId: cuenta.id, tipo: 'venta', leadId: r.leadId, valor: 500, sinReglas: true });
+
+    const p = await metasProgreso(cuenta.id);
+    expect(p.tiene_meta).toBe(true);
+    expect(p.real.leads).toBe(2);
+    expect(p.real.ventas).toBe(1);
+    expect(p.progreso!.leads).toBe(20); // 2/10
+    expect(p.progreso!.ventas).toBe(50); // 1/2
   });
 });
 

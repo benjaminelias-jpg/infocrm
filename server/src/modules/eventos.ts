@@ -46,6 +46,8 @@ export interface EntradaEvento {
   valor?: number;
   moneda?: string;
   titulo?: string;
+  tipoPago?: 'completo' | 'cuotas';
+  pagoCompletado?: boolean;
   fuente?: string;
   payload?: Record<string, unknown>;
   ocurridoEn?: Date;
@@ -277,8 +279,12 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
     } else if (entrada.tipo === 'venta') {
       const valor = entrada.valor ?? 0;
       await c.query(
-        `UPDATE oportunidades SET valor = $2, moneda = COALESCE($3, moneda), titulo = COALESCE(titulo, $4)
-          WHERE id = $1`, [opp.id, valor, entrada.moneda ?? null, entrada.titulo ?? null]);
+        `UPDATE oportunidades SET valor = $2, moneda = COALESCE($3, moneda), titulo = COALESCE(titulo, $4),
+                tipo_pago = COALESCE($5, tipo_pago),
+                pago_completado = COALESCE($6, pago_completado)
+          WHERE id = $1`,
+        [opp.id, valor, entrada.moneda ?? null, entrada.titulo ?? null,
+         entrada.tipoPago ?? null, entrada.pagoCompletado ?? null]);
       await c.query(
         `UPDATE leads SET valor_total = valor_total + $2, estado = 'ganado' WHERE id = $1`,
         [leadId, valor]);

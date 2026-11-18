@@ -170,14 +170,23 @@ server.registerTool('registrar_evento', {
     valor: z.number().optional().describe('Importe, para ventas'),
     moneda: z.string().optional(),
     titulo: z.string().optional().describe('Nombre del producto, para ventas'),
+    tipo_pago: z.enum(['completo', 'cuotas']).optional().describe('Para ventas: pago completo (PIF) o en cuotas'),
   },
-}, async ({ tipo, lead_id, ig_username, email, valor, moneda, titulo }) => {
+}, async ({ tipo, lead_id, ig_username, email, valor, moneda, titulo, tipo_pago }) => {
   try {
-    const body: any = { tipo, valor, moneda, titulo };
+    const body: any = { tipo, valor, moneda, titulo, tipo_pago };
     if (lead_id) body.lead_id = lead_id;
     else body.identidad = { igUsername: ig_username, email };
     return texto(await crm('/eventos', { method: 'POST', body }));
   } catch (e) { return error(e); }
+});
+
+server.registerTool('objetivo_del_mes', {
+  title: 'Objetivo del mes',
+  description: 'El objetivo del mes en curso (leads, calificados, ventas, ingresos) y el progreso real hacia él.',
+  inputSchema: {},
+}, async () => {
+  try { return texto(await crm('/analitica/metas')); } catch (e) { return error(e); }
 });
 
 server.registerTool('mover_etapa', {

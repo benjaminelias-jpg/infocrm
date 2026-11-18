@@ -215,6 +215,18 @@ de uso, onboarding de clientes y permisos entre empresas.
 
 ---
 
+## Integraciones y extensiones
+
+- **Lógica de infoproducción** (ángulos, roles de contenido, score de lead,
+  grados DSBA, objetivo del mes): ver `docs/infoproduccion.md`. Destilada de las
+  playbooks del sector y del vídeo de Lautaro Barruffaldi (`docs/video-transcripcion.md`).
+- **Webhooks de salida**: el CRM avisa a otras apps (Zapier, Make, n8n, Slack, tu
+  backend) cuando pasa algo, con firma HMAC y reintentos. Se gestionan en
+  **Conexiones → Webhooks de salida**.
+- **Servidor MCP** (`mcp/`): conecta tu propio Claude (Desktop o Code) al CRM con
+  una API key y trabaja sobre tus datos por lenguaje natural. Instrucciones en
+  `mcp/README.md`.
+
 ## Estructura
 
 ```

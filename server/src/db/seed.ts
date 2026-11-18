@@ -243,9 +243,13 @@ export async function sembrar() {
           const producto = elegir(PRODUCTOS);
           const cuando = new Date(t + entre(1, 72) * 3_600_000);
           if (cuando.getTime() <= ahora) {
+            // 65% paga completo (PIF); del resto en cuotas, algunos dejan de pagar
+            const enCuotas = !pasa(0.65);
             await registrarEvento({
               cuentaId: cuenta.id, tipo: 'venta', leadId, senales,
               valor: producto.precio, moneda: 'EUR', titulo: producto.nombre,
+              tipoPago: enCuotas ? 'cuotas' : 'completo',
+              pagoCompletado: enCuotas ? !pasa(0.35) : true,
               fuente: 'stripe', ocurridoEn: cuando,
               idempotencyKey: `seed_venta_${i}`,
             });
@@ -264,10 +268,47 @@ export async function sembrar() {
     }
   }
 
-  // Score de cada lead (filtro antipodridos): se calcula desde sus datos,
-  // sus eventos y el ángulo del contenido que lo trajo.
-  const todosLeads = await query(`SELECT id FROM leads WHERE cuenta_id = $1`, [cuenta.id]);
-  for (const l of todosLeads) await recomputarScore(l.id);
+  // Objetivo de cada contenido (intención) y estado de validación.
+  // producto→venta, solución/embudo→venta, mentalidad/narrativa→audiencia,
+  // vídeo abierto→alcance. Los que ya venden quedan "comprobado".
+  await pool.query(
+    `UPDATE contenidos SET
+       objetivo = CASE
+         WHEN angulo IN ('producto','solucion') THEN 'venta'
+         WHEN angulo IN ('mentalidad','narrativa') THEN 'audiencia'
+         WHEN angulo = 'video_abierto' THEN 'alcance'
+         ELSE 'audiencia' END,
+       estado_validacion = CASE
+         WHEN id IN (SELECT DISTINCT primer_contenido_id FROM eventos e
+                       JOIN leads l ON l.id = e.lead_id
+                      WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND l.primer_contenido_id IS NOT NULL)
+           THEN 'comprobado' ELSE 'probando' END
+     WHERE cuenta_id = $1`,
+    [cuenta.id]);
+
+  // Score de cada lead (filtro antipodridos) + criterios de calificación y
+  // grado DSBA. Cuanto más avanzó el lead, más criterios cumple.
+  const todosLeads = await query(
+    `SELECT l.id,
+            EXISTS(SELECT 1 FROM eventos e WHERE e.lead_id=l.id AND e.tipo='reunion_agendada') AS agendo,
+            EXISTS(SELECT 1 FROM eventos e WHERE e.lead_id=l.id AND e.tipo='venta') AS compro
+       FROM leads l WHERE l.cuenta_id = $1`, [cuenta.id]);
+  for (const l of todosLeads) {
+    await recomputarScore(l.id);
+    // Criterios: compradores suelen cumplir los 3; agendados 2; resto 0-1.
+    const base = l.compro ? 3 : l.agendo ? 2 : (pasa(0.3) ? 1 : 0);
+    const c1 = base >= 1, c2 = base >= 2, c3 = base >= 3;
+    const grado = ['D', 'S', 'B', 'A'][[c1, c2, c3].filter(Boolean).length];
+    await pool.query(
+      `UPDATE leads SET calif_c1=$2, calif_c2=$3, calif_c3=$4, grado=$5 WHERE id=$1`,
+      [l.id, c1, c2, c3, grado]);
+  }
+
+  // Objetivo del mes en curso.
+  await pool.query(
+    `INSERT INTO metas (cuenta_id, mes, leads_meta, calificados_meta, ventas_meta, ingresos_meta)
+     VALUES ($1, date_trunc('month', now())::date, 500, 150, 25, 45000)
+     ON CONFLICT (cuenta_id, mes) DO NOTHING`, [cuenta.id]);
 
   // Un par de automatizaciones huérfanas, como pasa en la vida real:
   // palabras clave que el equipo puso en ManyChat y nadie enlazó al reel.

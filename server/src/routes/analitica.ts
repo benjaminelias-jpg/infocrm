@@ -4,7 +4,7 @@ import {
   rendimientoClosers, calidadAtribucion, type Filtros,
 } from '../modules/analitica.js';
 import {
-  rendimientoPorAngulo, mezclaContenido, clasificarRoles,
+  rendimientoPorAngulo, mezclaContenido, clasificarRoles, metasProgreso,
 } from '../modules/infoproduccion.js';
 
 function filtros(q: Record<string, string>): Filtros {
@@ -31,6 +31,9 @@ export default async function rutasAnalitica(app: FastifyInstance) {
   app.get('/angulos', async (req) =>
     rendimientoPorAngulo(req.sesion.cuentaId, filtros(req.query as any)));
 
+  /** Objetivo del mes y progreso real. */
+  app.get('/metas', async (req) => metasProgreso(req.sesion.cuentaId));
+
   app.get('/embudo', async (req) =>
     embudo(req.sesion.cuentaId, filtros(req.query as any)));
 
@@ -52,7 +55,7 @@ export default async function rutasAnalitica(app: FastifyInstance) {
     const q = req.query as Record<string, string>;
     const gran = q.granularidad === 'semana' ? 'semana' : q.granularidad === 'mes' ? 'mes' : 'dia';
 
-    const [kpis, contenidosRaw, pasos, serie, closers, calidad, angulos, mezcla] = await Promise.all([
+    const [kpis, contenidosRaw, pasos, serie, closers, calidad, angulos, mezcla, metas] = await Promise.all([
       resumen(req.sesion.cuentaId, f),
       rendimientoPorContenido(req.sesion.cuentaId, f),
       embudo(req.sesion.cuentaId, f),
@@ -61,9 +64,10 @@ export default async function rutasAnalitica(app: FastifyInstance) {
       calidadAtribucion(req.sesion.cuentaId),
       rendimientoPorAngulo(req.sesion.cuentaId, f),
       mezclaContenido(req.sesion.cuentaId),
+      metasProgreso(req.sesion.cuentaId),
     ]);
     const contenidos = clasificarRoles(contenidosRaw as any);
 
-    return { kpis, contenidos, embudo: pasos, serie, closers, calidad, angulos, mezcla };
+    return { kpis, contenidos, embudo: pasos, serie, closers, calidad, angulos, mezcla, metas };
   });
 }

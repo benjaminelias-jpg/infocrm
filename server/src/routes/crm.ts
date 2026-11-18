@@ -31,6 +31,8 @@ const esquemaEvento = z.object({
   valor: z.number().optional(),
   moneda: z.string().optional(),
   titulo: z.string().optional(),
+  tipo_pago: z.enum(['completo', 'cuotas']).optional(),
+  pago_completado: z.boolean().optional(),
   ocurrido_en: z.string().optional(),
   idempotency_key: z.string().optional(),
 });
@@ -187,6 +189,8 @@ export default async function rutasCrm(app: FastifyInstance) {
       valor: d.valor,
       moneda: d.moneda,
       titulo: d.titulo,
+      tipoPago: d.tipo_pago,
+      pagoCompletado: d.pago_completado,
       fuente: 'api',
       ocurridoEn: d.ocurrido_en ? new Date(d.ocurrido_en) : undefined,
       idempotencyKey: d.idempotency_key,

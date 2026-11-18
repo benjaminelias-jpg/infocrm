@@ -64,6 +64,39 @@ export default function Panel() {
         />
       </div>
 
+      {/* Objetivo del mes */}
+      {datos.metas?.tiene_meta && datos.metas.progreso && (
+        <section className="tarjeta mt-4 min-w-0 p-4">
+          <h2 className="mb-3 text-[14px] font-semibold">Objetivo del mes</h2>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            {[
+              { k: 'leads', et: 'Leads', color: 'var(--series-1)', fmt: fmtNum },
+              { k: 'calificados', et: 'Calificados', color: 'var(--series-2)', fmt: fmtNum },
+              { k: 'ventas', et: 'Ventas', color: 'var(--series-3)', fmt: fmtNum },
+              { k: 'ingresos', et: 'Ingresos', color: 'var(--ramp-6)', fmt: (n: number) => fmtDinero(n) },
+            ].map(({ k, et, color, fmt }) => {
+              const real = datos.metas.real[k];
+              const obj = datos.metas.objetivo[k];
+              const pct = datos.metas.progreso[k];
+              return (
+                <div key={k}>
+                  <div className="flex items-baseline justify-between text-[12px]">
+                    <span className="text-[var(--text-secondary)]">{et}</span>
+                    <span className="cifras text-[var(--text-muted)]">{pct}%</span>
+                  </div>
+                  <div className="cifras mt-0.5 text-[16px] font-semibold">
+                    {fmt(real)} <span className="text-[12px] font-normal text-[var(--text-muted)]">/ {fmt(obj)}</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded" style={{ background: 'var(--gridline)' }}>
+                    <div className="h-full rounded" style={{ width: `${pct}%`, background: color }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <div className="mt-4 grid gap-4 lg:grid-cols-3">
         {/* Series */}
         <section className="tarjeta min-w-0 p-4 lg:col-span-2">

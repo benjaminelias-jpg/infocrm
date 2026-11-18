@@ -35,7 +35,7 @@ async function construirPayload(cuentaId: string, evento: any): Promise<PayloadS
   const [lead] = evento.lead_id
     ? await query(
         `SELECT id, nombre, apellido, ig_username, email, telefono, pais, etiquetas,
-                estado, score, calificacion, valor_total
+                estado, score, calificacion, grado, valor_total
            FROM leads WHERE id = $1`, [evento.lead_id])
     : [null];
   const [contenido] = evento.contenido_id

@@ -131,13 +131,28 @@ todavía"*. Evita que optimices sobre ruido de una semana.
 
 ---
 
-## Pendiente: reconciliar con el vídeo de Lautaro Barruffaldi
+## Reconciliado con el vídeo de Lautaro Barruffaldi (migración 004)
 
-El vídeo *"Si no Tenes Este Sistema en 2026, Estás Quedando Fuera"* no se pudo
-transcribir desde el contenedor (YouTube bloquea la IP de datacenter y los
-servicios de transcripción fallan o requieren navegador real, bloqueado por el
-clasificador de seguridad). Cuando se pegue la transcripción, revisar si su método
-coincide con esta capa o aporta matices (p. ej. etapas de pipeline distintas,
-otros campos de calificación, o reglas de automatización específicas) y ajustar.
-Toda esta capa es editable sin tocar el esquema: ángulos, roles, pesos del score
-y pasos de DM son datos o constantes, no estructura.
+El vídeo *"Si no Tenes Este Sistema en 2026, Estás Quedando Fuera"* se transcribió
+(está en `video-transcripcion.md`). **Confirma la tesis del CRM**: es el mismo
+sistema ManyChat → webhook → CRM → atribución "de qué vídeo viene cada venta"
+(ellos lo hacen a mano con Airtable; aquí está automatizado). Lo distintivo que
+aportaba se incorporó en la migración `004`:
+
+- **Calificación por grados ("DSBA")**: tres criterios que marca el setter →
+  grado D/S/B/A (0,1,2,3 criterios cumplidos). Convive con el score conductual:
+  el grado es el juicio explícito, el score es el comportamiento medido.
+  (`leads.calif_c1/c2/c3`, `leads.grado`; criterios editables en `cuentas.criterios_calif`.)
+- **Tipo de pago**: de qué contenido viene quien paga completo (PIF) vs en cuotas,
+  y quién dejó de pagar. (`oportunidades.tipo_pago`, `pago_completado`.)
+- **Objetivo y estado del contenido**: venta/audiencia/alcance (intención del autor,
+  complementa el rol medido) y probando/posible/comprobado (ciclo de prueba).
+  (`contenidos.objetivo`, `estado_validacion`.)
+- **Objetivo del mes** con progreso real. (`metas`; widget en el panel y tool MCP
+  `objetivo_del_mes`.)
+
+Pendiente menor que el vídeo menciona y no se construyó (bajo valor / nicho): la
+tasa de caída (drop-off) por diapositiva de historias. Es aditivo cuando se quiera.
+
+Toda esta capa es editable sin tocar el esquema: ángulos, roles, pesos del score,
+criterios de grado y pasos de DM son datos o constantes, no estructura.
