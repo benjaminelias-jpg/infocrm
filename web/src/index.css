@@ -1,0 +1,130 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  Tokens de color. Los valores de serie vienen de una paleta validada:
+  pasa banda de luminosidad, suelo de croma, separación para daltonismo
+  (ΔE 9.2 en el peor par) y contraste, en claro y en oscuro.
+  El aqua en modo claro queda en 2.74:1, por debajo de 3:1, así que las
+  líneas llevan etiqueta directa — el color nunca es el único canal.
+*/
+:root {
+  color-scheme: light;
+  --surface-1: #fcfcfb;
+  --page-plane: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border-hairline: rgba(11, 11, 11, 0.1);
+
+  --series-1: #2a78d6; /* leads */
+  --series-2: #eb6834; /* reuniones */
+  --series-3: #1baf7a; /* ventas */
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+
+  /* Rampa ordinal azul para el embudo. En claro no sube de 250. */
+  --ramp-1: #86b6ef;
+  --ramp-2: #6da7ec;
+  --ramp-3: #5598e7;
+  --ramp-4: #3987e5;
+  --ramp-5: #2a78d6;
+  --ramp-6: #256abf;
+  --ramp-7: #1c5cab;
+  --ramp-8: #184f95;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme='light'])) {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --page-plane: #0d0d0d;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border-hairline: rgba(255, 255, 255, 0.1);
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+
+    --ramp-1: #184f95;
+    --ramp-2: #1c5cab;
+    --ramp-3: #256abf;
+    --ramp-4: #2a78d6;
+    --ramp-5: #3987e5;
+    --ramp-6: #5598e7;
+    --ramp-7: #6da7ec;
+    --ramp-8: #86b6ef;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --surface-1: #1a1a19;
+  --page-plane: #0d0d0d;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border-hairline: rgba(255, 255, 255, 0.1);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+
+  --ramp-1: #184f95;
+  --ramp-2: #1c5cab;
+  --ramp-3: #256abf;
+  --ramp-4: #2a78d6;
+  --ramp-5: #3987e5;
+  --ramp-6: #5598e7;
+  --ramp-7: #6da7ec;
+  --ramp-8: #86b6ef;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--page-plane);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Cifras tabulares para que las columnas no bailen */
+.cifras {
+  font-variant-numeric: tabular-nums;
+}
+
+.tarjeta {
+  background: var(--surface-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--baseline);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}

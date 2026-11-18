@@ -1,0 +1,309 @@
+import { useEffect, useState } from 'react';
+import { api, fmtFecha, fmtNum, hace } from '../api';
+import { Cargando } from '../componentes/Graficas';
+import Cabecera from '../componentes/Cabecera';
+
+const EJEMPLO_MANYCHAT = {
+  id: '{{user_id}}',
+  first_name: '{{first_name}}',
+  ig_username: '{{ig_username}}',
+  email: '{{email}}',
+  custom_fields: {
+    palabra_clave: 'SISTEMA',
+    ig_media_id: '{{last_commented_media_id}}',
+  },
+};
+
+function Copiable({ texto }: { texto: string }) {
+  const [copiado, setCopiado] = useState(false);
+  return (
+    <button
+      onClick={() => {
+        navigator.clipboard?.writeText(texto);
+        setCopiado(true);
+        setTimeout(() => setCopiado(false), 1600);
+      }}
+      className="shrink-0 rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]"
+    >
+      {copiado ? '✓ Copiado' : 'Copiar'}
+    </button>
+  );
+}
+
+export default function Conexiones() {
+  const [endpoints, setEndpoints] = useState<any[]>([]);
+  const [integraciones, setIntegraciones] = useState<any[]>([]);
+  const [eventos, setEventos] = useState<any[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [token, setToken] = useState('');
+  const [igUserId, setIgUserId] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+
+  async function cargar() {
+    const p = new URLSearchParams({ limite: '60' });
+    if (filtroEstado) p.set('estado', filtroEstado);
+    const [e, i, w] = await Promise.all([
+      api<any[]>('/webhooks/endpoints'),
+      api<any[]>('/integraciones'),
+      api<any[]>(`/webhooks/eventos?${p}`),
+    ]);
+    setEndpoints(e);
+    setIntegraciones(i);
+    setEventos(w);
+    setCargando(false);
+  }
+
+  useEffect(() => { cargar(); }, [filtroEstado]);
+
+  async function guardarInstagram(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await api('/instagram/credenciales', {
+        method: 'PUT', json: { access_token: token, ig_user_id: igUserId },
+      });
+      const r = await api<any>('/instagram/probar', { method: 'POST' });
+      setAviso(r.ok ? `Conectado con @${r.cuenta?.username}` : `No conecta: ${r.mensaje}`);
+      setToken('');
+      await cargar();
+    } catch (err: any) {
+      setAviso(err.message);
+    }
+  }
+
+  async function reprocesarTodos() {
+    const r = await api<any>('/webhooks/reprocesar-errores', { method: 'POST' });
+    setAviso(`Reintentados ${r.intentados}, recuperados ${r.recuperados}.`);
+    await cargar();
+  }
+
+  const ig = integraciones.find((i) => i.tipo === 'instagram');
+  const conErrores = eventos.filter((e) => e.estado === 'error').length;
+
+  if (cargando) return <Cargando />;
+
+  return (
+    <div className="px-5 py-5 lg:px-8">
+      <Cabecera
+        titulo="Conexiones"
+        subtitulo="Las URLs que pegas en ManyChat, Calendly y tu pasarela de pago"
+      />
+
+      {aviso && (
+        <div
+          className="mt-3 rounded-md px-3 py-2 text-[12px]"
+          style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}
+        >
+          {aviso}
+        </div>
+      )}
+
+      {/* Webhooks */}
+      <section className="mt-5">
+        <h2 className="mb-2 text-[14px] font-semibold">Webhooks de entrada</h2>
+        <div className="space-y-2">
+          {endpoints.map((e) => (
+            <div key={e.id} className="tarjeta p-3.5">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="text-[13px] font-medium">{e.nombre}</div>
+                  <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+                    Fuente {e.fuente} · evento por defecto{' '}
+                    <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>
+                      {e.evento_defecto}
+                    </code>
+                  </div>
+                </div>
+                <div className="cifras text-right text-[11px] text-[var(--text-muted)]">
+                  <div>{fmtNum(e.total_recibidos)} recibidos</div>
+                  {Number(e.total_errores) > 0 && (
+                    <div style={{ color: 'var(--status-critical)' }}>
+                      {fmtNum(e.total_errores)} con error
+                    </div>
+                  )}
+                  {e.ultimo_evento_en && <div>último {hace(e.ultimo_evento_en)}</div>}
+                </div>
+              </div>
+
+              <div className="mt-2.5 flex items-center gap-2">
+                <code
+                  className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]"
+                  style={{ background: 'var(--page-plane)' }}
+                >
+                  {e.url}
+                </code>
+                <Copiable texto={e.url} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <details className="tarjeta mt-3 p-3.5">
+          <summary className="cursor-pointer text-[13px] font-medium">
+            Qué mandar desde ManyChat
+          </summary>
+          <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
+            En ManyChat: acción «External Request», método POST, la URL de arriba, y en el body este
+            JSON. Lo importante es que vaya <strong>algo que identifique al lead</strong> (user_id,
+            ig_username o email) y <strong>algo que identifique el contenido</strong> (ig_media_id,
+            o la palabra clave).
+          </p>
+          <pre
+            className="mt-2 overflow-x-auto rounded p-3 text-[11px]"
+            style={{ background: 'var(--page-plane)' }}
+          >
+            {JSON.stringify(EJEMPLO_MANYCHAT, null, 2)}
+          </pre>
+          <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+            El CRM también entiende payloads de Calendly, Stripe, Hotmart, Make y Zapier sin
+            configurar nada: busca los campos en todos los sitios habituales.
+          </p>
+        </details>
+      </section>
+
+      {/* Instagram */}
+      <section className="mt-6">
+        <h2 className="mb-2 text-[14px] font-semibold">Instagram</h2>
+        <div className="tarjeta p-3.5">
+          <div className="flex items-center gap-2 text-[13px]">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{
+                background:
+                  ig?.estado === 'conectado' ? 'var(--status-good)'
+                  : ig?.estado === 'error' ? 'var(--status-critical)'
+                  : 'var(--baseline)',
+              }}
+              aria-hidden
+            />
+            {ig?.estado === 'conectado'
+              ? `Conectado${ig.ultimo_sync_en ? ` · última sincronización ${hace(ig.ultimo_sync_en)}` : ''}`
+              : ig?.estado === 'error'
+                ? `Error: ${ig.ultimo_error}`
+                : 'Sin conectar'}
+          </div>
+
+          <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
+            Con el token conectado, el CRM trae tus reels con portada, fecha y métricas. Sin él todo
+            sigue funcionando: los contenidos se crean solos con el ig_media_id que manda ManyChat,
+            solo que sin título ni portada.
+          </p>
+
+          <form onSubmit={guardarInstagram} className="mt-3 flex flex-wrap gap-2">
+            <input
+              value={igUserId}
+              onChange={(e) => setIgUserId(e.target.value)}
+              placeholder="ig_user_id (cuenta Business)"
+              className="w-[220px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+            />
+            <input
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              type="password"
+              placeholder="access_token"
+              className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!token || !igUserId}
+              className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+              style={{ background: 'var(--series-1)' }}
+            >
+              Guardar y probar
+            </button>
+          </form>
+        </div>
+      </section>
+
+      {/* Bandeja cruda */}
+      <section className="mt-6">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[14px] font-semibold">Todo lo que ha llegado</h2>
+          <div className="flex items-center gap-2">
+            <select
+              value={filtroEstado}
+              onChange={(e) => setFiltroEstado(e.target.value)}
+              className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none"
+            >
+              <option value="">Todos</option>
+              <option value="procesado">Procesados</option>
+              <option value="error">Con error</option>
+              <option value="duplicado">Duplicados</option>
+            </select>
+            {conErrores > 0 && (
+              <button
+                onClick={reprocesarTodos}
+                className="rounded-md border border-[var(--border-hairline)] px-3 py-1 text-[12px] hover:bg-[var(--surface-1)]"
+              >
+                Reintentar {conErrores} con error
+              </button>
+            )}
+          </div>
+        </div>
+
+        <p className="mb-2 text-[12px] text-[var(--text-muted)]">
+          El payload crudo se guarda antes de procesarlo. Si algo falla, el lead no se pierde: se
+          puede arreglar la configuración y reprocesar.
+        </p>
+
+        <div className="tarjeta overflow-x-auto">
+          <table className="w-full min-w-[720px] text-[12px]">
+            <thead>
+              <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
+                <th className="px-4 py-2 font-medium">Estado</th>
+                <th className="px-3 py-2 font-medium">Origen</th>
+                <th className="px-3 py-2 font-medium">Lead</th>
+                <th className="px-3 py-2 font-medium">Detalle</th>
+                <th className="px-3 py-2 text-right font-medium">Recibido</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventos.map((ev) => (
+                <tr key={ev.id} className="border-b border-[var(--border-hairline)] last:border-0">
+                  <td className="px-4 py-2">
+                    <span className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{
+                          background:
+                            ev.estado === 'procesado' ? 'var(--status-good)'
+                            : ev.estado === 'error' ? 'var(--status-critical)'
+                            : 'var(--baseline)',
+                        }}
+                        aria-hidden
+                      />
+                      {ev.estado}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-[var(--text-secondary)]">{ev.endpoint_nombre ?? ev.fuente}</td>
+                  <td className="px-3 py-2">
+                    {ev.ig_username ? `@${ev.ig_username}` : ev.lead_nombre ?? '—'}
+                  </td>
+                  <td className="max-w-[320px] px-3 py-2">
+                    {ev.error ? (
+                      <span style={{ color: 'var(--status-critical)' }}>{ev.error}</span>
+                    ) : (
+                      <code className="block truncate text-[11px] text-[var(--text-muted)]">
+                        {JSON.stringify(ev.payload)}
+                      </code>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right text-[var(--text-muted)]">
+                    {fmtFecha(ev.recibido_en, true)}
+                  </td>
+                </tr>
+              ))}
+              {eventos.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="py-8 text-center text-[var(--text-muted)]">
+                    Todavía no ha llegado ningún webhook.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+}
