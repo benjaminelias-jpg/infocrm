@@ -22,12 +22,12 @@ const NAV = [
   { a: '/contenidos', etiqueta: 'Contenidos', icono: 'contenidos' },
   { a: '/pipeline', etiqueta: 'Pipeline', icono: 'pipeline' },
   { a: '/leads', etiqueta: 'Leads', icono: 'leads' },
-  { a: '/flujos', etiqueta: 'Flujos (DM)', icono: 'flujos' },
+  { a: '/flujos', etiqueta: 'Automensajes', icono: 'flujos' },
   { a: '/recursos', etiqueta: 'Recursos', icono: 'recursos' },
   { a: '/finanzas', etiqueta: 'Finanzas', icono: 'finanzas' },
-  { a: '/automatizaciones', etiqueta: 'Automatizaciones', icono: 'automatizaciones' },
-  { a: '/reglas', etiqueta: 'Reglas', icono: 'reglas' },
-  { a: '/conexiones', etiqueta: 'Conexiones', icono: 'conexiones' },
+  { a: '/automatizaciones', etiqueta: 'Palabras clave', icono: 'automatizaciones' },
+  { a: '/reglas', etiqueta: 'Reglas automáticas', icono: 'reglas' },
+  { a: '/conexiones', etiqueta: 'Configuración', icono: 'conexiones' },
 ];
 
 function Login() {
