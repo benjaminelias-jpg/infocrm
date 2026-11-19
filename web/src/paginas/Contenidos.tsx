@@ -228,7 +228,12 @@ export default function Contenidos() {
                               </select>
                             )}
                             <span>{f.tipo}</span>
-                            {f.ig_reproducciones ? <span>· {fmtNum(f.ig_reproducciones)} repr.</span> : null}
+                            {f.ig_reproducciones ? <span>· ▶ {fmtNum(f.ig_reproducciones)}</span> : null}
+                            {f.ig_alcance ? <span title="Alcance">· 👁 {fmtNum(f.ig_alcance)}</span> : null}
+                            {f.ig_likes ? <span title="Me gusta">· ♥ {fmtNum(f.ig_likes)}</span> : null}
+                            {f.ig_comentarios ? <span title="Comentarios">· 💬 {fmtNum(f.ig_comentarios)}</span> : null}
+                            {f.ig_guardados ? <span title="Guardados">· 🔖 {fmtNum(f.ig_guardados)}</span> : null}
+                            {f.ig_compartidos ? <span title="Compartidos">· ↗ {fmtNum(f.ig_compartidos)}</span> : null}
                             {f.publicado_en && (
                               <span>· {new Date(f.publicado_en).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}</span>
                             )}

@@ -1,10 +1,55 @@
 import { pool, query, queryOne } from '../db/pool.js';
 
 const GRAPH = 'https://graph.facebook.com/v21.0';
+const IG_GRAPH = 'https://graph.instagram.com';
 
 interface CredencialesIG {
   access_token?: string;
+  user_token?: string;
+  page_token?: string;
   ig_user_id?: string;
+  tipo_login?: string;
+}
+
+/**
+ * Resuelve qué base de API y qué token usar según cómo se conectó la cuenta:
+ *  - facebook_directo / facebook (página): graph.facebook.com con el token de
+ *    usuario o de página.
+ *  - instagram (login de Instagram): graph.instagram.com con su access_token.
+ */
+export function credsUsables(cred: CredencialesIG): { base: string; token?: string; igId?: string } {
+  if (cred.tipo_login === 'facebook_directo') {
+    return { base: GRAPH, token: cred.user_token, igId: cred.ig_user_id };
+  }
+  if (cred.tipo_login === 'facebook' || cred.page_token) {
+    return { base: GRAPH, token: cred.page_token, igId: cred.ig_user_id };
+  }
+  return { base: IG_GRAPH, token: cred.access_token, igId: cred.ig_user_id };
+}
+
+/** Trae las métricas (insights) de un contenido. Best-effort: si falla, {}. */
+async function traerInsights(
+  base: string, mediaId: string, token: string, esVideo: boolean,
+): Promise<Record<string, number>> {
+  const intentos = esVideo
+    ? ['reach,saved,shares,total_interactions,plays', 'reach,saved,shares', 'reach,saved']
+    : ['reach,saved,shares,total_interactions', 'reach,saved,shares', 'reach,saved'];
+  for (const metric of intentos) {
+    try {
+      const r = await fetch(
+        `${base}/${mediaId}/insights?metric=${metric}&access_token=${encodeURIComponent(token)}`,
+        { signal: AbortSignal.timeout(12_000) });
+      const d: any = await r.json();
+      if (d.error) continue;
+      const map: Record<string, number> = {};
+      for (const it of d.data ?? []) {
+        const v = it.values?.[0]?.value ?? it.total_value?.value;
+        if (typeof v === 'number') map[it.name] = v;
+      }
+      return map;
+    } catch { /* probar el siguiente set */ }
+  }
+  return {};
 }
 
 export async function integracionInstagram(cuentaId: string) {
@@ -59,14 +104,15 @@ export async function sincronizarInstagram(
 ): Promise<ResultadoSync> {
   const integracion = await integracionInstagram(cuentaId);
   const cred: CredencialesIG = integracion?.credenciales ?? {};
+  const { base, token, igId } = credsUsables(cred);
 
-  if (!integracion || !cred.access_token || !cred.ig_user_id) {
+  if (!integracion || !token || !igId) {
     return {
       ok: false,
       creados: 0,
       actualizados: 0,
       mensaje:
-        'Instagram no está conectado. Guarda un access_token y el ig_user_id de tu cuenta Business en Integraciones. ' +
+        'Instagram no está conectado. Conecta tu cuenta en Conexiones. ' +
         'Mientras tanto, los contenidos se siguen creando solos con el ig_media_id que manda ManyChat.',
     };
   }
@@ -77,7 +123,7 @@ export async function sincronizarInstagram(
     'like_count', 'comments_count',
   ].join(',');
 
-  const url = `${GRAPH}/${cred.ig_user_id}/media?fields=${campos}&limit=${opts.limite ?? 50}&access_token=${encodeURIComponent(cred.access_token)}`;
+  const url = `${base}/${igId}/media?fields=${campos}&limit=${opts.limite ?? 50}&access_token=${encodeURIComponent(token)}`;
 
   let datos: any;
   try {
@@ -102,16 +148,23 @@ export async function sincronizarInstagram(
   let actualizados = 0;
 
   for (const m of datos.data ?? []) {
+    const esVideo = m.media_product_type === 'REELS' || m.media_type === 'VIDEO';
     const tipo = m.media_product_type === 'REELS' ? 'reel'
       : m.media_type === 'CAROUSEL_ALBUM' ? 'carrusel'
       : m.media_type === 'VIDEO' ? 'reel' : 'post';
 
     const titulo = (m.caption ?? '').split('\n')[0].slice(0, 120) || `Contenido ${m.id}`;
 
+    // Métricas (insights). Si Meta no las da (cuenta sin permiso de insights o
+    // contenido muy antiguo), se guardan likes/comentarios igual.
+    const ins = await traerInsights(base, m.id, token, esVideo);
+    const reproducciones = ins.plays ?? ins.views ?? null;
+
     const fila = await queryOne(
       `INSERT INTO contenidos (cuenta_id, ig_media_id, tipo, titulo, caption, permalink,
-                               thumbnail_url, publicado_en, ig_likes, ig_comentarios, ig_metricas_en)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())
+                               thumbnail_url, publicado_en, ig_likes, ig_comentarios,
+                               ig_alcance, ig_guardados, ig_compartidos, ig_reproducciones, ig_metricas_en)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
        ON CONFLICT (cuenta_id, ig_media_id) WHERE ig_media_id IS NOT NULL
        DO UPDATE SET
          tipo = EXCLUDED.tipo,
@@ -122,6 +175,10 @@ export async function sincronizarInstagram(
          publicado_en = COALESCE(EXCLUDED.publicado_en, contenidos.publicado_en),
          ig_likes = EXCLUDED.ig_likes,
          ig_comentarios = EXCLUDED.ig_comentarios,
+         ig_alcance = COALESCE(EXCLUDED.ig_alcance, contenidos.ig_alcance),
+         ig_guardados = COALESCE(EXCLUDED.ig_guardados, contenidos.ig_guardados),
+         ig_compartidos = COALESCE(EXCLUDED.ig_compartidos, contenidos.ig_compartidos),
+         ig_reproducciones = COALESCE(EXCLUDED.ig_reproducciones, contenidos.ig_reproducciones),
          ig_metricas_en = now(),
          notas = NULL
        RETURNING (xmax = 0) AS insertado`,
@@ -130,10 +187,29 @@ export async function sincronizarInstagram(
         m.thumbnail_url ?? m.media_url ?? null,
         m.timestamp ? new Date(m.timestamp) : null,
         m.like_count ?? null, m.comments_count ?? null,
+        ins.reach ?? null, ins.saved ?? null, ins.shares ?? null, reproducciones,
       ],
     );
     if (fila?.insertado) creados++; else actualizados++;
   }
+
+  // Guarda el perfil (seguidores) para mostrarlo en el panel.
+  try {
+    const rp = await fetch(
+      `${base}/${igId}?fields=username,followers_count,media_count&access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(12_000) });
+    const perfil: any = await rp.json();
+    if (!perfil.error) {
+      await pool.query(
+        `UPDATE integraciones SET config = config || $2::jsonb WHERE id=$1`,
+        [integracion.id, JSON.stringify({
+          perfil: {
+            username: perfil.username, seguidores: perfil.followers_count,
+            contenidos: perfil.media_count, actualizado_en: new Date().toISOString(),
+          },
+        })]);
+    }
+  } catch { /* opcional */ }
 
   await pool.query(
     `UPDATE integraciones SET estado='conectado', ultimo_sync_en=now(), ultimo_error=NULL WHERE id=$1`,
@@ -150,12 +226,13 @@ export async function sincronizarInstagram(
 export async function probarConexion(cuentaId: string) {
   const integracion = await integracionInstagram(cuentaId);
   const cred: CredencialesIG = integracion?.credenciales ?? {};
-  if (!integracion || !cred.access_token || !cred.ig_user_id) {
-    return { ok: false, mensaje: 'Faltan access_token o ig_user_id.' };
+  const { base, token, igId } = credsUsables(cred);
+  if (!integracion || !token || !igId) {
+    return { ok: false, mensaje: 'Instagram no está conectado.' };
   }
   try {
     const res = await fetch(
-      `${GRAPH}/${cred.ig_user_id}?fields=username,followers_count,media_count&access_token=${encodeURIComponent(cred.access_token)}`,
+      `${base}/${igId}?fields=username,followers_count,media_count&access_token=${encodeURIComponent(token)}`,
       { signal: AbortSignal.timeout(15_000) },
     );
     const datos: any = await res.json();

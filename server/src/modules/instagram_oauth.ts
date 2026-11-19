@@ -1,7 +1,7 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { pool, queryOne } from '../db/pool.js';
-import { integracionInstagram } from './instagram.js';
+import { integracionInstagram, sincronizarInstagram } from './instagram.js';
 
 // =====================================================================
 // "Conectar Instagram": login OAuth. Soporta DOS flujos de Meta:
@@ -306,7 +306,10 @@ export async function conectarConToken(cuentaId: string, token: string, igId: st
       tipo_login: 'facebook_directo', user_token: token,
       ig_user_id: String(igId), username: d.username ?? null,
     });
-    return { ok: true, mensaje: `Instagram conectado como @${d.username ?? igId}`, username: d.username };
+    // Sincroniza el contenido con sus métricas nada más conectar.
+    const sync = await sincronizarInstagram(cuentaId, { limite: 15 }).catch(() => null);
+    const extra = sync?.ok ? ` · ${sync.creados + sync.actualizados} contenidos sincronizados` : '';
+    return { ok: true, mensaje: `Instagram conectado como @${d.username ?? igId}${extra}`, username: d.username };
   } catch (e: any) {
     return { ok: false, mensaje: `Error validando el token: ${e?.message ?? e}` };
   }
