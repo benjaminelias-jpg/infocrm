@@ -18,6 +18,7 @@ import rutasAnalitica from './routes/analitica.js';
 import rutasWebhooks from './routes/webhooks.js';
 import rutasConfig from './routes/configuracion.js';
 import rutasInstagram from './routes/instagram.js';
+import rutasFinanzas from './routes/finanzas.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -102,6 +103,7 @@ export async function construirApp(): Promise<FastifyInstance> {
   // Rutas de Instagram: mezcla /api/* (con sesión) y rutas públicas
   // (/instagram/callback, /webhooks/instagram/*) sin prefijo.
   await app.register(rutasInstagram);
+  await app.register(rutasFinanzas, { prefix: '/api' });
   await app.register(rutasWebhooks);
 
   // En producción, el mismo servicio sirve el panel ya compilado (web/dist).

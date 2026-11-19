@@ -11,6 +11,7 @@ import Automatizaciones from './paginas/Automatizaciones';
 import Conexiones from './paginas/Conexiones';
 import Reglas from './paginas/Reglas';
 import Flujos from './paginas/Flujos';
+import Finanzas from './paginas/Finanzas';
 
 const NAV = [
   { a: '/', etiqueta: 'Panel', icono: '◳' },
@@ -18,6 +19,7 @@ const NAV = [
   { a: '/pipeline', etiqueta: 'Pipeline', icono: '▦' },
   { a: '/leads', etiqueta: 'Leads', icono: '☰' },
   { a: '/flujos', etiqueta: 'Flujos (DM)', icono: '✦' },
+  { a: '/finanzas', etiqueta: 'Finanzas', icono: '€' },
   { a: '/automatizaciones', etiqueta: 'Automatizaciones', icono: '⚡' },
   { a: '/reglas', etiqueta: 'Reglas', icono: '⚙' },
   { a: '/conexiones', etiqueta: 'Conexiones', icono: '⇄' },
@@ -165,6 +167,7 @@ export default function App() {
         <Route path="/pipeline" element={<Protegida><Pipeline /></Protegida>} />
         <Route path="/leads" element={<Protegida><Leads /></Protegida>} />
         <Route path="/flujos" element={<Protegida><Flujos /></Protegida>} />
+        <Route path="/finanzas" element={<Protegida><Finanzas /></Protegida>} />
         <Route path="/automatizaciones" element={<Protegida><Automatizaciones /></Protegida>} />
         <Route path="/reglas" element={<Protegida><Reglas /></Protegida>} />
         <Route path="/conexiones" element={<Protegida><Conexiones /></Protegida>} />
