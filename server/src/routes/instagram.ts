@@ -63,6 +63,18 @@ export default async function rutasInstagram(app: FastifyInstance) {
       `${config.appUrl}/conexiones?instagram=${r.ok ? 'ok' : 'error'}${r.username ? `&ig=${encodeURIComponent(r.username)}` : ''}`);
   });
 
+  // Meta exige estas dos URLs en "Business login settings" para poder guardar.
+  // Desautorización: Meta hace POST (signed_request) cuando alguien quita la app.
+  app.post('/instagram/deauthorize', async (req, reply) => reply.send({ ok: true }));
+  app.get('/instagram/deauthorize', async (req, reply) => reply.send({ ok: true }));
+  // Borrado de datos: debe responder JSON con url + código de confirmación.
+  const borrado = async (_req: any, reply: any) => {
+    const code = Math.random().toString(36).slice(2, 12);
+    return reply.send({ url: `${config.appUrl}/conexiones?borrado=${code}`, confirmation_code: code });
+  };
+  app.post('/instagram/data-deletion', borrado);
+  app.get('/instagram/data-deletion', borrado);
+
   // ---------------- Flujos (ManyChat propio) ----------------
 
   app.get('/api/flujos', async (req) =>
