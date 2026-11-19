@@ -1,4 +1,5 @@
 import { pool, query, queryOne } from '../db/pool.js';
+import { config } from '../config.js';
 import { integracionInstagram } from './instagram.js';
 import { moverEtapa, oportunidadAbierta } from './pipeline.js';
 import { registrarEvento } from './eventos.js';
@@ -88,6 +89,23 @@ export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: Cont
   for (const paso of pasos) {
     try {
       switch (paso.tipo) {
+        case 'enviar_recurso': {
+          // Manda un recurso guardado (audio del founder, PDF, etc.) como enlace/texto.
+          const rec: any = paso.recurso_id
+            ? await queryOne(`SELECT nombre, tipo, texto, url, token, (datos IS NOT NULL) tiene FROM recursos WHERE cuenta_id=$1 AND id=$2`, [cuentaId, paso.recurso_id])
+            : null;
+          if (!rec) { resultados.push({ paso: 'enviar_recurso', omitido: true, motivo: 'recurso no encontrado' }); break; }
+          const urlPub = rec.url || (rec.tiene ? `${config.apiUrl}/recursos/pub/${rec.token}` : null);
+          const contenido = rec.texto || urlPub || rec.nombre;
+          if (ctx.simular || !ctx.destinatarioIgId) {
+            resultados.push({ paso: 'enviar_recurso', simulado: true, recurso: rec.nombre, tipo: rec.tipo });
+          } else {
+            const r = await enviarDM(cuentaId, ctx.destinatarioIgId, contenido);
+            if (!r.ok) huboEnvioPendiente = true;
+            resultados.push({ paso: 'enviar_recurso', recurso: rec.nombre, enviado: r.ok, error: r.error });
+          }
+          break;
+        }
         case 'enviar_dm':
         case 'entregar_recurso': {
           const texto = paso.texto ?? paso.recurso ?? '';

@@ -6,7 +6,8 @@ import Cabecera from '../componentes/Cabecera';
 // Tipos de paso que entiende el motor (server/src/modules/instagram_dm.ts)
 const TIPOS_PASO: { tipo: string; etiqueta: string; campo?: string; placeholder?: string }[] = [
   { tipo: 'enviar_dm', etiqueta: 'Enviar DM', campo: 'texto', placeholder: 'Hola 👋 gracias por comentar…' },
-  { tipo: 'entregar_recurso', etiqueta: 'Entregar recurso', campo: 'recurso', placeholder: 'Aquí tienes el PDF: https://…' },
+  { tipo: 'enviar_recurso', etiqueta: 'Enviar recurso/audio', campo: 'recurso_id', placeholder: '' },
+  { tipo: 'entregar_recurso', etiqueta: 'Entregar recurso (texto)', campo: 'recurso', placeholder: 'Aquí tienes el PDF: https://…' },
   { tipo: 'etiquetar', etiqueta: 'Etiquetar lead', campo: 'etiqueta', placeholder: 'interesado-reel-x' },
   { tipo: 'mover_etapa', etiqueta: 'Mover de etapa', campo: 'etapa_slug', placeholder: 'conversacion' },
   { tipo: 'esperar', etiqueta: 'Esperar', campo: 'minutos', placeholder: '120' },
@@ -34,6 +35,7 @@ function metaPaso(tipo: string) {
 export default function Flujos() {
   const [flujos, setFlujos] = useState<any[]>([]);
   const [contenidos, setContenidos] = useState<any[]>([]);
+  const [recursos, setRecursos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [form, setForm] = useState<any>({ ...FLUJO_VACIO });
@@ -41,12 +43,14 @@ export default function Flujos() {
   const [simulacion, setSimulacion] = useState<any>(null);
 
   async function cargar() {
-    const [f, c] = await Promise.all([
+    const [f, c, rec] = await Promise.all([
       api<any[]>('/flujos'),
       api<any[]>('/contenidos?limite=100').catch(() => []),
+      api<any[]>('/recursos').catch(() => []),
     ]);
     setFlujos(f);
     setContenidos(Array.isArray(c) ? c : (c as any)?.datos ?? []);
+    setRecursos(rec);
     setCargando(false);
   }
   useEffect(() => { cargar(); }, []);
@@ -204,13 +208,24 @@ export default function Flujos() {
                     <div key={i} className="flex items-center gap-2">
                       <span className="w-5 shrink-0 text-center text-[11px] text-[var(--text-muted)]">{i + 1}</span>
                       <span className="w-[130px] shrink-0 text-[12px]">{m.etiqueta}</span>
-                      <input
-                        value={p[m.campo!] ?? ''}
-                        onChange={(e) => setPaso(i, e.target.value)}
-                        placeholder={m.placeholder}
-                        type={p.tipo === 'esperar' ? 'number' : 'text'}
-                        className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none"
-                      />
+                      {p.tipo === 'enviar_recurso' ? (
+                        <select
+                          value={p.recurso_id ?? ''}
+                          onChange={(e) => setPaso(i, e.target.value)}
+                          className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none"
+                        >
+                          <option value="">Elegí un recurso/audio…</option>
+                          {recursos.map((rc) => <option key={rc.id} value={rc.id}>{rc.tipo === 'audio' ? '🎙️ ' : '📎 '}{rc.nombre}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          value={p[m.campo!] ?? ''}
+                          onChange={(e) => setPaso(i, e.target.value)}
+                          placeholder={m.placeholder}
+                          type={p.tipo === 'esperar' ? 'number' : 'text'}
+                          className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none"
+                        />
+                      )}
                       <div className="flex shrink-0 gap-0.5">
                         <button type="button" onClick={() => moverPaso(i, -1)} disabled={i === 0}
                           className="rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] disabled:opacity-30">↑</button>

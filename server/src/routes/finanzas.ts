@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
-import { query, queryOne } from '../db/pool.js';
+import { z } from 'zod';
+import { query, queryOne, pool } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import { cargarDemo } from '../modules/demo.js';
 
@@ -109,6 +110,59 @@ export default async function rutasFinanzas(app: FastifyInstance) {
          LEFT JOIN personas_equipo c ON c.id = v.closer_id
         WHERE v.cuenta_id = $1 ORDER BY v.fecha DESC LIMIT 200`,
       [req.sesion.cuentaId]));
+
+  // Registrar venta + generar sus cuotas con la comisión del método de pago.
+  app.post('/ventas/registrar', async (req, reply) => {
+    const d = z.object({
+      lead_id: z.string().uuid().optional(),
+      producto_id: z.string().uuid().optional(),
+      closer_id: z.string().uuid().optional(),
+      setter_id: z.string().uuid().optional(),
+      metodo_pago_id: z.string().uuid().optional(),
+      fecha: z.string().optional(),
+      tipo_cobro: z.enum(['unico', 'cuotas']).default('unico'),
+      precio_lista: z.number().optional(),
+      precio_acordado: z.number(),
+      moneda: z.string().default('EUR'),
+      num_cuotas: z.number().int().min(1).default(1),
+      comision_setter_pct: z.number().default(0),
+      comision_closer_pct: z.number().default(0),
+      notas: z.string().optional(),
+    }).parse(req.body);
+    const c = req.sesion.cuentaId;
+
+    // Comisión y nombre del método de pago elegido.
+    let pasarela: string | null = null;
+    let comPct = 0;
+    if (d.metodo_pago_id) {
+      const m = await queryOne(`SELECT nombre, comision_pct FROM metodos_pago WHERE cuenta_id=$1 AND id=$2`,
+        [c, d.metodo_pago_id]);
+      if (m) { pasarela = m.nombre; comPct = Number(m.comision_pct) || 0; }
+    }
+
+    const venta = await queryOne(
+      `INSERT INTO ventas (cuenta_id, lead_id, producto_id, closer_id, setter_id, fecha, tipo_cobro,
+         precio_lista, precio_acordado, moneda, num_cuotas, pasarela, estado,
+         comision_setter_pct, comision_closer_pct, notas)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
+      [c, d.lead_id ?? null, d.producto_id ?? null, d.closer_id ?? null, d.setter_id ?? null,
+       d.fecha ? new Date(d.fecha) : new Date(), d.tipo_cobro, d.precio_lista ?? null,
+       d.precio_acordado, d.moneda, d.num_cuotas, pasarela,
+       d.tipo_cobro === 'cuotas' ? 'en_cuotas' : 'activa',
+       d.comision_setter_pct, d.comision_closer_pct, d.notas ?? null]);
+
+    // Genera las cuotas con la comisión de pasarela ya calculada.
+    const nc = d.tipo_cobro === 'cuotas' ? d.num_cuotas : 1;
+    const montoCuota = Math.round((d.precio_acordado / nc) * 100) / 100;
+    for (let k = 1; k <= nc; k++) {
+      const vence = new Date(); vence.setMonth(vence.getMonth() + (k - 1));
+      await pool.query(
+        `INSERT INTO pagos (cuenta_id, venta_id, num_cuota, monto, vence_en, estado, pasarela, comision_pasarela)
+         VALUES ($1,$2,$3,$4,$5,'pendiente',$6,$7)`,
+        [c, venta!.id, k, montoCuota, vence, pasarela, Math.round(montoCuota * comPct) / 100]);
+    }
+    return reply.code(201).send({ ...venta, cuotas: nc, comision_pasarela_pct: comPct });
+  });
 
   app.get('/ventas/:id/pagos', async (req) => {
     const { id } = req.params as { id: string };
