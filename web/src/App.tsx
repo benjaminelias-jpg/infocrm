@@ -13,10 +13,12 @@ import Reglas from './paginas/Reglas';
 import Flujos from './paginas/Flujos';
 import Finanzas from './paginas/Finanzas';
 import Recursos from './paginas/Recursos';
+import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
 
 const NAV = [
   { a: '/', etiqueta: 'Panel', icono: 'panel' },
+  { a: '/chat', etiqueta: 'Chat', icono: 'bandeja' },
   { a: '/contenidos', etiqueta: 'Contenidos', icono: 'contenidos' },
   { a: '/pipeline', etiqueta: 'Pipeline', icono: 'pipeline' },
   { a: '/leads', etiqueta: 'Leads', icono: 'leads' },
@@ -172,6 +174,7 @@ export default function App() {
         <Route path="/flujos" element={<Protegida><Flujos /></Protegida>} />
         <Route path="/finanzas" element={<Protegida><Finanzas /></Protegida>} />
         <Route path="/recursos" element={<Protegida><Recursos /></Protegida>} />
+        <Route path="/chat" element={<Protegida><Chat /></Protegida>} />
         <Route path="/automatizaciones" element={<Protegida><Automatizaciones /></Protegida>} />
         <Route path="/reglas" element={<Protegida><Reglas /></Protegida>} />
         <Route path="/conexiones" element={<Protegida><Conexiones /></Protegida>} />
