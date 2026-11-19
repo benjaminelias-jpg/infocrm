@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { query, queryOne } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
+import { cargarDemo } from '../modules/demo.js';
 
 /** Deja solo las claves permitidas y definidas (whitelist → SQL seguro). */
 function pick(body: any, cols: string[]): Record<string, any> {
@@ -47,6 +48,12 @@ function crud(app: FastifyInstance, ruta: string, tabla: string, cols: string[],
 }
 
 export default async function rutasFinanzas(app: FastifyInstance) {
+  // Cargar datos de demostración en la cuenta actual (para ver el CRM "con vida").
+  app.post('/demo/cargar', async (req) => {
+    const n = Number((req.query as any)?.leads ?? 14);
+    return cargarDemo(req.sesion.cuentaId, Math.min(Math.max(n, 1), 22));
+  });
+
   crud(app, '/productos', 'productos',
     ['nombre', 'descripcion', 'precio_lista', 'moneda', 'duracion', 'activo'], 'nombre');
   crud(app, '/equipo', 'personas_equipo',
