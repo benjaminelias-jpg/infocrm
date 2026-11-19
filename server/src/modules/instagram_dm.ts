@@ -119,9 +119,12 @@ export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: Cont
     }
   }
 
-  await pool.query(
-    `UPDATE flujos SET total_disparos = total_disparos + 1, ultimo_disparo_en = now() WHERE id=$1`,
-    [flujoId]);
+  // Una simulación no cuenta como disparo real (no infla las estadísticas).
+  if (!ctx.simular) {
+    await pool.query(
+      `UPDATE flujos SET total_disparos = total_disparos + 1, ultimo_disparo_en = now() WHERE id=$1`,
+      [flujoId]);
+  }
   await pool.query(
     `INSERT INTO flujo_ejecuciones (cuenta_id, flujo_id, lead_id, estado, resultado)
      VALUES ($1,$2,$3,$4,$5::jsonb)`,

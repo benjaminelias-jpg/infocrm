@@ -89,7 +89,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
   app.get('/api/flujos', async (req) =>
     query(
       `SELECT f.*, c.titulo AS contenido_titulo,
-              (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id)::int AS ejecuciones
+              (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado <> 'simulado')::int AS ejecuciones
          FROM flujos f LEFT JOIN contenidos c ON c.id=f.contenido_id
         WHERE f.cuenta_id=$1 ORDER BY f.creado_en DESC`, [req.sesion.cuentaId]));
 

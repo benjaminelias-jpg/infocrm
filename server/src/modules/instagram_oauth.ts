@@ -70,7 +70,8 @@ export async function urlAutorizacion(cuentaId: string): Promise<{ url: string }
     return { error: 'Falta la App de Meta. Pega tu App ID y App Secret antes de conectar.' };
   }
   // El state firma la cuenta para recuperarla en el callback sin sesión.
-  const state = jwt.sign({ cuentaId }, config.jwtSecret, { expiresIn: 600 });
+  // 30 min: el flujo de Meta (crear portfolio, añadir IG, permisos) es largo.
+  const state = jwt.sign({ cuentaId }, config.jwtSecret, { expiresIn: 1800 });
 
   if (configId) {
     // Flujo B: Facebook Login for Business con configuración.
@@ -136,18 +137,22 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   const d2: any = await r2.json();
   const userToken = d2.access_token ?? d1.access_token;
 
-  // 3. Páginas del usuario + su cuenta de Instagram Business conectada + token de Página
+  // 3. Páginas del usuario + su cuenta de Instagram conectada + token de Página.
+  //    Meta expone la cuenta en instagram_business_account o connected_instagram_account
+  //    según la configuración; miramos ambos. limit alto por si hay muchas páginas.
   const r3 = await fetch(
-    `${FB_GRAPH}/me/accounts?fields=name,access_token,instagram_business_account{id,username,profile_picture_url}` +
+    `${FB_GRAPH}/me/accounts?limit=100&fields=name,access_token,` +
+    `instagram_business_account{id,username},connected_instagram_account{id,username}` +
     `&access_token=${encodeURIComponent(userToken)}`,
     { signal: AbortSignal.timeout(15000) });
   const d3: any = await r3.json();
   if (d3.error) return err(`No se pudieron leer tus páginas: ${d3.error.message}`);
-  const pagina = (d3.data ?? []).find((p: any) => p.instagram_business_account);
+  const pagina = (d3.data ?? []).find(
+    (p: any) => p.instagram_business_account || p.connected_instagram_account);
   if (!pagina) {
-    return err('Tu Instagram no aparece conectado a ninguna página de Facebook. En la app de Instagram: Configuración → Cuenta → Compartir en otras apps, y vincula tu página de Facebook; luego reconecta.');
+    return err('Autoricé tu cuenta, pero tu Instagram no aparece vinculado a una página de Facebook (hace falta para enviar DMs). Vincula tu cuenta profesional de Instagram a una página de Facebook y vuelve a pulsar "Conectar Instagram".');
   }
-  const ig = pagina.instagram_business_account;
+  const ig = pagina.instagram_business_account ?? pagina.connected_instagram_account;
 
   await guardarConexion(cuentaId, {
     tipo_login: 'facebook',

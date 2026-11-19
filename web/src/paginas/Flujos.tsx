@@ -25,7 +25,10 @@ const FLUJO_VACIO = {
 };
 
 function metaPaso(tipo: string) {
-  return TIPOS_PASO.find((t) => t.tipo === tipo)!;
+  // Fallback para pasos de tipos desconocidos (datos antiguos/externos): evita
+  // que la página reviente al renderizar un paso que no está en TIPOS_PASO.
+  return TIPOS_PASO.find((t) => t.tipo === tipo)
+    ?? { tipo, etiqueta: tipo, campo: 'texto', placeholder: '' };
 }
 
 export default function Flujos() {
