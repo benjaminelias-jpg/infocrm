@@ -160,42 +160,50 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
     return { ok: true, mensaje: `Instagram conectado como @${ig.username ?? ig.id}`, username: ig.username };
   }
 
-  // 3b. Fallback: buscar la cuenta de Instagram a través del negocio (solo lectura;
-  //     para DMs hace falta el token de Página + revisión de Meta).
+  // 3b. Flujo "Instagram API con Facebook login" sin página: la cuenta de
+  //     Instagram se comparte directa y el token lleva instagram_manage_messages.
+  //     Se descubre el IG id desde el propio token con debug_token (granular_scopes),
+  //     sin necesitar permisos de página ni de negocio.
   let igId: string | undefined, igName: string | undefined;
   try {
-    const rb = await fetch(
-      `${FB_GRAPH}/me/businesses?fields=id,name&limit=50&access_token=${encodeURIComponent(userToken)}`,
+    const appToken = `${appId}|${appSecret}`;
+    const rd = await fetch(
+      `${FB_GRAPH}/debug_token?input_token=${encodeURIComponent(userToken)}&access_token=${encodeURIComponent(appToken)}`,
       { signal: AbortSignal.timeout(15000) });
-    const db: any = await rb.json();
-    diag.negocios = (db.data ?? []).length;
-    if (db.error) diag.negociosError = db.error.message;
-    for (const b of db.data ?? []) {
-      for (const edge of ['owned_instagram_accounts', 'client_instagram_accounts']) {
-        const ri = await fetch(
-          `${FB_GRAPH}/${b.id}/${edge}?fields=id,username&access_token=${encodeURIComponent(userToken)}`,
-          { signal: AbortSignal.timeout(15000) });
-        const di: any = await ri.json();
-        const acc = (di.data ?? [])[0];
-        if (acc?.id) { igId = String(acc.id); igName = acc.username; break; }
+    const dd: any = await rd.json();
+    const scopes: any[] = dd?.data?.granular_scopes ?? [];
+    diag.scopes = scopes.length;
+    for (const s of scopes) {
+      if (String(s.scope).startsWith('instagram') && Array.isArray(s.target_ids) && s.target_ids.length) {
+        igId = String(s.target_ids[0]);
+        break;
       }
-      if (igId) break;
     }
-  } catch (e: any) { diag.negociosExcepcion = String(e?.message ?? e); }
+    if (dd?.data?.error) diag.debugError = dd.data.error.message;
+  } catch (e: any) { diag.debugExcepcion = String(e?.message ?? e); }
 
   if (igId) {
+    // Nombre de usuario (best-effort)
+    try {
+      const ru = await fetch(
+        `${FB_GRAPH}/${igId}?fields=username&access_token=${encodeURIComponent(userToken)}`,
+        { signal: AbortSignal.timeout(12000) });
+      const du: any = await ru.json();
+      igName = du?.username;
+    } catch { /* opcional */ }
+
     await guardarConexion(cuentaId, {
-      tipo_login: 'facebook_lectura', user_token: userToken,
+      tipo_login: 'facebook_directo', user_token: userToken,
       ig_user_id: igId, username: igName ?? null,
     });
     return {
       ok: true, username: igName,
-      mensaje: `Instagram conectado como @${igName ?? igId} (solo lectura: reels y perfil). Para enviar DMs hace falta una página de Facebook vinculada y la revisión de Meta.`,
+      mensaje: `Instagram conectado como @${igName ?? igId}.`,
     };
   }
 
   return err(
-    'Autoricé tu cuenta pero no encuentro tu Instagram ni una página. Lo más probable: a tu app le faltan permisos de página/mensajes (pages_show_list, instagram_manage_messages). ' +
+    'Autoricé tu cuenta pero no pude identificar tu Instagram desde el token. ' +
     `Diagnóstico Meta: ${JSON.stringify(diag)}`);
 }
 

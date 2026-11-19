@@ -19,8 +19,7 @@ export async function enviarDM(
   const integ = await integracionInstagram(cuentaId);
   const cred = integ?.credenciales ?? {};
 
-  // Conexión solo-lectura (Instagram vía negocio, sin página): no hay token de
-  // Página, así que todavía no se pueden enviar DMs por la API.
+  // Conexión solo-lectura (sin token utilizable para mensajes).
   if (cred.tipo_login === 'facebook_lectura') {
     return { ok: false, error: 'Conexión solo-lectura: los DMs necesitan una página de Facebook vinculada a tu Instagram y la revisión de Meta.' };
   }
@@ -29,10 +28,18 @@ export async function enviarDM(
   let url: string;
   let token: string;
   if (cred.tipo_login === 'facebook' || cred.page_token) {
+    // Instagram API con Facebook login vía Página: mensaje por la Página.
     if (!cred.page_token || !cred.page_id) return { ok: false, error: 'Instagram no está conectado' };
     url = `${FB_GRAPH}/${cred.page_id}/messages`;
     token = cred.page_token;
+  } else if (cred.tipo_login === 'facebook_directo') {
+    // Instagram API con Facebook login sin Página: mensaje directo a la cuenta IG
+    // con el token de usuario (lleva instagram_manage_messages).
+    if (!cred.user_token || !cred.ig_user_id) return { ok: false, error: 'Instagram no está conectado' };
+    url = `${FB_GRAPH}/${cred.ig_user_id}/messages`;
+    token = cred.user_token;
   } else {
+    // Instagram API con Instagram login: graph.instagram.com.
     if (!cred.access_token || !cred.ig_user_id) return { ok: false, error: 'Instagram no está conectado' };
     url = `${IG_GRAPH}/${cred.ig_user_id}/messages`;
     token = cred.access_token;
