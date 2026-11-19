@@ -40,25 +40,51 @@ export default function Conexiones() {
   const [aviso, setAviso] = useState<string | null>(null);
   const [token, setToken] = useState('');
   const [igUserId, setIgUserId] = useState('');
+  const [igEstado, setIgEstado] = useState<any>(null);
+  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '' });
+  const [conectando, setConectando] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
 
   async function cargar() {
     const p = new URLSearchParams({ limite: '60' });
     if (filtroEstado) p.set('estado', filtroEstado);
-    const [e, i, w, s, es] = await Promise.all([
+    const [e, i, w, s, es, ige] = await Promise.all([
       api<any[]>('/webhooks/endpoints'),
       api<any[]>('/integraciones'),
       api<any[]>(`/webhooks/eventos?${p}`),
       api<any[]>('/webhooks/salida'),
       api<any[]>('/webhooks/salida/entregas?limite=40'),
+      api<any>('/instagram/estado').catch(() => null),
     ]);
     setEndpoints(e);
     setIntegraciones(i);
     setEventos(w);
     setSalientes(s);
     setEntregas(es);
+    setIgEstado(ige);
+    if (ige && !appForm.app_id && ige.app_id) setAppForm((f) => ({ ...f, app_id: ige.app_id }));
     setCargando(false);
+  }
+
+  async function guardarApp(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await api('/instagram/app', { method: 'PUT', json: appForm });
+      setAviso('App de Meta guardada. Ya puedes pulsar «Conectar Instagram».');
+      await cargar();
+    } catch (err: any) { setAviso(err.message); }
+  }
+
+  async function conectarInstagram() {
+    setConectando(true);
+    try {
+      const r = await api<{ url: string }>('/instagram/oauth/start');
+      window.location.href = r.url; // Meta nos devuelve a /instagram/callback
+    } catch (err: any) {
+      setAviso(err.message);
+      setConectando(false);
+    }
   }
 
   async function crearSalida(e: React.FormEvent) {
@@ -93,6 +119,19 @@ export default function Conexiones() {
   }
 
   useEffect(() => { cargar(); }, [filtroEstado]);
+
+  // Resultado de la vuelta de Instagram (/conexiones?instagram=ok&ig=usuario)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const r = p.get('instagram');
+    if (!r) return;
+    const ig = p.get('ig');
+    setAviso(
+      r === 'ok' ? `Instagram conectado${ig ? ` como @${ig}` : ''}.`
+      : r === 'denegado' ? 'Cancelaste la conexión con Instagram.'
+      : 'No se pudo conectar Instagram. Revisa la App de Meta y la redirect URI.');
+    window.history.replaceState({}, '', '/conexiones');
+  }, []);
 
   async function guardarInstagram(e: React.FormEvent) {
     e.preventDefault();
@@ -208,48 +247,103 @@ export default function Conexiones() {
               className="inline-block h-2 w-2 rounded-full"
               style={{
                 background:
-                  ig?.estado === 'conectado' ? 'var(--status-good)'
+                  igEstado?.conectado ? 'var(--status-good)'
                   : ig?.estado === 'error' ? 'var(--status-critical)'
                   : 'var(--baseline)',
               }}
               aria-hidden
             />
-            {ig?.estado === 'conectado'
-              ? `Conectado${ig.ultimo_sync_en ? ` · última sincronización ${hace(ig.ultimo_sync_en)}` : ''}`
-              : ig?.estado === 'error'
-                ? `Error: ${ig.ultimo_error}`
+            {igEstado?.conectado
+              ? `Conectado como @${igEstado.username ?? '—'}${ig?.ultimo_sync_en ? ` · última sincronización ${hace(ig.ultimo_sync_en)}` : ''}`
+              : igEstado?.ultimo_error
+                ? `Error: ${igEstado.ultimo_error}`
                 : 'Sin conectar'}
           </div>
 
           <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
-            Con el token conectado, el CRM trae tus reels con portada, fecha y métricas. Sin él todo
-            sigue funcionando: los contenidos se crean solos con el ig_media_id que manda ManyChat,
-            solo que sin título ni portada.
+            Conecta tu cuenta de Instagram Business para traer tus reels con portada y métricas, y
+            para que el CRM pueda mandar DMs con sus propios flujos. Se hace en dos pasos, una sola
+            vez.
           </p>
 
-          <form onSubmit={guardarInstagram} className="mt-3 flex flex-wrap gap-2">
-            <input
-              value={igUserId}
-              onChange={(e) => setIgUserId(e.target.value)}
-              placeholder="ig_user_id (cuenta Business)"
-              className="w-[220px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-            />
-            <input
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              type="password"
-              placeholder="access_token"
-              className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-            />
+          {/* Paso 1: App de Meta */}
+          <div className="mt-3 rounded-md border border-[var(--border-hairline)] p-3">
+            <div className="text-[12px] font-medium">
+              1. Tu App de Meta
+              {igEstado?.tiene_app && <span className="ml-2 text-[11px]" style={{ color: 'var(--status-good)' }}>✓ guardada</span>}
+            </div>
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
+              crea una app, añade «Instagram» y pega aquí su App ID y App Secret. En «Instagram →
+              API setup» registra esta <strong>redirect URI</strong>:
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
+                {igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`}
+              </code>
+              <Copiable texto={igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`} />
+            </div>
+            <form onSubmit={guardarApp} className="mt-2 flex flex-wrap gap-2">
+              <input
+                value={appForm.app_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value }))}
+                placeholder="App ID"
+                className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={appForm.app_secret}
+                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value }))}
+                type="password"
+                placeholder="App Secret"
+                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret}
+                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">
+                Guardar App
+              </button>
+            </form>
+          </div>
+
+          {/* Paso 2: Conectar */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
             <button
-              type="submit"
-              disabled={!token || !igUserId}
-              className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-              style={{ background: 'var(--series-1)' }}
+              onClick={conectarInstagram}
+              disabled={!igEstado?.tiene_app || conectando}
+              className="rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+              style={{ background: 'linear-gradient(90deg,#833ab4,#fd1d1d,#fcb045)' }}
             >
-              Guardar y probar
+              {conectando ? 'Abriendo Instagram…' : igEstado?.conectado ? '↻ Reconectar Instagram' : '2. Conectar Instagram'}
             </button>
-          </form>
+            {!igEstado?.tiene_app && (
+              <span className="text-[11px] text-[var(--text-muted)]">Guarda primero tu App de Meta.</span>
+            )}
+          </div>
+
+          {/* Fallback manual (avanzado) */}
+          <details className="mt-3">
+            <summary className="cursor-pointer text-[11px] text-[var(--text-muted)]">
+              Pegar un access_token manualmente (avanzado)
+            </summary>
+            <form onSubmit={guardarInstagram} className="mt-2 flex flex-wrap gap-2">
+              <input
+                value={igUserId}
+                onChange={(e) => setIgUserId(e.target.value)}
+                placeholder="ig_user_id"
+                className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                type="password"
+                placeholder="access_token"
+                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <button type="submit" disabled={!token || !igUserId}
+                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] disabled:opacity-50 hover:bg-[var(--page-plane)]">
+                Guardar y probar
+              </button>
+            </form>
+          </details>
         </div>
       </section>
 
