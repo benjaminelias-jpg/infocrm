@@ -28,8 +28,11 @@ export default async function rutasInstagram(app: FastifyInstance) {
       app_id: z.string().min(1),
       app_secret: z.string().min(1),
       config_id: z.string().optional(),
+      ig_user_id: z.string().optional(),
     }).parse(req.body);
-    await guardarApp(req.sesion.cuentaId, d.app_id, d.app_secret, d.config_id?.trim() || undefined);
+    await guardarApp(
+      req.sesion.cuentaId, d.app_id, d.app_secret,
+      d.config_id?.trim() || undefined, d.ig_user_id?.trim() || undefined);
     return { ok: true, redirect_uri: redirectUri() };
   });
 
@@ -43,6 +46,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
       tiene_app: Boolean(cfg.app_id),
       app_id: cfg.app_id ?? null,
       config_id: cfg.config_id ?? null,
+      ig_user_id: cfg.ig_user_id ?? null,
       flujo: cfg.config_id ? 'facebook' : 'instagram',
       conectado,
       username: cred.username ?? null,

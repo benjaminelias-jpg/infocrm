@@ -40,12 +40,16 @@ export function redirectUri(): string {
   return `${config.apiUrl}/instagram/callback`;
 }
 
-interface AppMeta { appId?: string; appSecret?: string; configId?: string }
+interface AppMeta { appId?: string; appSecret?: string; configId?: string; igUserId?: string }
 
-/** Guarda App ID / App Secret (y config_id opcional) de la app de Meta. */
-export async function guardarApp(cuentaId: string, appId: string, appSecret: string, configId?: string) {
+/** Guarda App ID / App Secret (+ config_id e ig_user_id opcionales) de la app de Meta. */
+export async function guardarApp(
+  cuentaId: string, appId: string, appSecret: string, configId?: string, igUserId?: string,
+) {
   const integ = await integracionInstagram(cuentaId);
-  const cfg = JSON.stringify({ app_id: appId, app_secret: appSecret, config_id: configId || null });
+  const cfg = JSON.stringify({
+    app_id: appId, app_secret: appSecret, config_id: configId || null, ig_user_id: igUserId || null,
+  });
   if (integ) {
     return queryOne(
       `UPDATE integraciones SET config = config || $2::jsonb WHERE id = $1
@@ -60,7 +64,10 @@ export async function guardarApp(cuentaId: string, appId: string, appSecret: str
 async function appDe(cuentaId: string): Promise<AppMeta> {
   const integ = await integracionInstagram(cuentaId);
   const cfg = integ?.config ?? {};
-  return { appId: cfg.app_id, appSecret: cfg.app_secret, configId: cfg.config_id || undefined };
+  return {
+    appId: cfg.app_id, appSecret: cfg.app_secret,
+    configId: cfg.config_id || undefined, igUserId: cfg.ig_user_id || undefined,
+  };
 }
 
 /** URL a la que mandar al usuario para que autorice (la abre el botón). */
@@ -181,6 +188,12 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
     }
     if (dd?.data?.error) diag.debugError = dd.data.error.message;
   } catch (e: any) { diag.debugExcepcion = String(e?.message ?? e); }
+
+  // Si Meta no devuelve el IG id en el token, usamos el que el usuario pegó a mano.
+  if (!igId) {
+    const { igUserId } = await appDe(cuentaId);
+    if (igUserId) { igId = igUserId; diag.igManual = true; }
+  }
 
   if (igId) {
     // Nombre de usuario (best-effort)

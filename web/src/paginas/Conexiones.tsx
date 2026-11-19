@@ -41,7 +41,7 @@ export default function Conexiones() {
   const [token, setToken] = useState('');
   const [igUserId, setIgUserId] = useState('');
   const [igEstado, setIgEstado] = useState<any>(null);
-  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '', config_id: '' });
+  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '', config_id: '', ig_user_id: '' });
   const [conectando, setConectando] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
@@ -67,6 +67,7 @@ export default function Conexiones() {
       ...f,
       app_id: f.app_id || ige.app_id || '',
       config_id: f.config_id || ige.config_id || '',
+      ig_user_id: f.ig_user_id || ige.ig_user_id || '',
     }));
     setCargando(false);
   }
@@ -76,7 +77,11 @@ export default function Conexiones() {
     try {
       await api('/instagram/app', {
         method: 'PUT',
-        json: { app_id: appForm.app_id, app_secret: appForm.app_secret, config_id: appForm.config_id || undefined },
+        json: {
+          app_id: appForm.app_id, app_secret: appForm.app_secret,
+          config_id: appForm.config_id || undefined,
+          ig_user_id: appForm.ig_user_id || undefined,
+        },
       });
       setAviso('App de Meta guardada. Ya puedes pulsar «Conectar Instagram».');
       await cargar();
@@ -316,6 +321,13 @@ export default function Conexiones() {
                 onChange={(e) => setAppForm((f) => ({ ...f, config_id: e.target.value.trim() }))}
                 inputMode="numeric"
                 placeholder="Identificador de configuración (si usas login unificado)"
+                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={appForm.ig_user_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, ig_user_id: e.target.value.trim() }))}
+                inputMode="numeric"
+                placeholder="ID de Instagram (en Business settings → Cuentas de Instagram → Identificador)"
                 className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
               />
               <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
