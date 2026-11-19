@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "vercel-build": "npm --prefix web ci && npm --prefix web run build && npm --prefix server ci && npm --prefix server run migrate && node scripts/bundle-api.mjs"
+    "vercel-build": "npm --prefix web ci --include=dev && npm --prefix web run build && npm --prefix server ci --include=dev && npm --prefix server run migrate && node scripts/bundle-api.mjs"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",
