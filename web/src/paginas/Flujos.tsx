@@ -1,343 +1,271 @@
 import { useEffect, useState } from 'react';
-import { api, fmtFecha, fmtNum } from '../api';
+import { api, fmtNum } from '../api';
 import { Cargando } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 
-// Tipos de paso que entiende el motor (server/src/modules/instagram_dm.ts)
-const TIPOS_PASO: { tipo: string; etiqueta: string; campo?: string; placeholder?: string }[] = [
-  { tipo: 'enviar_dm', etiqueta: 'Enviar DM', campo: 'texto', placeholder: 'Hola 👋 gracias por comentar…' },
-  { tipo: 'enviar_recurso', etiqueta: 'Enviar recurso/audio', campo: 'recurso_id', placeholder: '' },
-  { tipo: 'entregar_recurso', etiqueta: 'Entregar recurso (texto)', campo: 'recurso', placeholder: 'Aquí tienes el PDF: https://…' },
-  { tipo: 'etiquetar', etiqueta: 'Etiquetar lead', campo: 'etiqueta', placeholder: 'interesado-reel-x' },
-  { tipo: 'mover_etapa', etiqueta: 'Mover de etapa', campo: 'etapa_slug', placeholder: 'conversacion' },
-  { tipo: 'esperar', etiqueta: 'Esperar', campo: 'minutos', placeholder: '120' },
-];
+// Catálogo de nodos que entiende el motor (server/src/modules/instagram_dm.ts)
+const NODOS: Record<string, { etiqueta: string; icono: string; campo?: string; placeholder?: string; color: string }> = {
+  enviar_dm: { etiqueta: 'Enviar mensaje', icono: '💬', campo: 'texto', placeholder: 'Hola 👋 ¡gracias por escribir!', color: 'var(--series-1)' },
+  enviar_recurso: { etiqueta: 'Enviar audio / recurso', icono: '🎙️', campo: 'recurso_id', color: '#9b5de5' },
+  entregar_recurso: { etiqueta: 'Entregar enlace (texto)', icono: '📎', campo: 'recurso', placeholder: 'Aquí tienes: https://…', color: 'var(--series-1)' },
+  etiquetar: { etiqueta: 'Etiquetar lead', icono: '🏷️', campo: 'etiqueta', placeholder: 'pidió-guía', color: '#f4a261' },
+  mover_etapa: { etiqueta: 'Mover de etapa', icono: '➡️', campo: 'etapa_slug', placeholder: 'conversacion', color: '#2a9d8f' },
+  esperar: { etiqueta: 'Esperar', icono: '⏳', campo: 'minutos', placeholder: '120', color: '#8d99ae' },
+};
+const ORDEN_NODOS = ['enviar_dm', 'enviar_recurso', 'entregar_recurso', 'etiquetar', 'mover_etapa', 'esperar'];
 
 const DISPAROS = [
-  { v: 'comentario', t: 'Comentario con palabra clave' },
-  { v: 'dm', t: 'DM con palabra clave' },
-  { v: 'historia', t: 'Respuesta a historia' },
-  { v: 'mencion', t: 'Mención' },
+  { v: 'comentario', t: 'Comenta en un reel/post', icono: '💭' },
+  { v: 'dm', t: 'Me escribe por DM', icono: '✉️' },
+  { v: 'historia', t: 'Responde a una historia', icono: '⭕' },
+  { v: 'mencion', t: 'Me menciona', icono: '@' },
 ];
 
-const FLUJO_VACIO = {
-  nombre: '', disparo: 'comentario', palabra_clave: '', contenido_id: '',
-  pasos: [] as any[], activo: true,
-};
+const PLANTILLAS = [
+  { nombre: 'Recurso por comentario', disparo: 'comentario', palabra_clave: 'GUIA',
+    pasos: [{ tipo: 'entregar_recurso', recurso: '¡Aquí tienes la guía! 👇 https://…' }, { tipo: 'etiquetar', etiqueta: 'pidió-guía' }, { tipo: 'mover_etapa', etapa_slug: 'conversacion' }] },
+  { nombre: 'Audio del founder + agendar', disparo: 'comentario', palabra_clave: 'QUIERO',
+    pasos: [{ tipo: 'enviar_recurso', recurso_id: '' }, { tipo: 'enviar_dm', texto: '¿Te viene bien una llamada corta para contarte cómo funciona?' }, { tipo: 'mover_etapa', etapa_slug: 'conversacion' }] },
+  { nombre: 'Clase gratis', disparo: 'comentario', palabra_clave: 'CLASE',
+    pasos: [{ tipo: 'enviar_dm', texto: '¡Gracias! Te dejo el acceso a la clase 🎥' }, { tipo: 'entregar_recurso', recurso: 'https://…' }, { tipo: 'etiquetar', etiqueta: 'vio-clase' }] },
+];
 
-function metaPaso(tipo: string) {
-  // Fallback para pasos de tipos desconocidos (datos antiguos/externos): evita
-  // que la página reviente al renderizar un paso que no está en TIPOS_PASO.
-  return TIPOS_PASO.find((t) => t.tipo === tipo)
-    ?? { tipo, etiqueta: tipo, campo: 'texto', placeholder: '' };
-}
+const FLUJO_VACIO = { nombre: '', disparo: 'comentario', palabra_clave: '', contenido_id: '', pasos: [] as any[], activo: true };
+const campoDe = (tipo: string) => NODOS[tipo]?.campo ?? 'texto';
 
 export default function Flujos() {
   const [flujos, setFlujos] = useState<any[]>([]);
-  const [contenidos, setContenidos] = useState<any[]>([]);
   const [recursos, setRecursos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [aviso, setAviso] = useState<string | null>(null);
   const [form, setForm] = useState<any>({ ...FLUJO_VACIO });
   const [editando, setEditando] = useState<string | null>(null);
+  const [nuevo, setNuevo] = useState(false);
   const [simulacion, setSimulacion] = useState<any>(null);
+  const [menuAbierto, setMenuAbierto] = useState<number | null>(null);
 
   async function cargar() {
-    const [f, c, rec] = await Promise.all([
+    const [f, rec] = await Promise.all([
       api<any[]>('/flujos'),
-      api<any[]>('/contenidos?limite=100').catch(() => []),
       api<any[]>('/recursos').catch(() => []),
     ]);
-    setFlujos(f);
-    setContenidos(Array.isArray(c) ? c : (c as any)?.datos ?? []);
-    setRecursos(rec);
-    setCargando(false);
+    setFlujos(f); setRecursos(rec); setCargando(false);
   }
   useEffect(() => { cargar(); }, []);
 
-  function addPaso(tipo: string) {
-    setForm((f: any) => ({ ...f, pasos: [...f.pasos, { tipo, [metaPaso(tipo).campo!]: '' }] }));
-  }
-  function setPaso(i: number, valor: string) {
+  function insertarPaso(pos: number, tipo: string) {
     setForm((f: any) => {
       const pasos = [...f.pasos];
-      pasos[i] = { ...pasos[i], [metaPaso(pasos[i].tipo).campo!]: valor };
+      pasos.splice(pos, 0, { tipo, [campoDe(tipo)]: '' });
+      return { ...f, pasos };
+    });
+    setMenuAbierto(null);
+  }
+  function setCampo(i: number, valor: string) {
+    setForm((f: any) => {
+      const pasos = [...f.pasos];
+      pasos[i] = { ...pasos[i], [campoDe(pasos[i].tipo)]: valor };
       return { ...f, pasos };
     });
   }
-  function quitarPaso(i: number) {
-    setForm((f: any) => ({ ...f, pasos: f.pasos.filter((_: any, k: number) => k !== i) }));
-  }
-  function moverPaso(i: number, dir: -1 | 1) {
+  function quitar(i: number) { setForm((f: any) => ({ ...f, pasos: f.pasos.filter((_: any, k: number) => k !== i) })); }
+  function mover(i: number, d: -1 | 1) {
     setForm((f: any) => {
-      const pasos = [...f.pasos];
-      const j = i + dir;
+      const pasos = [...f.pasos]; const j = i + d;
       if (j < 0 || j >= pasos.length) return f;
       [pasos[i], pasos[j]] = [pasos[j], pasos[i]];
       return { ...f, pasos };
     });
   }
 
-  function editar(fl: any) {
-    setEditando(fl.id);
-    setForm({
-      nombre: fl.nombre, disparo: fl.disparo, palabra_clave: fl.palabra_clave ?? '',
-      contenido_id: fl.contenido_id ?? '', pasos: fl.pasos ?? [], activo: fl.activo,
-    });
-    setSimulacion(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  function nuevoFlujo(plantilla?: any) {
+    setEditando(null); setNuevo(true); setSimulacion(null);
+    setForm(plantilla ? { ...FLUJO_VACIO, ...plantilla, pasos: plantilla.pasos.map((p: any) => ({ ...p })) } : { ...FLUJO_VACIO });
   }
-  function cancelar() { setEditando(null); setForm({ ...FLUJO_VACIO }); setSimulacion(null); }
+  function editar(fl: any) {
+    setEditando(fl.id); setNuevo(true); setSimulacion(null);
+    setForm({ nombre: fl.nombre, disparo: fl.disparo, palabra_clave: fl.palabra_clave ?? '', contenido_id: fl.contenido_id ?? '', pasos: (fl.pasos ?? []).map((p: any) => ({ ...p })), activo: fl.activo });
+  }
+  function cerrar() { setNuevo(false); setEditando(null); setForm({ ...FLUJO_VACIO }); setSimulacion(null); }
 
-  async function guardar(e: React.FormEvent) {
-    e.preventDefault();
+  async function guardar() {
     if (!form.nombre.trim()) { setAviso('Ponle un nombre al flujo.'); return; }
-    const cuerpo = {
-      ...form,
-      palabra_clave: form.palabra_clave.trim() || null,
-      contenido_id: form.contenido_id || null,
-    };
+    const cuerpo = { ...form, palabra_clave: form.palabra_clave.trim() || null, contenido_id: form.contenido_id || null };
     try {
       if (editando) await api(`/flujos/${editando}`, { method: 'PATCH', json: cuerpo });
       else await api('/flujos', { method: 'POST', json: cuerpo });
-      setAviso(editando ? 'Flujo actualizado.' : 'Flujo creado.');
-      cancelar();
-      await cargar();
+      setAviso(editando ? 'Flujo guardado.' : 'Flujo creado.');
+      cerrar(); await cargar();
     } catch (err: any) { setAviso(err.message); }
   }
-
   async function simular() {
-    if (!editando) { setAviso('Guarda el flujo antes de simularlo.'); return; }
-    try {
-      const r = await api<any>(`/flujos/${editando}/simular`, { method: 'POST' });
-      setSimulacion(r);
-    } catch (err: any) { setAviso(err.message); }
+    if (!editando) { setAviso('Guarda el flujo antes de probarlo.'); return; }
+    try { setSimulacion(await api(`/flujos/${editando}/simular`, { method: 'POST' })); }
+    catch (err: any) { setAviso(err.message); }
   }
-
-  async function toggle(fl: any) {
-    await api(`/flujos/${fl.id}`, { method: 'PATCH', json: { activo: !fl.activo } });
-    await cargar();
-  }
-  async function borrar(id: string) {
-    await api(`/flujos/${id}`, { method: 'DELETE' });
-    if (editando === id) cancelar();
-    await cargar();
-  }
+  async function toggle(fl: any) { await api(`/flujos/${fl.id}`, { method: 'PATCH', json: { activo: !fl.activo } }); await cargar(); }
+  async function borrar(id: string) { await api(`/flujos/${id}`, { method: 'DELETE' }); if (editando === id) cerrar(); await cargar(); }
 
   if (cargando) return <Cargando />;
+  const disp = DISPAROS.find((d) => d.v === form.disparo);
 
-  return (
-    <div className="px-5 py-5 lg:px-8">
-      <Cabecera
-        titulo="Flujos de DM"
-        subtitulo="Tu propio ManyChat: un comentario con palabra clave dispara una secuencia de DMs"
-      />
-
-      {aviso && (
-        <div className="mt-3 rounded-md px-3 py-2 text-[12px]"
-          style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}>
-          {aviso}
-        </div>
-      )}
-
-      {/* Constructor */}
-      <section className="mt-5">
-        <div className="tarjeta p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-[14px] font-semibold">
-              {editando ? 'Editar flujo' : 'Nuevo flujo'}
-            </h2>
-            {editando && (
-              <button onClick={cancelar}
-                className="text-[12px] text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-                + Crear uno nuevo
+  // ---- Lienzo (pizarra) ----
+  function Conector({ pos }: { pos: number }) {
+    return (
+      <div className="relative flex h-7 items-center justify-center">
+        <div className="absolute h-full w-px" style={{ background: 'var(--border-hairline)' }} />
+        <button onClick={() => setMenuAbierto(menuAbierto === pos ? null : pos)}
+          className="relative z-10 flex h-5 w-5 items-center justify-center rounded-full border text-[12px] leading-none"
+          style={{ background: 'var(--surface-1)', borderColor: 'var(--border-hairline)' }} title="Añadir paso">+</button>
+        {menuAbierto === pos && (
+          <div className="absolute top-6 z-20 w-56 rounded-lg border p-1 shadow-lg"
+            style={{ background: 'var(--surface-1)', borderColor: 'var(--border-hairline)' }}>
+            {ORDEN_NODOS.map((t) => (
+              <button key={t} onClick={() => insertarPaso(pos, t)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[12px] hover:bg-[var(--page-plane)]">
+                <span>{NODOS[t].icono}</span>{NODOS[t].etiqueta}
               </button>
-            )}
-          </div>
-
-          <form onSubmit={guardar} className="space-y-3">
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={form.nombre}
-                onChange={(e) => setForm((f: any) => ({ ...f, nombre: e.target.value }))}
-                placeholder="Nombre (p. ej. Recurso del reel de hooks)"
-                className="w-[260px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <select
-                value={form.disparo}
-                onChange={(e) => setForm((f: any) => ({ ...f, disparo: e.target.value }))}
-                className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2.5 py-1.5 text-[12px] outline-none"
-              >
-                {DISPAROS.map((d) => <option key={d.v} value={d.v}>{d.t}</option>)}
-              </select>
-              <input
-                value={form.palabra_clave}
-                onChange={(e) => setForm((f: any) => ({ ...f, palabra_clave: e.target.value }))}
-                placeholder="Palabra clave (p. ej. SISTEMA)"
-                className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <select
-                value={form.contenido_id}
-                onChange={(e) => setForm((f: any) => ({ ...f, contenido_id: e.target.value }))}
-                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2.5 py-1.5 text-[12px] outline-none"
-              >
-                <option value="">Contenido asociado (opcional)</option>
-                {contenidos.map((c) => (
-                  <option key={c.id} value={c.id}>{c.titulo ?? c.ig_media_id ?? c.id.slice(0, 8)}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Pasos */}
-            <div className="rounded-md border border-[var(--border-hairline)] p-3">
-              <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="text-[12px] font-medium">Pasos</span>
-                <span className="text-[11px] text-[var(--text-muted)]">se ejecutan en orden →</span>
-              </div>
-
-              {form.pasos.length === 0 && (
-                <p className="mb-2 text-[11px] text-[var(--text-muted)]">
-                  Aún no hay pasos. Añade el primero abajo (normalmente «Entregar recurso»).
-                </p>
-              )}
-
-              <div className="space-y-2">
-                {form.pasos.map((p: any, i: number) => {
-                  const m = metaPaso(p.tipo);
-                  return (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="w-5 shrink-0 text-center text-[11px] text-[var(--text-muted)]">{i + 1}</span>
-                      <span className="w-[130px] shrink-0 text-[12px]">{m.etiqueta}</span>
-                      {p.tipo === 'enviar_recurso' ? (
-                        <select
-                          value={p.recurso_id ?? ''}
-                          onChange={(e) => setPaso(i, e.target.value)}
-                          className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none"
-                        >
-                          <option value="">Elegí un recurso/audio…</option>
-                          {recursos.map((rc) => <option key={rc.id} value={rc.id}>{rc.tipo === 'audio' ? '🎙️ ' : '📎 '}{rc.nombre}</option>)}
-                        </select>
-                      ) : (
-                        <input
-                          value={p[m.campo!] ?? ''}
-                          onChange={(e) => setPaso(i, e.target.value)}
-                          placeholder={m.placeholder}
-                          type={p.tipo === 'esperar' ? 'number' : 'text'}
-                          className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none"
-                        />
-                      )}
-                      <div className="flex shrink-0 gap-0.5">
-                        <button type="button" onClick={() => moverPaso(i, -1)} disabled={i === 0}
-                          className="rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] disabled:opacity-30">↑</button>
-                        <button type="button" onClick={() => moverPaso(i, 1)} disabled={i === form.pasos.length - 1}
-                          className="rounded px-1.5 py-1 text-[11px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] disabled:opacity-30">↓</button>
-                        <button type="button" onClick={() => quitarPaso(i)}
-                          className="rounded px-1.5 py-1 text-[11px] hover:bg-[var(--page-plane)]"
-                          style={{ color: 'var(--status-critical)' }}>✕</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="mt-2.5 flex flex-wrap gap-1.5">
-                {TIPOS_PASO.map((t) => (
-                  <button key={t.tipo} type="button" onClick={() => addPaso(t.tipo)}
-                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">
-                    + {t.etiqueta}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="submit"
-                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white"
-                style={{ background: 'var(--series-1)' }}>
-                {editando ? 'Guardar cambios' : 'Crear flujo'}
-              </button>
-              {editando && (
-                <button type="button" onClick={simular}
-                  className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--page-plane)]">
-                  ▷ Simular (sin enviar)
-                </button>
-              )}
-              <label className="flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
-                <input type="checkbox" checked={form.activo}
-                  onChange={(e) => setForm((f: any) => ({ ...f, activo: e.target.checked }))} />
-                Activo
-              </label>
-            </div>
-          </form>
-
-          {simulacion && (
-            <div className="mt-3 rounded-md border border-[var(--border-hairline)] p-3">
-              <div className="mb-1.5 text-[12px] font-medium">
-                Simulación · estado <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>{simulacion.estado}</code>
-              </div>
-              <ol className="space-y-1 text-[11px] text-[var(--text-secondary)]">
-                {(simulacion.resultados ?? []).map((r: any, i: number) => (
-                  <li key={i}>
-                    <span className="text-[var(--text-muted)]">{i + 1}.</span>{' '}
-                    {JSON.stringify(r)}
-                  </li>
-                ))}
-              </ol>
-              <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-                En modo simulación no se envía ningún DM real: así ves el flujo funcionando aunque
-                Meta aún no haya aprobado el permiso de mensajería.
-              </p>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Lista */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Tus flujos</h2>
-        {flujos.length === 0 ? (
-          <div className="tarjeta p-6 text-center text-[13px] text-[var(--text-muted)]">
-            Todavía no tienes flujos. Crea el primero arriba.
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {flujos.map((fl) => (
-              <div key={fl.id} className="tarjeta p-3.5">
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-[13px] font-medium">
-                      <span className="inline-block h-2 w-2 rounded-full"
-                        style={{ background: fl.activo ? 'var(--status-good)' : 'var(--baseline)' }} aria-hidden />
-                      {fl.nombre}
-                    </div>
-                    <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                      {DISPAROS.find((d) => d.v === fl.disparo)?.t ?? fl.disparo}
-                      {fl.palabra_clave && <> · palabra «<strong>{fl.palabra_clave}</strong>»</>}
-                      {fl.contenido_titulo && <> · {fl.contenido_titulo}</>}
-                      {' · '}{(fl.pasos ?? []).length} pasos · {fmtNum(fl.ejecuciones)} ejecuciones
-                    </div>
-                    {fl.ultimo_disparo_en && (
-                      <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                        último disparo {fmtFecha(fl.ultimo_disparo_en, true)}
-                      </div>
-                    )}
-                  </div>
-                  <div className="flex shrink-0 gap-1.5">
-                    <button onClick={() => editar(fl)}
-                      className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">Editar</button>
-                    <button onClick={() => toggle(fl)}
-                      className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">
-                      {fl.activo ? 'Pausar' : 'Activar'}</button>
-                    <button onClick={() => borrar(fl.id)}
-                      className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]"
-                      style={{ color: 'var(--status-critical)' }}>Borrar</button>
-                  </div>
-                </div>
-              </div>
             ))}
           </div>
         )}
-      </section>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-5 py-5 lg:px-8">
+      <Cabecera titulo="Automensajes (Flujos)" subtitulo="Tu ManyChat propio: alguien comenta una palabra y el CRM responde solo" />
+
+      {aviso && <div className="mt-3 rounded-md px-3 py-2 text-[12px]" style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}>{aviso}</div>}
+
+      {!nuevo ? (
+        <>
+          {/* Plantillas + nuevo */}
+          <section className="mt-5">
+            <h2 className="mb-2 text-[13px] font-semibold">Empezar rápido con una plantilla</h2>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {PLANTILLAS.map((p) => (
+                <button key={p.nombre} onClick={() => nuevoFlujo(p)}
+                  className="tarjeta p-3 text-left hover:border-[var(--series-1)]">
+                  <div className="text-[13px] font-medium">{p.nombre}</div>
+                  <div className="mt-1 text-[11px] text-[var(--text-muted)]">palabra «{p.palabra_clave}» · {p.pasos.length} pasos</div>
+                </button>
+              ))}
+              <button onClick={() => nuevoFlujo()} className="tarjeta flex items-center justify-center p-3 text-[13px] font-medium hover:border-[var(--series-1)]" style={{ color: 'var(--series-1)' }}>
+                + Crear desde cero
+              </button>
+            </div>
+          </section>
+
+          {/* Lista de flujos */}
+          <section className="mt-6">
+            <h2 className="mb-2 text-[13px] font-semibold">Tus flujos</h2>
+            {flujos.length === 0 ? (
+              <div className="tarjeta p-6 text-center text-[13px] text-[var(--text-muted)]">Aún no tienes flujos. Elegí una plantilla arriba.</div>
+            ) : (
+              <div className="space-y-2">
+                {flujos.map((fl) => (
+                  <div key={fl.id} className="tarjeta flex flex-wrap items-center justify-between gap-2 p-3.5">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 text-[13px] font-medium">
+                        <span className="inline-block h-2 w-2 rounded-full" style={{ background: fl.activo ? 'var(--status-good)' : 'var(--baseline)' }} />
+                        {fl.nombre}
+                      </div>
+                      <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
+                        {DISPAROS.find((d) => d.v === fl.disparo)?.t ?? fl.disparo}
+                        {fl.palabra_clave && <> · «{fl.palabra_clave}»</>} · {(fl.pasos ?? []).length} pasos · {fmtNum(fl.ejecuciones)} ejecuciones
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-1.5">
+                      <button onClick={() => editar(fl)} className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">Abrir pizarra</button>
+                      <button onClick={() => toggle(fl)} className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">{fl.activo ? 'Pausar' : 'Activar'}</button>
+                      <button onClick={() => borrar(fl.id)} className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]" style={{ color: 'var(--status-critical)' }}>Borrar</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      ) : (
+        /* ---- PIZARRA ---- */
+        <section className="mt-5">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <input value={form.nombre} onChange={(e) => setForm((f: any) => ({ ...f, nombre: e.target.value }))}
+              placeholder="Nombre del flujo" className="w-[280px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[13px] font-medium outline-none" />
+            <div className="flex-1" />
+            <button onClick={cerrar} className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--page-plane)]">← Volver</button>
+            {editando && <button onClick={simular} className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--page-plane)]">▷ Probar</button>}
+            <button onClick={guardar} className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white" style={{ background: 'var(--series-1)' }}>Guardar</button>
+          </div>
+
+          <div className="mx-auto flex max-w-[460px] flex-col items-stretch">
+            {/* Nodo disparador */}
+            <div className="tarjeta p-3" style={{ borderColor: 'var(--status-good)' }}>
+              <div className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--status-good)' }}>Cuando… (disparador)</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <select value={form.disparo} onChange={(e) => setForm((f: any) => ({ ...f, disparo: e.target.value }))}
+                  className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none">
+                  {DISPAROS.map((d) => <option key={d.v} value={d.v}>{d.icono} {d.t}</option>)}
+                </select>
+                <input value={form.palabra_clave} onChange={(e) => setForm((f: any) => ({ ...f, palabra_clave: e.target.value }))}
+                  placeholder="palabra clave (ej. GUIA)" className="min-w-0 flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none" />
+              </div>
+              <div className="mt-1 text-[11px] text-[var(--text-muted)]">{disp?.t} y escribe «{form.palabra_clave || '…'}»</div>
+            </div>
+
+            {/* Pasos conectados */}
+            {form.pasos.map((p: any, i: number) => {
+              const n = NODOS[p.tipo] ?? { etiqueta: p.tipo, icono: '•', campo: 'texto', color: 'var(--baseline)' };
+              return (
+                <div key={i}>
+                  <Conector pos={i} />
+                  <div className="tarjeta p-3" style={{ borderLeft: `3px solid ${n.color}` }}>
+                    <div className="flex items-center justify-between">
+                      <div className="text-[12px] font-medium">{n.icono} {n.etiqueta}</div>
+                      <div className="flex gap-0.5">
+                        <button onClick={() => mover(i, -1)} disabled={i === 0} className="rounded px-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] disabled:opacity-30">↑</button>
+                        <button onClick={() => mover(i, 1)} disabled={i === form.pasos.length - 1} className="rounded px-1.5 text-[11px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] disabled:opacity-30">↓</button>
+                        <button onClick={() => quitar(i)} className="rounded px-1.5 text-[11px] hover:bg-[var(--page-plane)]" style={{ color: 'var(--status-critical)' }}>✕</button>
+                      </div>
+                    </div>
+                    {p.tipo === 'enviar_recurso' ? (
+                      <select value={p.recurso_id ?? ''} onChange={(e) => setCampo(i, e.target.value)}
+                        className="mt-2 w-full rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none">
+                        <option value="">Elegí un audio/recurso…</option>
+                        {recursos.map((rc) => <option key={rc.id} value={rc.id}>{rc.tipo === 'audio' ? '🎙️ ' : '📎 '}{rc.nombre}</option>)}
+                      </select>
+                    ) : (
+                      <input value={p[n.campo!] ?? ''} onChange={(e) => setCampo(i, e.target.value)} placeholder={n.placeholder}
+                        type={p.tipo === 'esperar' ? 'number' : 'text'}
+                        className="mt-2 w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            <Conector pos={form.pasos.length} />
+            <button onClick={() => setMenuAbierto(menuAbierto === form.pasos.length ? null : form.pasos.length)}
+              className="tarjeta border-dashed p-3 text-center text-[12px] text-[var(--text-muted)] hover:border-[var(--series-1)] hover:text-[var(--series-1)]">
+              + Añadir paso
+            </button>
+
+            <label className="mt-3 flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
+              <input type="checkbox" checked={form.activo} onChange={(e) => setForm((f: any) => ({ ...f, activo: e.target.checked }))} /> Flujo activo
+            </label>
+
+            {simulacion && (
+              <div className="tarjeta mt-3 p-3">
+                <div className="mb-1 text-[12px] font-medium">Prueba · {simulacion.estado}</div>
+                <ol className="space-y-1 text-[11px] text-[var(--text-secondary)]">
+                  {(simulacion.resultados ?? []).map((r: any, i: number) => <li key={i}>{i + 1}. {JSON.stringify(r)}</li>)}
+                </ol>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
