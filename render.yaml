@@ -1,0 +1,24 @@
+# Despliegue de un clic en Render: crea el servicio web (Docker) Y el Postgres,
+# ya conectados. No hay que configurar nada más: JWT_SECRET se genera solo y la
+# URL pública (RENDER_EXTERNAL_URL) la inyecta Render.
+services:
+  - type: web
+    name: infocrm
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: infocrm-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: NODE_ENV
+        value: production
+
+databases:
+  - name: infocrm-db
+    plan: free
+    databaseName: infocrm
+    user: infocrm

@@ -1,5 +1,18 @@
 # InfoCRM
 
+## Desplegar en un clic
+
+Con el código en un repo de GitHub, este botón crea en Render el servicio web
+**y** la base de datos Postgres, ya conectados (lee `render.yaml`):
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/benjaminelias-jpg/infocrm)
+
+Al terminar, abre la URL que te da Render y crea tu cuenta (ver `DEPLOY.md`,
+paso 3). Pasos completos y alternativas (Railway, VPS) en **`DEPLOY.md`**.
+
+---
+
+
 CRM de infoproducción construido alrededor de Instagram. No es un CRM genérico con
 un campo "origen": el contenido es una entidad de primer nivel y cada lead, cada
 reunión y cada euro cuelgan del reel que los trajo.
