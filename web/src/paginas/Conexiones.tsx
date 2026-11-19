@@ -148,11 +148,11 @@ export default function Conexiones() {
   async function guardarInstagram(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api('/instagram/credenciales', {
-        method: 'PUT', json: { access_token: token, ig_user_id: igUserId },
+      // Conexión directa con token a mano (SUAT) + IG id → facebook_directo.
+      const r = await api<any>('/instagram/conectar-token', {
+        method: 'POST', json: { access_token: token, ig_user_id: igUserId },
       });
-      const r = await api<any>('/instagram/probar', { method: 'POST' });
-      setAviso(r.ok ? `Conectado con @${r.cuenta?.username}` : `No conecta: ${r.mensaje}`);
+      setAviso(r.mensaje ?? 'Instagram conectado.');
       setToken('');
       await cargar();
     } catch (err: any) {
@@ -359,28 +359,36 @@ export default function Conexiones() {
             )}
           </div>
 
-          {/* Fallback manual (avanzado) */}
-          <details className="mt-3">
-            <summary className="cursor-pointer text-[11px] text-[var(--text-muted)]">
-              Pegar un access_token manualmente (avanzado)
+          {/* Conexión con token a mano (SUAT) — el método fiable para login unificado */}
+          <details className="mt-3" open>
+            <summary className="cursor-pointer text-[12px] font-medium">
+              Conectar con token de la app (SUAT) — recomendado si el botón falla
             </summary>
+            <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+              Genera un <strong>token de usuario del sistema</strong> en Meta (Business settings →
+              Usuarios → Usuarios del sistema → asigna tu cuenta de Instagram y genera un token con
+              los permisos <code>instagram_basic</code> e <code>instagram_manage_messages</code>).
+              Pega aquí ese token y el <strong>ID de tu Instagram</strong>. Este token no caduca.
+            </p>
             <form onSubmit={guardarInstagram} className="mt-2 flex flex-wrap gap-2">
               <input
                 value={igUserId}
                 onChange={(e) => setIgUserId(e.target.value)}
-                placeholder="ig_user_id"
-                className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+                inputMode="numeric"
+                placeholder="ID de Instagram (p. ej. 17841423317278715)"
+                className="w-[260px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
               />
               <input
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 type="password"
-                placeholder="access_token"
-                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+                placeholder="token de usuario del sistema (SUAT)"
+                className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
               />
               <button type="submit" disabled={!token || !igUserId}
-                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] disabled:opacity-50 hover:bg-[var(--page-plane)]">
-                Guardar y probar
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+                style={{ background: 'var(--series-1)' }}>
+                Conectar con token
               </button>
             </form>
           </details>

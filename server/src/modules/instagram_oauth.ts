@@ -285,3 +285,29 @@ async function marcarError(cuentaId: string, mensaje: string) {
 }
 
 function err(mensaje: string): Resultado { return { ok: false, mensaje }; }
+
+/**
+ * Conexión directa con un token puesto a mano (p. ej. un token de usuario del
+ * sistema / SUAT generado en el dashboard) + el IG user id. Valida que el token
+ * puede leer la cuenta de Instagram y la guarda como facebook_directo (DMs por
+ * graph.facebook.com/{ig}/messages). Es el método fiable para apps de login
+ * unificado con SUAT.
+ */
+export async function conectarConToken(cuentaId: string, token: string, igId: string): Promise<Resultado> {
+  try {
+    const r = await fetch(
+      `${FB_GRAPH}/${encodeURIComponent(igId)}?fields=username,name&access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(15000) });
+    const d: any = await r.json();
+    if (!r.ok || d.error) {
+      return { ok: false, mensaje: `Meta rechazó el token o el ID: ${d?.error?.message ?? `HTTP ${r.status}`}` };
+    }
+    await guardarConexion(cuentaId, {
+      tipo_login: 'facebook_directo', user_token: token,
+      ig_user_id: String(igId), username: d.username ?? null,
+    });
+    return { ok: true, mensaje: `Instagram conectado como @${d.username ?? igId}`, username: d.username };
+  } catch (e: any) {
+    return { ok: false, mensaje: `Error validando el token: ${e?.message ?? e}` };
+  }
+}

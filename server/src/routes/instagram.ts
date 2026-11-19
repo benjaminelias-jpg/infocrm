@@ -4,7 +4,7 @@ import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import {
-  guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri,
+  guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri, conectarConToken,
 } from '../modules/instagram_oauth.js';
 import { ejecutarFlujo, procesarComentarioInstagram } from '../modules/instagram_dm.js';
 import { integracionInstagram } from '../modules/instagram.js';
@@ -53,6 +53,17 @@ export default async function rutasInstagram(app: FastifyInstance) {
       redirect_uri: redirectUri(),
       ultimo_error: integ?.ultimo_error ?? null,
     };
+  });
+
+  // Conexión directa con token a mano (SUAT) + IG id — sin OAuth.
+  app.post('/api/instagram/conectar-token', async (req) => {
+    const d = z.object({
+      access_token: z.string().min(10),
+      ig_user_id: z.string().min(5),
+    }).parse(req.body);
+    const r = await conectarConToken(req.sesion.cuentaId, d.access_token.trim(), d.ig_user_id.trim());
+    if (!r.ok) throw peticionInvalida(r.mensaje);
+    return r;
   });
 
   app.get('/api/instagram/oauth/start', async (req, reply) => {
