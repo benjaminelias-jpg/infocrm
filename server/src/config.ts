@@ -19,8 +19,16 @@ export const config = {
     : req('DATABASE_URL', 'postgres://postgres@127.0.0.1:5432/infocrm'),
   jwtSecret: req('JWT_SECRET', 'dev-secret-cambiar-en-produccion'),
   jwtExpiresInSegundos: 60 * 60 * 24 * 7,
-  // En Render/Railway la URL pública llega sola por env; se usa como respaldo
-  // para no tener que fijar API_URL/APP_URL a mano tras el primer deploy.
-  appUrl: process.env.APP_URL ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:5173',
-  apiUrl: process.env.API_URL ?? process.env.RENDER_EXTERNAL_URL ?? 'http://localhost:4000',
+  // La URL pública llega sola por env en los hosts habituales; se usa como
+  // respaldo para no fijar API_URL/APP_URL a mano tras el primer deploy.
+  appUrl: process.env.APP_URL ?? urlPublica() ?? 'http://localhost:5173',
+  apiUrl: process.env.API_URL ?? urlPublica() ?? 'http://localhost:4000',
 };
+
+function urlPublica(): string | undefined {
+  // Vercel: dominio estable de producción. Render: URL externa.
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL;
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return undefined;
+}
