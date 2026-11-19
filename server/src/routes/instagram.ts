@@ -24,8 +24,12 @@ export default async function rutasInstagram(app: FastifyInstance) {
   // ---------------- OAuth: conectar Instagram ----------------
 
   app.put('/api/instagram/app', async (req) => {
-    const d = z.object({ app_id: z.string().min(1), app_secret: z.string().min(1) }).parse(req.body);
-    await guardarApp(req.sesion.cuentaId, d.app_id, d.app_secret);
+    const d = z.object({
+      app_id: z.string().min(1),
+      app_secret: z.string().min(1),
+      config_id: z.string().optional(),
+    }).parse(req.body);
+    await guardarApp(req.sesion.cuentaId, d.app_id, d.app_secret, d.config_id?.trim() || undefined);
     return { ok: true, redirect_uri: redirectUri() };
   });
 
@@ -33,9 +37,14 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const integ = await integracionInstagram(req.sesion.cuentaId);
     const cfg = integ?.config ?? {};
     const cred = integ?.credenciales ?? {};
+    const conectado = integ?.estado === 'conectado'
+      && Boolean(cred.access_token || cred.page_token);
     return {
       tiene_app: Boolean(cfg.app_id),
-      conectado: integ?.estado === 'conectado' && Boolean(cred.access_token),
+      app_id: cfg.app_id ?? null,
+      config_id: cfg.config_id ?? null,
+      flujo: cfg.config_id ? 'facebook' : 'instagram',
+      conectado,
       username: cred.username ?? null,
       redirect_uri: redirectUri(),
       ultimo_error: integ?.ultimo_error ?? null,

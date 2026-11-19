@@ -3,11 +3,14 @@ import { integracionInstagram } from './instagram.js';
 import { moverEtapa, oportunidadAbierta } from './pipeline.js';
 import { registrarEvento } from './eventos.js';
 
-const GRAPH = 'https://graph.instagram.com';
+const IG_GRAPH = 'https://graph.instagram.com';
+const FB_GRAPH = 'https://graph.facebook.com/v21.0';
 
 /**
- * Envía un DM por la Instagram Graph API. Requiere el token conectado y, en
- * producción, que Meta haya aprobado instagram_business_manage_messages.
+ * Envía un DM. Según cómo se conectó la cuenta:
+ *  - flujo Instagram Login: POST graph.instagram.com/{ig_user_id}/messages con el token de Instagram.
+ *  - flujo Facebook (login unificado): POST graph.facebook.com/{page_id}/messages con el token de Página.
+ * En producción Meta exige que la app esté aprobada para mensajería.
  * Devuelve ok:false con motivo si no se puede (no tumba el flujo).
  */
 export async function enviarDM(
@@ -15,17 +18,28 @@ export async function enviarDM(
 ): Promise<{ ok: boolean; error?: string }> {
   const integ = await integracionInstagram(cuentaId);
   const cred = integ?.credenciales ?? {};
-  if (!cred.access_token || !cred.ig_user_id) {
-    return { ok: false, error: 'Instagram no está conectado' };
+
+  // Endpoint y token según el flujo
+  let url: string;
+  let token: string;
+  if (cred.tipo_login === 'facebook' || cred.page_token) {
+    if (!cred.page_token || !cred.page_id) return { ok: false, error: 'Instagram no está conectado' };
+    url = `${FB_GRAPH}/${cred.page_id}/messages`;
+    token = cred.page_token;
+  } else {
+    if (!cred.access_token || !cred.ig_user_id) return { ok: false, error: 'Instagram no está conectado' };
+    url = `${IG_GRAPH}/${cred.ig_user_id}/messages`;
+    token = cred.access_token;
   }
+
   try {
-    const res = await fetch(`${GRAPH}/${cred.ig_user_id}/messages`, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         recipient: { id: destinatarioIgId },
         message: { text: texto },
-        access_token: cred.access_token,
+        access_token: token,
       }),
       signal: AbortSignal.timeout(12000),
     });

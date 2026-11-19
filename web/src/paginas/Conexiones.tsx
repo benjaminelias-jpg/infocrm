@@ -41,7 +41,7 @@ export default function Conexiones() {
   const [token, setToken] = useState('');
   const [igUserId, setIgUserId] = useState('');
   const [igEstado, setIgEstado] = useState<any>(null);
-  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '' });
+  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '', config_id: '' });
   const [conectando, setConectando] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
@@ -63,14 +63,21 @@ export default function Conexiones() {
     setSalientes(s);
     setEntregas(es);
     setIgEstado(ige);
-    if (ige && !appForm.app_id && ige.app_id) setAppForm((f) => ({ ...f, app_id: ige.app_id }));
+    if (ige) setAppForm((f) => ({
+      ...f,
+      app_id: f.app_id || ige.app_id || '',
+      config_id: f.config_id || ige.config_id || '',
+    }));
     setCargando(false);
   }
 
   async function guardarApp(e: React.FormEvent) {
     e.preventDefault();
     try {
-      await api('/instagram/app', { method: 'PUT', json: appForm });
+      await api('/instagram/app', {
+        method: 'PUT',
+        json: { app_id: appForm.app_id, app_secret: appForm.app_secret, config_id: appForm.config_id || undefined },
+      });
       setAviso('App de Meta guardada. Ya puedes pulsar «Conectar Instagram».');
       await cargar();
     } catch (err: any) { setAviso(err.message); }
@@ -276,11 +283,11 @@ export default function Conexiones() {
             </div>
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
-              crea una app y añade el producto «Instagram». Entra en{' '}
-              <strong>«API setup with Instagram login»</strong> y copia de ahí el{' '}
-              <strong>Instagram app ID</strong> y el <strong>Instagram app secret</strong>{' '}
-              (ojo: son los de Instagram, no el App ID general). En esa misma pantalla, en{' '}
-              «Business login settings», pega esta <strong>redirect URI</strong>:
+              → tu app → <strong>Configuración → Básica</strong>: copia el <strong>Identificador
+              de la app</strong> (App ID) y la <strong>Clave secreta</strong>. Si tu app usa el
+              <strong> login unificado</strong> (lo verás en «Casos de uso → Administrar mensajes…
+              → API de Instagram»), copia también el <strong>Identificador de configuración</strong>.
+              Registra esta <strong>redirect URI</strong> en «URL de redireccionamiento»:
             </p>
             <div className="mt-1.5 flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
@@ -303,6 +310,13 @@ export default function Conexiones() {
                 type="password"
                 placeholder="App Secret (texto largo de letras y números)"
                 className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={appForm.config_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, config_id: e.target.value.trim() }))}
+                inputMode="numeric"
+                placeholder="Identificador de configuración (si usas login unificado)"
+                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
               />
               <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
                 className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">

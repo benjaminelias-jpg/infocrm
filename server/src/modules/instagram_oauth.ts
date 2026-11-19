@@ -4,33 +4,48 @@ import { pool, queryOne } from '../db/pool.js';
 import { integracionInstagram } from './instagram.js';
 
 // =====================================================================
-// "Conectar Instagram": login OAuth con la App de Meta de la cuenta.
+// "Conectar Instagram": login OAuth. Soporta DOS flujos de Meta:
+//
+//  (A) Instagram API con Instagram Login  -> cuando NO hay config_id.
+//      client_id = Instagram app ID. Tokens de Instagram (graph.instagram.com).
+//
+//  (B) Facebook Login for Business (login unificado) -> cuando hay config_id.
+//      client_id = App ID general de la app + config_id de la configuración.
+//      Devuelve token de usuario de Facebook; de ahí sacamos la Página y su
+//      token, y la cuenta de Instagram Business conectada. Los DMs van por la
+//      Messenger Platform (graph.facebook.com/{page}/messages).
+//
+// La App ID / Secret (y el config_id en el flujo B) los pega el usuario una
+// vez; se guardan en integraciones.config.
 // =====================================================================
-// Usa Instagram API con Instagram Login (no requiere página de Facebook).
-// La App ID y el App Secret los pega el usuario una vez (son suyos, de su
-// app en developers.facebook.com); se guardan en la integración.
 
-const AUTORIZAR = 'https://www.instagram.com/oauth/authorize';
-const TOKEN = 'https://api.instagram.com/oauth/access_token';
-const GRAPH = 'https://graph.instagram.com';
+const V = 'v21.0';
 
-// Permisos: lectura básica + (para el ManyChat propio) gestión de mensajes y
-// comentarios. Los de mensajería solo funcionan tras la revisión de Meta.
-const SCOPES = [
+// Flujo A (Instagram Login)
+const IG_AUTORIZAR = 'https://www.instagram.com/oauth/authorize';
+const IG_TOKEN = 'https://api.instagram.com/oauth/access_token';
+const IG_GRAPH = 'https://graph.instagram.com';
+const IG_SCOPES = [
   'instagram_business_basic',
   'instagram_business_manage_messages',
   'instagram_business_manage_comments',
 ].join(',');
+
+// Flujo B (Facebook Login for Business)
+const FB_DIALOG = 'https://www.facebook.com/dialog/oauth';
+const FB_GRAPH = `https://graph.facebook.com/${V}`;
 
 export function redirectUri(): string {
   // Ruta pública (Meta llama sin sesión). Regístrala igual en la App de Meta.
   return `${config.apiUrl}/instagram/callback`;
 }
 
-/** App ID / App Secret de la App de Meta del usuario, guardados en la integración. */
-export async function guardarApp(cuentaId: string, appId: string, appSecret: string) {
+interface AppMeta { appId?: string; appSecret?: string; configId?: string }
+
+/** Guarda App ID / App Secret (y config_id opcional) de la app de Meta. */
+export async function guardarApp(cuentaId: string, appId: string, appSecret: string, configId?: string) {
   const integ = await integracionInstagram(cuentaId);
-  const cfg = JSON.stringify({ app_id: appId, app_secret: appSecret });
+  const cfg = JSON.stringify({ app_id: appId, app_secret: appSecret, config_id: configId || null });
   if (integ) {
     return queryOne(
       `UPDATE integraciones SET config = config || $2::jsonb WHERE id = $1
@@ -42,23 +57,33 @@ export async function guardarApp(cuentaId: string, appId: string, appSecret: str
      RETURNING id, tipo, estado`, [cuentaId, cfg]);
 }
 
-async function appDe(cuentaId: string): Promise<{ appId?: string; appSecret?: string }> {
+async function appDe(cuentaId: string): Promise<AppMeta> {
   const integ = await integracionInstagram(cuentaId);
   const cfg = integ?.config ?? {};
-  return { appId: cfg.app_id, appSecret: cfg.app_secret };
+  return { appId: cfg.app_id, appSecret: cfg.app_secret, configId: cfg.config_id || undefined };
 }
 
 /** URL a la que mandar al usuario para que autorice (la abre el botón). */
 export async function urlAutorizacion(cuentaId: string): Promise<{ url: string } | { error: string }> {
-  const { appId } = await appDe(cuentaId);
+  const { appId, configId } = await appDe(cuentaId);
   if (!appId) {
     return { error: 'Falta la App de Meta. Pega tu App ID y App Secret antes de conectar.' };
   }
   // El state firma la cuenta para recuperarla en el callback sin sesión.
   const state = jwt.sign({ cuentaId }, config.jwtSecret, { expiresIn: 600 });
-  const url = `${AUTORIZAR}?client_id=${encodeURIComponent(appId)}` +
+
+  if (configId) {
+    // Flujo B: Facebook Login for Business con configuración.
+    const url = `${FB_DIALOG}?client_id=${encodeURIComponent(appId)}` +
+      `&config_id=${encodeURIComponent(configId)}` +
+      `&redirect_uri=${encodeURIComponent(redirectUri())}` +
+      `&response_type=code&override_default_response_type=true&state=${encodeURIComponent(state)}`;
+    return { url };
+  }
+  // Flujo A: Instagram Login.
+  const url = `${IG_AUTORIZAR}?client_id=${encodeURIComponent(appId)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri())}` +
-    `&response_type=code&scope=${encodeURIComponent(SCOPES)}&state=${encodeURIComponent(state)}`;
+    `&response_type=code&scope=${encodeURIComponent(IG_SCOPES)}&state=${encodeURIComponent(state)}`;
   return { url };
 }
 
@@ -71,61 +96,132 @@ export function cuentaDeState(state: string): string | null {
   }
 }
 
-/** Procesa el callback: intercambia el code por un token largo y guarda todo. */
-export async function manejarCallback(cuentaId: string, code: string): Promise<{ ok: boolean; mensaje: string; username?: string }> {
-  const { appId, appSecret } = await appDe(cuentaId);
+type Resultado = { ok: boolean; mensaje: string; username?: string };
+
+/** Procesa el callback según el flujo configurado. */
+export async function manejarCallback(cuentaId: string, code: string): Promise<Resultado> {
+  const { appId, appSecret, configId } = await appDe(cuentaId);
   if (!appId || !appSecret) return { ok: false, mensaje: 'Faltan las credenciales de la App de Meta.' };
-
   try {
-    // 1. code -> token corto + user_id
-    const form = new URLSearchParams({
-      client_id: appId,
-      client_secret: appSecret,
-      grant_type: 'authorization_code',
-      redirect_uri: redirectUri(),
-      code,
-    });
-    const r1 = await fetch(TOKEN, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
-    const d1: any = await r1.json();
-    if (!r1.ok || d1.error_message || !d1.access_token) {
-      return { ok: false, mensaje: `Instagram rechazó el código: ${d1.error_message ?? JSON.stringify(d1)}` };
-    }
-    const tokenCorto = d1.access_token;
-    const igUserId = String(d1.user_id ?? d1.user?.id ?? '');
-
-    // 2. token corto -> token largo (60 días)
-    const r2 = await fetch(
-      `${GRAPH}/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(appSecret)}&access_token=${encodeURIComponent(tokenCorto)}`,
-      { signal: AbortSignal.timeout(15000) });
-    const d2: any = await r2.json();
-    const tokenLargo = d2.access_token ?? tokenCorto;
-
-    // 3. perfil (username)
-    const r3 = await fetch(
-      `${GRAPH}/me?fields=user_id,username&access_token=${encodeURIComponent(tokenLargo)}`,
-      { signal: AbortSignal.timeout(15000) });
-    const d3: any = await r3.json();
-    const username = d3.username ?? null;
-    const userId = String(d3.user_id ?? igUserId);
-
-    // 4. guardar
-    const integ = await integracionInstagram(cuentaId);
-    const cred = JSON.stringify({ access_token: tokenLargo, ig_user_id: userId, username, tipo_login: 'instagram' });
-    if (integ) {
-      await pool.query(
-        `UPDATE integraciones SET credenciales = credenciales || $2::jsonb,
-                estado='conectado', ultimo_error=NULL WHERE id=$1`, [integ.id, cred]);
-    } else {
-      await pool.query(
-        `INSERT INTO integraciones (cuenta_id, tipo, nombre, credenciales, estado)
-         VALUES ($1,'instagram','Instagram Business',$2::jsonb,'conectado')`, [cuentaId, cred]);
-    }
-    if (username) {
-      await pool.query(`UPDATE cuentas SET ig_username = COALESCE(ig_username, $2) WHERE id=$1`,
-        [cuentaId, username]);
-    }
-    return { ok: true, mensaje: `Instagram conectado como @${username ?? userId}`, username };
+    const r = configId
+      ? await callbackFacebook(cuentaId, code, appId, appSecret)
+      : await callbackInstagram(cuentaId, code, appId, appSecret);
+    if (!r.ok) await marcarError(cuentaId, r.mensaje);
+    return r;
   } catch (err: any) {
+    await marcarError(cuentaId, String(err?.message ?? err));
     return { ok: false, mensaje: `Error conectando con Instagram: ${err?.message ?? err}` };
   }
 }
+
+// ---------------- Flujo B: Facebook Login for Business ----------------
+
+async function callbackFacebook(cuentaId: string, code: string, appId: string, appSecret: string): Promise<Resultado> {
+  // 1. code -> token de usuario (corto)
+  const r1 = await fetch(
+    `${FB_GRAPH}/oauth/access_token?client_id=${encodeURIComponent(appId)}` +
+    `&client_secret=${encodeURIComponent(appSecret)}` +
+    `&redirect_uri=${encodeURIComponent(redirectUri())}&code=${encodeURIComponent(code)}`,
+    { signal: AbortSignal.timeout(15000) });
+  const d1: any = await r1.json();
+  if (!r1.ok || d1.error || !d1.access_token) {
+    return err(`Facebook rechazó el código: ${d1?.error?.message ?? JSON.stringify(d1)}`);
+  }
+
+  // 2. token corto -> token de usuario largo (60 días)
+  const r2 = await fetch(
+    `${FB_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
+    `&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(d1.access_token)}`,
+    { signal: AbortSignal.timeout(15000) });
+  const d2: any = await r2.json();
+  const userToken = d2.access_token ?? d1.access_token;
+
+  // 3. Páginas del usuario + su cuenta de Instagram Business conectada + token de Página
+  const r3 = await fetch(
+    `${FB_GRAPH}/me/accounts?fields=name,access_token,instagram_business_account{id,username,profile_picture_url}` +
+    `&access_token=${encodeURIComponent(userToken)}`,
+    { signal: AbortSignal.timeout(15000) });
+  const d3: any = await r3.json();
+  if (d3.error) return err(`No se pudieron leer tus páginas: ${d3.error.message}`);
+  const pagina = (d3.data ?? []).find((p: any) => p.instagram_business_account);
+  if (!pagina) {
+    return err('Tu Instagram no aparece conectado a ninguna página de Facebook. En la app de Instagram: Configuración → Cuenta → Compartir en otras apps, y vincula tu página de Facebook; luego reconecta.');
+  }
+  const ig = pagina.instagram_business_account;
+
+  await guardarConexion(cuentaId, {
+    tipo_login: 'facebook',
+    user_token: userToken,
+    page_id: pagina.id,
+    page_token: pagina.access_token,
+    ig_user_id: String(ig.id),
+    username: ig.username ?? null,
+  });
+  return { ok: true, mensaje: `Instagram conectado como @${ig.username ?? ig.id}`, username: ig.username };
+}
+
+// ---------------- Flujo A: Instagram Login ----------------
+
+async function callbackInstagram(cuentaId: string, code: string, appId: string, appSecret: string): Promise<Resultado> {
+  const form = new URLSearchParams({
+    client_id: appId, client_secret: appSecret, grant_type: 'authorization_code',
+    redirect_uri: redirectUri(), code,
+  });
+  const r1 = await fetch(IG_TOKEN, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
+  const d1: any = await r1.json();
+  const corto = d1.access_token ?? d1.data?.[0]?.access_token;
+  const uid = d1.user_id ?? d1.data?.[0]?.user_id;
+  if (!r1.ok || d1.error_message || !corto) {
+    return err(`Instagram rechazó el código: ${d1.error_message ?? JSON.stringify(d1)}`);
+  }
+
+  const r2 = await fetch(
+    `${IG_GRAPH}/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(appSecret)}&access_token=${encodeURIComponent(corto)}`,
+    { signal: AbortSignal.timeout(15000) });
+  const d2: any = await r2.json();
+  const largo = d2.access_token ?? corto;
+
+  const r3 = await fetch(
+    `${IG_GRAPH}/me?fields=user_id,username&access_token=${encodeURIComponent(largo)}`,
+    { signal: AbortSignal.timeout(15000) });
+  const d3: any = await r3.json();
+  const username = d3.username ?? null;
+
+  await guardarConexion(cuentaId, {
+    tipo_login: 'instagram',
+    access_token: largo,
+    ig_user_id: String(d3.user_id ?? uid ?? ''),
+    username,
+  });
+  return { ok: true, mensaje: `Instagram conectado como @${username ?? uid}`, username };
+}
+
+// ---------------- Helpers ----------------
+
+async function guardarConexion(cuentaId: string, cred: Record<string, any>) {
+  const integ = await integracionInstagram(cuentaId);
+  const json = JSON.stringify(cred);
+  if (integ) {
+    await pool.query(
+      `UPDATE integraciones SET credenciales = credenciales || $2::jsonb,
+              estado='conectado', ultimo_error=NULL WHERE id=$1`, [integ.id, json]);
+  } else {
+    await pool.query(
+      `INSERT INTO integraciones (cuenta_id, tipo, nombre, credenciales, estado)
+       VALUES ($1,'instagram','Instagram Business',$2::jsonb,'conectado')`, [cuentaId, json]);
+  }
+  if (cred.username) {
+    await pool.query(`UPDATE cuentas SET ig_username = COALESCE(ig_username, $2) WHERE id=$1`,
+      [cuentaId, cred.username]);
+  }
+}
+
+async function marcarError(cuentaId: string, mensaje: string) {
+  const integ = await integracionInstagram(cuentaId);
+  if (integ) {
+    await pool.query(`UPDATE integraciones SET estado='error', ultimo_error=$2 WHERE id=$1`,
+      [integ.id, mensaje.slice(0, 500)]);
+  }
+}
+
+function err(mensaje: string): Resultado { return { ok: false, mensaje }; }
