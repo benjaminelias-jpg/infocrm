@@ -55,7 +55,10 @@ export async function api<T = any>(
     body: json !== undefined ? JSON.stringify(json) : resto.body,
   });
 
-  if (res.status === 401) {
+  // Un 401 en una ruta normal = la sesión caducó → al login. Pero un 401 del
+  // propio login son credenciales incorrectas: no es "sesión caducada", hay que
+  // dejar que el mensaje real del servidor llegue al formulario.
+  if (res.status === 401 && !ruta.startsWith('/auth/')) {
     cerrarSesion();
     throw new ErrorApi(401, 'no_autorizado', 'Sesión caducada');
   }
