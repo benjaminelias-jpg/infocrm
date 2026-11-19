@@ -156,6 +156,8 @@ export default function Conexiones() {
 
   const ig = integraciones.find((i) => i.tipo === 'instagram');
   const conErrores = eventos.filter((e) => e.estado === 'error').length;
+  // El App ID de Meta es numérico: avisamos si pegan un email o el usuario.
+  const appIdInvalido = appForm.app_id.length > 0 && !/^\d{6,}$/.test(appForm.app_id);
 
   if (cargando) return <Cargando />;
 
@@ -286,22 +288,30 @@ export default function Conexiones() {
             <form onSubmit={guardarApp} className="mt-2 flex flex-wrap gap-2">
               <input
                 value={appForm.app_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value }))}
-                placeholder="App ID"
-                className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value.trim() }))}
+                placeholder="App ID (solo números, p. ej. 1088453…)"
+                inputMode="numeric"
+                className="w-[260px] rounded-md border bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+                style={{ borderColor: appIdInvalido ? 'var(--status-critical)' : 'var(--border-hairline)' }}
               />
               <input
                 value={appForm.app_secret}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value }))}
+                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value.trim() }))}
                 type="password"
-                placeholder="App Secret"
+                placeholder="App Secret (texto largo de letras y números)"
                 className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
               />
-              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret}
+              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
                 className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">
                 Guardar App
               </button>
             </form>
+            {appIdInvalido && (
+              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--status-critical)' }}>
+                ⚠ El App ID es un <strong>número</strong> que te da Meta (no tu email ni tu usuario).
+                Lo ves en developers.facebook.com → tu app → arriba, junto al nombre: «ID de la aplicación».
+              </p>
+            )}
           </div>
 
           {/* Paso 2: Conectar */}
