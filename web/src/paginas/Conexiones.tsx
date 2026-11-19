@@ -276,8 +276,11 @@ export default function Conexiones() {
             </div>
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
-              crea una app, añade «Instagram» y pega aquí su App ID y App Secret. En «Instagram →
-              API setup» registra esta <strong>redirect URI</strong>:
+              crea una app y añade el producto «Instagram». Entra en{' '}
+              <strong>«API setup with Instagram login»</strong> y copia de ahí el{' '}
+              <strong>Instagram app ID</strong> y el <strong>Instagram app secret</strong>{' '}
+              (ojo: son los de Instagram, no el App ID general). En esa misma pantalla, en{' '}
+              «Business login settings», pega esta <strong>redirect URI</strong>:
             </p>
             <div className="mt-1.5 flex items-center gap-2">
               <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
@@ -289,7 +292,7 @@ export default function Conexiones() {
               <input
                 value={appForm.app_id}
                 onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value.trim() }))}
-                placeholder="App ID (solo números, p. ej. 1088453…)"
+                placeholder="Instagram app ID (solo números)"
                 inputMode="numeric"
                 className="w-[260px] rounded-md border bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
                 style={{ borderColor: appIdInvalido ? 'var(--status-critical)' : 'var(--border-hairline)' }}
@@ -308,8 +311,9 @@ export default function Conexiones() {
             </form>
             {appIdInvalido && (
               <p className="mt-1.5 text-[11px]" style={{ color: 'var(--status-critical)' }}>
-                ⚠ El App ID es un <strong>número</strong> que te da Meta (no tu email ni tu usuario).
-                Lo ves en developers.facebook.com → tu app → arriba, junto al nombre: «ID de la aplicación».
+                ⚠ El Instagram app ID es un <strong>número</strong> que te da Meta (no tu email ni tu
+                usuario). Lo ves en developers.facebook.com → tu app → Instagram → «API setup with
+                Instagram login» → «Instagram app ID».
               </p>
             )}
           </div>
