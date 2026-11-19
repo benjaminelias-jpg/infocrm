@@ -19,6 +19,12 @@ export async function enviarDM(
   const integ = await integracionInstagram(cuentaId);
   const cred = integ?.credenciales ?? {};
 
+  // Conexión solo-lectura (Instagram vía negocio, sin página): no hay token de
+  // Página, así que todavía no se pueden enviar DMs por la API.
+  if (cred.tipo_login === 'facebook_lectura') {
+    return { ok: false, error: 'Conexión solo-lectura: los DMs necesitan una página de Facebook vinculada a tu Instagram y la revisión de Meta.' };
+  }
+
   // Endpoint y token según el flujo
   let url: string;
   let token: string;

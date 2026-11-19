@@ -137,32 +137,66 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   const d2: any = await r2.json();
   const userToken = d2.access_token ?? d1.access_token;
 
-  // 3. Páginas del usuario + su cuenta de Instagram conectada + token de Página.
-  //    Meta expone la cuenta en instagram_business_account o connected_instagram_account
-  //    según la configuración; miramos ambos. limit alto por si hay muchas páginas.
+  const diag: Record<string, any> = {};
+
+  // 3a. Vía Página (lo ideal: da token de Página y permite DMs).
   const r3 = await fetch(
     `${FB_GRAPH}/me/accounts?limit=100&fields=name,access_token,` +
     `instagram_business_account{id,username},connected_instagram_account{id,username}` +
     `&access_token=${encodeURIComponent(userToken)}`,
     { signal: AbortSignal.timeout(15000) });
   const d3: any = await r3.json();
-  if (d3.error) return err(`No se pudieron leer tus páginas: ${d3.error.message}`);
+  diag.paginas = (d3.data ?? []).length;
+  if (d3.error) diag.paginasError = d3.error.message;
   const pagina = (d3.data ?? []).find(
     (p: any) => p.instagram_business_account || p.connected_instagram_account);
-  if (!pagina) {
-    return err('Autoricé tu cuenta, pero tu Instagram no aparece vinculado a una página de Facebook (hace falta para enviar DMs). Vincula tu cuenta profesional de Instagram a una página de Facebook y vuelve a pulsar "Conectar Instagram".');
+  if (pagina) {
+    const ig = pagina.instagram_business_account ?? pagina.connected_instagram_account;
+    await guardarConexion(cuentaId, {
+      tipo_login: 'facebook', user_token: userToken,
+      page_id: pagina.id, page_token: pagina.access_token,
+      ig_user_id: String(ig.id), username: ig.username ?? null,
+    });
+    return { ok: true, mensaje: `Instagram conectado como @${ig.username ?? ig.id}`, username: ig.username };
   }
-  const ig = pagina.instagram_business_account ?? pagina.connected_instagram_account;
 
-  await guardarConexion(cuentaId, {
-    tipo_login: 'facebook',
-    user_token: userToken,
-    page_id: pagina.id,
-    page_token: pagina.access_token,
-    ig_user_id: String(ig.id),
-    username: ig.username ?? null,
-  });
-  return { ok: true, mensaje: `Instagram conectado como @${ig.username ?? ig.id}`, username: ig.username };
+  // 3b. Fallback: buscar la cuenta de Instagram a través del negocio (solo lectura;
+  //     para DMs hace falta el token de Página + revisión de Meta).
+  let igId: string | undefined, igName: string | undefined;
+  try {
+    const rb = await fetch(
+      `${FB_GRAPH}/me/businesses?fields=id,name&limit=50&access_token=${encodeURIComponent(userToken)}`,
+      { signal: AbortSignal.timeout(15000) });
+    const db: any = await rb.json();
+    diag.negocios = (db.data ?? []).length;
+    if (db.error) diag.negociosError = db.error.message;
+    for (const b of db.data ?? []) {
+      for (const edge of ['owned_instagram_accounts', 'client_instagram_accounts']) {
+        const ri = await fetch(
+          `${FB_GRAPH}/${b.id}/${edge}?fields=id,username&access_token=${encodeURIComponent(userToken)}`,
+          { signal: AbortSignal.timeout(15000) });
+        const di: any = await ri.json();
+        const acc = (di.data ?? [])[0];
+        if (acc?.id) { igId = String(acc.id); igName = acc.username; break; }
+      }
+      if (igId) break;
+    }
+  } catch (e: any) { diag.negociosExcepcion = String(e?.message ?? e); }
+
+  if (igId) {
+    await guardarConexion(cuentaId, {
+      tipo_login: 'facebook_lectura', user_token: userToken,
+      ig_user_id: igId, username: igName ?? null,
+    });
+    return {
+      ok: true, username: igName,
+      mensaje: `Instagram conectado como @${igName ?? igId} (solo lectura: reels y perfil). Para enviar DMs hace falta una página de Facebook vinculada y la revisión de Meta.`,
+    };
+  }
+
+  return err(
+    'Autoricé tu cuenta pero no encuentro tu Instagram ni una página. Lo más probable: a tu app le faltan permisos de página/mensajes (pages_show_list, instagram_manage_messages). ' +
+    `Diagnóstico Meta: ${JSON.stringify(diag)}`);
 }
 
 // ---------------- Flujo A: Instagram Login ----------------

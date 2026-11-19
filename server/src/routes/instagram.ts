@@ -38,7 +38,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const cfg = integ?.config ?? {};
     const cred = integ?.credenciales ?? {};
     const conectado = integ?.estado === 'conectado'
-      && Boolean(cred.access_token || cred.page_token);
+      && Boolean(cred.access_token || cred.page_token || cred.user_token);
     return {
       tiene_app: Boolean(cfg.app_id),
       app_id: cfg.app_id ?? null,
