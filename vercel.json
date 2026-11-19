@@ -9,6 +9,7 @@
     { "source": "/webhooks/(.*)", "destination": "/api/index" },
     { "source": "/salud", "destination": "/api/index" },
     { "source": "/instagram/(.*)", "destination": "/api/index" },
+    { "source": "/recursos/(.*)", "destination": "/api/index" },
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ]
 }

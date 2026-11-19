@@ -12,17 +12,20 @@ import Conexiones from './paginas/Conexiones';
 import Reglas from './paginas/Reglas';
 import Flujos from './paginas/Flujos';
 import Finanzas from './paginas/Finanzas';
+import Recursos from './paginas/Recursos';
+import Icono from './componentes/Iconos';
 
 const NAV = [
-  { a: '/', etiqueta: 'Panel', icono: '◳' },
-  { a: '/contenidos', etiqueta: 'Contenidos', icono: '▶' },
-  { a: '/pipeline', etiqueta: 'Pipeline', icono: '▦' },
-  { a: '/leads', etiqueta: 'Leads', icono: '☰' },
-  { a: '/flujos', etiqueta: 'Flujos (DM)', icono: '✦' },
-  { a: '/finanzas', etiqueta: 'Finanzas', icono: '€' },
-  { a: '/automatizaciones', etiqueta: 'Automatizaciones', icono: '⚡' },
-  { a: '/reglas', etiqueta: 'Reglas', icono: '⚙' },
-  { a: '/conexiones', etiqueta: 'Conexiones', icono: '⇄' },
+  { a: '/', etiqueta: 'Panel', icono: 'panel' },
+  { a: '/contenidos', etiqueta: 'Contenidos', icono: 'contenidos' },
+  { a: '/pipeline', etiqueta: 'Pipeline', icono: 'pipeline' },
+  { a: '/leads', etiqueta: 'Leads', icono: 'leads' },
+  { a: '/flujos', etiqueta: 'Flujos (DM)', icono: 'flujos' },
+  { a: '/recursos', etiqueta: 'Recursos', icono: 'recursos' },
+  { a: '/finanzas', etiqueta: 'Finanzas', icono: 'finanzas' },
+  { a: '/automatizaciones', etiqueta: 'Automatizaciones', icono: 'automatizaciones' },
+  { a: '/reglas', etiqueta: 'Reglas', icono: 'reglas' },
+  { a: '/conexiones', etiqueta: 'Conexiones', icono: 'conexiones' },
 ];
 
 function Login() {
@@ -113,14 +116,14 @@ function Marco({ children }: { children: React.ReactNode }) {
               to={n.a}
               end={n.a === '/'}
               className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-md px-2.5 py-[7px] text-[13px] transition-colors ${
+                `flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors ${
                   isActive
                     ? 'bg-[var(--surface-1)] font-medium text-[var(--text-primary)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--surface-1)]'
                 }`
               }
             >
-              <span className="w-4 text-center text-[12px] opacity-70" aria-hidden>{n.icono}</span>
+              <span className="shrink-0 opacity-80"><Icono nombre={n.icono} tam={19} /></span>
               {n.etiqueta}
             </NavLink>
           ))}
@@ -168,6 +171,7 @@ export default function App() {
         <Route path="/leads" element={<Protegida><Leads /></Protegida>} />
         <Route path="/flujos" element={<Protegida><Flujos /></Protegida>} />
         <Route path="/finanzas" element={<Protegida><Finanzas /></Protegida>} />
+        <Route path="/recursos" element={<Protegida><Recursos /></Protegida>} />
         <Route path="/automatizaciones" element={<Protegida><Automatizaciones /></Protegida>} />
         <Route path="/reglas" element={<Protegida><Reglas /></Protegida>} />
         <Route path="/conexiones" element={<Protegida><Conexiones /></Protegida>} />
