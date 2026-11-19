@@ -106,7 +106,8 @@ export async function construirApp(): Promise<FastifyInstance> {
   const webDist = process.env.WEB_DIST
     ? resolve(process.env.WEB_DIST)
     : resolve(__dirname, '../../web/dist');
-  if (existsSync(join(webDist, 'index.html'))) {
+  // En Vercel el panel lo sirve la CDN estática, no la función.
+  if (!process.env.VERCEL && existsSync(join(webDist, 'index.html'))) {
     await app.register(fastifyStatic, { root: webDist, prefix: '/' });
     // Fallback SPA: cualquier ruta que no sea API/webhooks devuelve index.html
     app.setNotFoundHandler((req, reply) => {

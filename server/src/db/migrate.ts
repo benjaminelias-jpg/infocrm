@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 import { config } from '../config.js';
 
+function sslDe(cs: string) { return /@(localhost|127\.0\.0\.1|db)[:/]/.test(cs) ? undefined : { rejectUnauthorized: false }; }
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, 'migrations');
 
@@ -16,7 +18,7 @@ function dbNameFromUrl(url: string): { adminUrl: string; dbName: string } {
 
 export async function ensureDatabase(url = config.databaseUrl) {
   const { adminUrl, dbName } = dbNameFromUrl(url);
-  const admin = new pg.Client({ connectionString: adminUrl });
+  const admin = new pg.Client({ connectionString: adminUrl, ssl: sslDe(adminUrl) });
   try {
     await admin.connect();
     const { rows } = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
@@ -37,7 +39,7 @@ export async function ensureDatabase(url = config.databaseUrl) {
 
 export async function runMigrations(url = config.databaseUrl, silent = false) {
   await ensureDatabase(url);
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client({ connectionString: url, ssl: sslDe(url) });
   await client.connect();
   try {
     await client.query(`
@@ -80,7 +82,7 @@ export async function runMigrations(url = config.databaseUrl, silent = false) {
 
 export async function resetDatabase(url = config.databaseUrl) {
   await ensureDatabase(url);
-  const client = new pg.Client({ connectionString: url });
+  const client = new pg.Client({ connectionString: url, ssl: sslDe(url) });
   await client.connect();
   try {
     await client.query('DROP SCHEMA public CASCADE; CREATE SCHEMA public;');

@@ -8,9 +8,17 @@ pg.types.setTypeParser(1700, (v: string) => (v === null ? null : Number(v)));
 // bigint (eventos.id, toques.id): los IDs caben en Number.MAX_SAFE_INTEGER
 pg.types.setTypeParser(20, (v: string) => (v === null ? null : Number(v)));
 
+/** Los Postgres gestionados (Neon, Supabase, Railway…) exigen SSL; los locales no. */
+export function sslDe(connectionString: string) {
+  const local = /@(localhost|127\.0\.0\.1|db)[:/]/.test(connectionString);
+  return local ? undefined : { rejectUnauthorized: false };
+}
+
 export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
-  max: config.isTest ? 5 : 20,
+  ssl: sslDe(config.databaseUrl),
+  // En serverless conviene un pool pequeño (muchas instancias efímeras).
+  max: config.isTest ? 5 : process.env.VERCEL ? 3 : 20,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 10_000,
 });
