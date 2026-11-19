@@ -17,15 +17,21 @@ function dbNameFromUrl(url: string): { adminUrl: string; dbName: string } {
 export async function ensureDatabase(url = config.databaseUrl) {
   const { adminUrl, dbName } = dbNameFromUrl(url);
   const admin = new pg.Client({ connectionString: adminUrl });
-  await admin.connect();
   try {
+    await admin.connect();
     const { rows } = await admin.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
     if (rows.length === 0) {
       await admin.query(`CREATE DATABASE "${dbName}"`);
       console.log(`[migrate] base de datos creada: ${dbName}`);
     }
+  } catch (err) {
+    // En Postgres gestionado (Neon, Supabase, Railway…) la base ya existe y
+    // normalmente no se puede conectar a "postgres" ni crear bases. No pasa
+    // nada: seguimos y migramos directamente contra DATABASE_URL.
+    console.warn(`[migrate] no se pudo verificar/crear la base (${(err as Error).message}). ` +
+      'Se asume que ya existe y se continúa.');
   } finally {
-    await admin.end();
+    await admin.end().catch(() => {});
   }
 }
 

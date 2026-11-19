@@ -1,0 +1,34 @@
+# Levanta InfoCRM completo en local o en un self-host con un solo comando:
+#   docker compose up --build
+# Panel + API en http://localhost:4000  ·  Postgres en el contenedor db.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: infocrm
+    volumes:
+      - infocrm_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://postgres:postgres@db:5432/infocrm
+      JWT_SECRET: ${JWT_SECRET:-cambia-esto-por-un-secreto-largo}
+      API_URL: ${API_URL:-http://localhost:4000}
+      APP_URL: ${APP_URL:-http://localhost:4000}
+    ports:
+      - "4000:4000"
+
+volumes:
+  infocrm_pgdata:

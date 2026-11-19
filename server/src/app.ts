@@ -1,6 +1,12 @@
 import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
 import { ZodError } from 'zod';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import { config } from './config.js';
 import { AppError, noAutorizado } from './lib/errores.js';
 import { verificarToken, resolverApiKey, type Sesion } from './lib/auth.js';
@@ -93,6 +99,25 @@ export async function construirApp(): Promise<FastifyInstance> {
   await app.register(rutasAnalitica, { prefix: '/api/analitica' });
   await app.register(rutasConfig, { prefix: '/api' });
   await app.register(rutasWebhooks);
+
+  // En producción, el mismo servicio sirve el panel ya compilado (web/dist).
+  // Así el despliegue es UN solo contenedor + Postgres, en vez de dos servicios.
+  // WEB_DIST apunta a la carpeta del build; si no existe, no se sirve nada.
+  const webDist = process.env.WEB_DIST
+    ? resolve(process.env.WEB_DIST)
+    : resolve(__dirname, '../../web/dist');
+  if (existsSync(join(webDist, 'index.html'))) {
+    await app.register(fastifyStatic, { root: webDist, prefix: '/' });
+    // Fallback SPA: cualquier ruta que no sea API/webhooks devuelve index.html
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === 'GET' && !req.url.startsWith('/api/') &&
+          !req.url.startsWith('/webhooks') && !req.url.startsWith('/salud')) {
+        return reply.sendFile('index.html');
+      }
+      return reply.code(404).send({ error: 'no_encontrado', mensaje: 'Ruta no encontrada' });
+    });
+    app.log?.info(`Sirviendo el panel desde ${webDist}`);
+  }
 
   return app;
 }
