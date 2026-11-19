@@ -95,7 +95,13 @@ export async function resetDatabase(url = config.databaseUrl) {
 const entryPoint = process.argv[1] && import.meta.url === `file://${process.argv[1]}`;
 if (entryPoint) {
   const cmd = process.argv[2] ?? 'up';
-  const run = cmd === 'reset' ? resetDatabase() : runMigrations();
+  // Para DDL conviene la conexión DIRECTA (no la del pooler). Neon/Vercel la
+  // exponen como DATABASE_URL_UNPOOLED / POSTGRES_URL_NON_POOLING.
+  const urlMigracion =
+    process.env.DATABASE_URL_UNPOOLED ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    config.databaseUrl;
+  const run = cmd === 'reset' ? resetDatabase(urlMigracion) : runMigrations(urlMigracion);
   run
     .then(() => process.exit(0))
     .catch((err) => {
