@@ -135,7 +135,7 @@ export function Dialogo({
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4">
       <div className="ui-fundido absolute inset-0 bg-black/35" onClick={onCerrar} aria-hidden />
       <div ref={caja} role="dialog" aria-modal="true" aria-labelledby={titulo ? id : undefined} tabIndex={-1}
-        className={`${movil ? 'ui-subir w-full rounded-t-2xl pb-[max(16px,env(safe-area-inset-bottom))]' : 'ui-aparecer rounded-2xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
+        className={`${movil ? `ui-subir w-full rounded-t-2xl ${pie ? '' : 'pb-[max(16px,env(safe-area-inset-bottom))]'}` : 'ui-aparecer rounded-2xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
         style={{ background: 'var(--surface-1)', width: movil ? '100%' : ancho, border: '1px solid var(--border-hairline)' }}>
         {/* Encabezado fijo: en guías largas el título y la ✕ no se van; en el celular se arrastra para cerrar. */}
         <div {...arrastre} className={`sticky top-0 z-10 ${titulo || descripcion ? '' : 'pb-1'}`} style={{ background: 'var(--surface-1)', ...arrastre.style }}>
@@ -151,7 +151,13 @@ export function Dialogo({
           )}
         </div>
         <div className="px-5 py-3">{children}</div>
-        {pie && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-hairline)] px-5 py-3">{pie}</div>}
+        {/* Pie fijo abajo: en formularios largos el botón principal siempre está a mano. */}
+        {pie && (
+          <div className={`sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-hairline)] px-5 py-3 ${movil ? 'pb-[max(12px,env(safe-area-inset-bottom))]' : ''}`}
+            style={{ background: 'var(--surface-1)' }}>
+            {pie}
+          </div>
+        )}
       </div>
     </div>,
     document.body,

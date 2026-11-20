@@ -9,7 +9,8 @@ type Diccionario = Record<string, { texto: string; tono?: Tono }>;
 export const TEXTOS: Record<string, Diccionario> = {
   // Ventas (Finanzas)
   venta: {
-    activa: { texto: 'Activa', tono: 'azul' },
+    // "activa" = venta cargada que todavía no se terminó de cobrar.
+    activa: { texto: 'Por cobrar', tono: 'amarillo' },
     completada: { texto: 'Pagada', tono: 'verde' },
     en_cuotas: { texto: 'En cuotas', tono: 'azul' },
     en_mora: { texto: 'Atrasada', tono: 'rojo' },
@@ -24,6 +25,7 @@ export const TEXTOS: Record<string, Diccionario> = {
     fallido: { texto: 'Rechazado', tono: 'rojo' },
     reembolsado: { texto: 'Devuelto', tono: 'rojo' },
     reagendado: { texto: 'Reprogramado', tono: 'azul' },
+    atrasada: { texto: 'Atrasada', tono: 'rojo' },
   },
   metodo: {
     tarjeta: { texto: 'Tarjeta' },

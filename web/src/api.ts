@@ -142,6 +142,14 @@ export const fmtDinero = (n: number | string | null | undefined, moneda?: string
   return nf(`din-${m}`, { style: 'currency', currency: m, maximumFractionDigits: 0, minimumFractionDigits: 0 }).format(Number(n ?? 0));
 };
 
+/** Plata con centavos solo cuando los hay: 165,67 € pero 1.497 €. */
+export const fmtDineroExacto = (n: number | string | null | undefined, moneda?: string) => {
+  const v = Number(n ?? 0);
+  if (Math.abs(v - Math.round(v)) < 0.005) return fmtDinero(Math.round(v), moneda);
+  const m = moneda || monedaCuenta();
+  return nf(`dinx-${m}`, { style: 'currency', currency: m, maximumFractionDigits: 2, minimumFractionDigits: 2 }).format(v);
+};
+
 export const fmtPct = (n: number | string | null | undefined) =>
   `${nf('pct', { maximumFractionDigits: 1 }).format(Number(n ?? 0))} %`;
 

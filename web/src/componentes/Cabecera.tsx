@@ -33,19 +33,20 @@ export function RangoFechas({
 }: { rango: Rango; setRango: (r: Rango) => void }) {
   return (
     <div
-      className="flex items-center gap-0.5 rounded-md p-0.5"
-      style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}
+      className="flex items-center gap-0.5 rounded-[12px] p-1"
+      style={{ background: 'var(--surface-2)' }}
       role="group"
       aria-label="Rango de fechas"
     >
       {OPCIONES.map((o) => (
         <button
           key={o.valor}
+          type="button"
           onClick={() => setRango(o.valor)}
           aria-pressed={rango === o.valor}
-          className={`rounded px-2.5 py-1 text-[12px] transition-colors ${
+          className={`ui-foco h-8 rounded-[9px] px-3 text-[12px] font-semibold transition-colors md:h-7 ${
             rango === o.valor
-              ? 'bg-[var(--surface-1)] font-medium text-[var(--text-primary)] shadow-sm'
+              ? 'bg-[var(--surface-1)] text-[var(--text-primary)] shadow-sm'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
         >
@@ -67,7 +68,7 @@ export default function Cabecera({
   return (
     <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
       <div className="min-w-0">
-        <h1 className="flex items-center gap-1.5 text-[18px] font-semibold tracking-tight sm:text-[20px]">
+        <h1 className="flex items-center gap-1.5 text-[19px] font-bold tracking-tight sm:text-[22px]">
           {titulo}
           {subtitulo && <span className="sm:hidden"><Ayuda titulo={titulo}>{subtitulo}</Ayuda></span>}
         </h1>
