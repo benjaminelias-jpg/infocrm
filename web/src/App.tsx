@@ -14,6 +14,8 @@ import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
 import FichaLead from './componentes/FichaLead';
 import { useFicha } from './componentes/useFicha';
+import BuscadorGlobal, { useAtajoBuscar } from './componentes/BuscadorGlobal';
+import ErrorPantalla from './componentes/ErrorPantalla';
 import {
   ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Entrada, useTema, type Tema,
 } from './ui';
@@ -36,8 +38,31 @@ const GRUPOS: Array<{ rotulo?: string; items: Destino[] }> = [
   { rotulo: 'Crecer', items: [CONTENIDOS, AUTOMENSAJES] },
   { rotulo: 'Negocio', items: [FINANZAS, CONFIG] },
 ];
-const BARRA: Destino[] = [PANEL, CHAT, PIPELINE, LEADS];
-const EN_MAS: Destino[] = [CONTENIDOS, AUTOMENSAJES, FINANZAS, CONFIG];
+const TODOS: Destino[] = [PANEL, CHAT, PIPELINE, LEADS, CONTENIDOS, AUTOMENSAJES, FINANZAS, CONFIG];
+
+/**
+ * Lo que ve cada rol. El setter y el closer, lo del día a día (sin plata ni
+ * configuración); el dueño y los admins, todo. En el celular, los primeros 4
+ * van en la barra de abajo y el resto en "Más".
+ */
+function permitidos(rol?: string): Destino[] {
+  if (rol === 'setter') return [CHAT, PIPELINE, LEADS, CONTENIDOS];
+  if (rol === 'closer') return [PIPELINE, CHAT, LEADS];
+  return TODOS;
+}
+
+/** ¿Hay internet? Para avisar con una banda fina en vez de dejar que todo falle en silencio. */
+function useEnLinea() {
+  const [enLinea, setEnLinea] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine !== false));
+  useEffect(() => {
+    const si = () => setEnLinea(true);
+    const no = () => setEnLinea(false);
+    window.addEventListener('online', si);
+    window.addEventListener('offline', no);
+    return () => { window.removeEventListener('online', si); window.removeEventListener('offline', no); };
+  }, []);
+  return enLinea;
+}
 
 const activo = (d: Destino, ruta: string) => (d.a === '/' ? ruta === '/' : ruta === d.a || ruta.startsWith(`${d.a}/`));
 
@@ -175,7 +200,15 @@ function Marco({ children }: { children: React.ReactNode }) {
   const ficha = useFicha();
   const ruta = ubicacion.pathname;
   const conBarra = !SUBPANTALLA.test(ruta);
+  const enLinea = useEnLinea();
+  const [buscar, setBuscar] = useState(false);
+  useAtajoBuscar(useCallback(() => setBuscar(true), []));
+  const visibles = permitidos(sesion?.usuario?.rol);
+  const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((d) => visibles.includes(d)) })).filter((g) => g.items.length);
+  const BARRA = visibles.slice(0, 4);
+  const EN_MAS = visibles.slice(4);
   const enMas = EN_MAS.some((d) => activo(d, ruta));
+  const prohibida = TODOS.some((d) => !visibles.includes(d) && activo(d, ruta));
 
   // Sesión vencida (cualquier llamada a la API devolvió 401): al login sin
   // recargar, recordando a dónde volver.
@@ -191,23 +224,31 @@ function Marco({ children }: { children: React.ReactNode }) {
 
   // Título de la pestaña según la pantalla ("Chat · InfoCRM").
   useEffect(() => {
-    const d = [...BARRA, ...EN_MAS].find((x) => activo(x, ruta));
+    const d = TODOS.find((x) => activo(x, ruta));
     document.title = d ? `${d.etiqueta} · InfoCRM` : 'InfoCRM';
   }, [ruta]);
 
   const nombre = sesion?.usuario?.nombre ?? '';
+  // Una pantalla que este rol no usa: a la primera que sí.
+  if (prohibida) return <Navigate to={visibles[0].a} replace />;
 
   return (
     <div className={`flex min-h-screen flex-col md:flex-row ${conBarra ? 'con-barra-inf' : ''}`}>
       {/* Menú lateral (escritorio) */}
       <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-[var(--border-hairline)] px-3 py-4 md:flex">
-        <div className="mb-4 px-2">
+        <div className="mb-3 px-2">
           <div className="text-[15px] font-semibold tracking-tight">InfoCRM</div>
           <div className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{sesion?.cuenta?.nombre ?? ''}</div>
         </div>
+        <button type="button" onClick={() => setBuscar(true)}
+          className="ui-foco mb-3 flex h-9 items-center gap-2 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2.5 text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]">
+          <Icono nombre="buscar" tam={15} />
+          <span className="flex-1">Buscar lead…</span>
+          <kbd className="rounded border border-[var(--border-hairline)] px-1 text-[10px] font-sans">⌘K</kbd>
+        </button>
 
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Principal">
-          {GRUPOS.map((g, i) => (
+          {grupos.map((g, i) => (
             <div key={i} className={i ? 'mt-3' : ''}>
               {g.rotulo && <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{g.rotulo}</div>}
               {g.items.map((n) => (
@@ -243,7 +284,16 @@ function Marco({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      <main className={`min-w-0 flex-1 ${conBarra ? 'pb-[var(--alto-barra-inf)] md:pb-0' : ''}`}>{children}</main>
+      <main className={`min-w-0 flex-1 ${conBarra ? 'pb-[var(--alto-barra-inf)] md:pb-0' : ''}`}>
+        {!enLinea && (
+          <div role="status" className="sticky top-0 z-30 px-4 py-1.5 text-center text-[12px] font-medium"
+            style={{ background: 'var(--status-warning)', color: '#1a1a19' }}>
+            Sin conexión: lo que hagas puede no guardarse hasta que vuelva internet.
+          </div>
+        )}
+        <ErrorPantalla key={ruta}>{children}</ErrorPantalla>
+      </main>
+      <BuscadorGlobal abierto={buscar} onCerrar={() => setBuscar(false)} />
 
       {/* Ficha del lead global (?ficha=<id>): se abre desde cualquier pantalla y Atrás la cierra. */}
       {ficha.abierta && <FichaLead key={ficha.abierta} leadId={ficha.abierta} alCerrar={ficha.cerrar} />}
@@ -251,8 +301,8 @@ function Marco({ children }: { children: React.ReactNode }) {
       {/* Barra inferior (celular): lo del día a día a un toque; el resto en "Más". */}
       {conBarra && (
         <nav aria-label="Principal"
-          className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--border-hairline)] pb-[env(safe-area-inset-bottom)] md:hidden"
-          style={{ background: 'var(--page-plane)' }}>
+          className="fixed inset-x-0 bottom-0 z-40 grid border-t border-[var(--border-hairline)] pb-[env(safe-area-inset-bottom)] md:hidden"
+          style={{ background: 'var(--page-plane)', gridTemplateColumns: `repeat(${BARRA.length + 1}, minmax(0, 1fr))` }}>
           {BARRA.map((n) => {
             const on = activo(n, ruta);
             return (
@@ -275,6 +325,8 @@ function Marco({ children }: { children: React.ReactNode }) {
               Más
             </button>
           )} className="w-full">
+            <ItemMenu icono={<Icono nombre="buscar" tam={18} />} onClick={() => setBuscar(true)}>Buscar un lead</ItemMenu>
+            {EN_MAS.length > 0 && <SeparadorMenu />}
             {EN_MAS.map((n) => (
               <ItemMenu key={n.a} icono={<Icono nombre={n.icono} tam={18} />} activo={activo(n, ruta)} onClick={() => navegar(n.a)}>
                 {n.etiqueta}
