@@ -628,7 +628,7 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
   const chipRevision = (
     <Menu alinear="derecha" ancho={320} titulo={revision.problemas.length ? 'Para completar' : 'Avisos'} disparador={({ alternar, abierto }) => (
       <button type="button" onClick={totalRevision ? alternar : undefined} aria-expanded={abierto}
-        className="ui-foco inline-flex h-8 items-center gap-1 rounded-full px-2.5 text-[12px] font-medium"
+        className="ui-foco inline-flex h-8 items-center gap-1 rounded-[10px] px-2.5 text-[12px] font-semibold"
         style={revision.problemas.length
           ? { background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)' }
           : revision.advertencias.length

@@ -333,7 +333,7 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
       {(onCrear || onNuevo) && (
         <button type="button" onClick={() => (onNuevo ? onNuevo() : setCreando((v) => !v))} aria-label={`Crear ${queEs}`} title={`Crear ${queEs}`}
           className="ui-foco flex h-10 w-10 items-center justify-center rounded-lg text-[18px] font-medium text-white shadow-sm hover:brightness-110 md:h-9 md:w-9"
-          style={{ background: 'var(--series-1)' }}>+</button>
+          style={{ background: 'var(--accion)' }}>+</button>
       )}
       {creando && (
         <form onSubmit={crear} className="ui-aparecer absolute left-0 top-[calc(100%+6px)] z-50 flex w-[min(320px,86vw)] flex-col gap-2 rounded-xl p-3 shadow-xl"
@@ -344,7 +344,7 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
             className="ui-control h-10 w-full rounded-lg px-3 text-[16px] md:h-9 md:text-[13px]" />
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => { setCreando(false); setNombre(''); }} className="ui-foco h-9 rounded-lg px-3 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--page-plane)]">Cancelar</button>
-            <button type="submit" disabled={!nombre.trim() || ocupado} className="ui-foco h-9 rounded-lg px-3 text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--series-1)' }}>
+            <button type="submit" disabled={!nombre.trim() || ocupado} className="ui-foco h-9 rounded-[10px] px-3 text-[12px] font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accion)' }}>
               {ocupado ? 'Creando…' : `Crear ${queEs}`}
             </button>
           </div>
