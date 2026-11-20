@@ -27,10 +27,11 @@ export function etapaEmbudoDe(angulo: string | null | undefined): string | null 
 }
 
 export const ETIQUETA_ANGULO: Record<string, string> = {
-  video_abierto: 'Vídeo abierto (TOFU)',
-  problema: 'Problema (MOFU)',
-  solucion: 'Solución (MOFU)',
-  producto: 'Producto / caso (BOFU)',
+  // La etapa del embudo ya viaja aparte (etapa_embudo): la etiqueta va limpia.
+  video_abierto: 'Video abierto',
+  problema: 'Problema',
+  solucion: 'Solución',
+  producto: 'Producto / caso',
   mentalidad: 'Mentalidad',
   narrativa: 'Narrativa de autoridad',
   otro: 'Otro',
@@ -311,10 +312,17 @@ export async function metasProgreso(cuentaId: string) {
        (SELECT COUNT(*) FROM leads l
           WHERE l.cuenta_id = $1 AND l.primer_contacto_en >= date_trunc('month', now())
             AND l.calificacion = 'calificado') AS calificados,
-       (SELECT COUNT(*) FROM eventos e
-          WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now())) AS ventas,
-       (SELECT COALESCE(SUM(e.valor),0) FROM eventos e
-          WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now())) AS ingresos`,
+       -- Neto, como las tarjetas del Panel: las devoluciones del mes restan.
+       GREATEST(
+         (SELECT COUNT(*) FROM eventos e
+            WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now()))
+         - (SELECT COUNT(*) FROM eventos e
+            WHERE e.cuenta_id = $1 AND e.tipo = 'reembolso' AND e.ocurrido_en >= date_trunc('month', now())), 0) AS ventas,
+       GREATEST(
+         (SELECT COALESCE(SUM(e.valor),0) FROM eventos e
+            WHERE e.cuenta_id = $1 AND e.tipo = 'venta' AND e.ocurrido_en >= date_trunc('month', now()))
+         - (SELECT COALESCE(SUM(e.valor),0) FROM eventos e
+            WHERE e.cuenta_id = $1 AND e.tipo = 'reembolso' AND e.ocurrido_en >= date_trunc('month', now())), 0) AS ingresos`,
     [cuentaId]);
 
   const n = (v: any) => Number(v ?? 0);
@@ -363,7 +371,7 @@ export async function mezclaContenido(cuentaId: string) {
     dias_muestra: dias,
     muestra_suficiente: dias >= 90, // la regla 70-20-10 pide ≥3 meses
     aviso: dias < 90
-      ? 'Muestra menor de 3 meses: no tomes decisiones de contenido definitivas todavía (regla 70-20-10).'
+      ? 'Hay menos de 3 meses de contenido: no tomés decisiones definitivas todavía (regla 70-20-10).'
       : null,
   };
 }

@@ -3,7 +3,7 @@
 // método en todas las pantallas.
 
 export const ANGULOS: Array<{ valor: string; etiqueta: string; embudo: string }> = [
-  { valor: 'video_abierto', etiqueta: 'Vídeo abierto', embudo: 'TOFU' },
+  { valor: 'video_abierto', etiqueta: 'Video abierto', embudo: 'TOFU' },
   { valor: 'problema', etiqueta: 'Problema', embudo: 'MOFU' },
   { valor: 'solucion', etiqueta: 'Solución', embudo: 'MOFU' },
   { valor: 'producto', etiqueta: 'Producto / caso', embudo: 'BOFU' },
@@ -30,13 +30,13 @@ export const EMBUDO_DE_ANGULO: Record<string, string> = Object.fromEntries(
 );
 
 export const ROLES: Record<string, { etiqueta: string; color: string; ayuda: string }> = {
-  caballo: { etiqueta: 'Caballo de batalla', color: 'var(--status-good)', ayuda: 'Sostiene la cuenta. Protégelo e itera la ejecución, no el ángulo.' },
+  caballo: { etiqueta: 'Caballo de batalla', color: 'var(--status-good)', ayuda: 'Sostiene la cuenta. Protegelo e iterá la ejecución, no el ángulo.' },
   closer: { etiqueta: 'Closer', color: 'var(--series-3)', ayuda: 'Convierte muy bien con pocos leads. Dale más alcance.' },
-  prospector: { etiqueta: 'Prospector', color: 'var(--series-1)', ayuda: 'Trae volumen barato. Júzgalo por alcance y leads, no por ventas.' },
-  calificador: { etiqueta: 'Calificador', color: 'var(--series-2)', ayuda: 'Filtra antes del clic. No lo mates por coste por lead.' },
-  abridor: { etiqueta: 'Abridor', color: 'var(--ramp-5)', ayuda: 'Detiene el scroll. Arregla la coherencia con el destino.' },
+  prospector: { etiqueta: 'Prospector', color: 'var(--series-1)', ayuda: 'Trae volumen barato. Juzgalo por alcance y leads, no por ventas.' },
+  calificador: { etiqueta: 'Calificador', color: 'var(--series-2)', ayuda: 'Filtra antes del clic. No lo descartes por el costo por lead.' },
+  abridor: { etiqueta: 'Abridor', color: 'var(--ramp-5)', ayuda: 'Frena el scroll. Arreglá la coherencia con lo que promete.' },
   lastre: { etiqueta: 'Lastre', color: 'var(--status-critical)', ayuda: 'Ni volumen ni conversión. Candidato a dejar de priorizar.' },
-  explorador: { etiqueta: 'Explorador', color: 'var(--text-muted)', ayuda: 'Aún sin datos suficientes. Déjalo correr.' },
+  explorador: { etiqueta: 'Explorador', color: 'var(--text-muted)', ayuda: 'Todavía sin datos suficientes. Dejalo correr.' },
   estable: { etiqueta: 'Estable', color: 'var(--text-muted)', ayuda: 'Rinde en la media del resto.' },
   sin_atribuir: { etiqueta: 'Sin atribuir', color: 'var(--baseline)', ayuda: 'Leads sin contenido de origen.' },
 };

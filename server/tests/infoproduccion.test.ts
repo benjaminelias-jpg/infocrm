@@ -252,6 +252,23 @@ describe('reconciliación del vídeo (grado, pago, metas)', () => {
     expect(p.progreso!.leads).toBe(20); // 2/10
     expect(p.progreso!.ventas).toBe(50); // 1/2
   });
+
+  it('metasProgreso cuenta neto: una devolución del mes resta la venta y la plata', async () => {
+    const { cuenta } = await cuentaDePrueba('MetasNeto');
+    await queryOne(
+      `INSERT INTO metas (cuenta_id, mes, ventas_meta, ingresos_meta)
+       VALUES ($1, date_trunc('month', now())::date, 4, 2000)`, [cuenta.id]);
+    const a = await registrarEvento({ cuentaId: cuenta.id, tipo: 'lead_creado', identidad: { igUsername: 'n1' }, sinReglas: true });
+    const b = await registrarEvento({ cuentaId: cuenta.id, tipo: 'lead_creado', identidad: { igUsername: 'n2' }, sinReglas: true });
+    await registrarEvento({ cuentaId: cuenta.id, tipo: 'venta', leadId: a.leadId, valor: 800, sinReglas: true });
+    await registrarEvento({ cuentaId: cuenta.id, tipo: 'venta', leadId: b.leadId, valor: 600, sinReglas: true });
+    await registrarEvento({ cuentaId: cuenta.id, tipo: 'reembolso', leadId: b.leadId, valor: 600, sinReglas: true });
+
+    const p = await metasProgreso(cuenta.id);
+    expect(p.real.ventas).toBe(1);
+    expect(p.real.ingresos).toBe(800);
+    expect(p.progreso!.ingresos).toBe(40); // 800/2000
+  });
 });
 
 describe('seguridad multi-cuenta', () => {
