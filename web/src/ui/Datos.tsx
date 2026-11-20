@@ -12,10 +12,12 @@ export interface Columna<T> {
 }
 
 export function TablaResponsiva<T>({
-  columnas, filas, clave, onFila, vacio, filaActiva, ocultarCabecera,
+  columnas, filas, clave, onFila, vacio, filaActiva, ocultarCabecera, accionesFila,
 }: {
   columnas: Array<Columna<T>>; filas: T[]; clave: (f: T) => string; onFila?: (f: T) => void;
   vacio?: React.ReactNode; filaActiva?: (f: T) => boolean; ocultarCabecera?: boolean;
+  /** Botones de la fila (p. ej. «Cobrada ✓», ⋯): última columna en escritorio y pie de la tarjeta en el celular. No abren la fila. */
+  accionesFila?: (f: T) => React.ReactNode;
 }) {
   if (!filas.length) return <>{vacio ?? null}</>;
   const titulo = columnas.find((c) => c.enMovil === 'titulo') ?? columnas[0];
@@ -33,6 +35,7 @@ export function TablaResponsiva<T>({
                 {columnas.map((c) => (
                   <th key={c.clave} className={`px-3 py-2.5 font-medium first:pl-4 last:pr-4 ${c.alinear === 'der' ? 'text-right' : ''}`} style={c.ancho ? { width: c.ancho } : undefined}>{c.titulo}</th>
                 ))}
+                {accionesFila && <th className="px-3 py-2.5 last:pr-4" aria-label="Acciones" />}
               </tr>
             </thead>
           )}
@@ -43,6 +46,11 @@ export function TablaResponsiva<T>({
                 {columnas.map((c) => (
                   <td key={c.clave} className={`px-3 py-2.5 align-middle first:pl-4 last:pr-4 ${c.alinear === 'der' ? 'cifras text-right' : ''}`}>{c.render(f)}</td>
                 ))}
+                {accionesFila && (
+                  <td className="px-3 py-1.5 text-right align-middle last:pr-4" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                    <div className="inline-flex items-center justify-end gap-1.5">{accionesFila(f)}</div>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -73,6 +81,12 @@ export function TablaResponsiva<T>({
                     </div>
                   ))}
                 </dl>
+              )}
+              {accionesFila && (
+                <div className="mt-2.5 flex flex-wrap items-center justify-end gap-1.5 border-t border-[var(--border-hairline)] pt-2.5"
+                  onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+                  {accionesFila(f)}
+                </div>
               )}
             </div>
           </li>

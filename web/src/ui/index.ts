@@ -12,6 +12,7 @@ export {
 } from './Basicos';
 export type { Tono } from './Basicos';
 export { TablaResponsiva } from './Datos';
+export { Estado } from './Estado';
 export type { Columna } from './Datos';
 export { PasosGuiados, Verificacion, TarjetaIntegracion } from './Guias';
 export { useCarga, ErrorCarga } from './Estados';
