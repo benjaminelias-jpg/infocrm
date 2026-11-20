@@ -5,6 +5,7 @@ import { Cargando } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 import Pizarra, { DISPAROS, NODOS, arbolAGrafo, uid, type Ctx, type Paso } from '../componentes/Pizarra';
 import Automatizaciones from './Automatizaciones';
+import { Dialogo, Boton } from '../ui';
 
 // =====================================================================
 // Automensajes: tu ManyChat propio. La lista de flujos + plantillas, y al
@@ -115,6 +116,8 @@ export default function Flujos() {
   const [prueba, setPrueba] = useState<{ abierta: boolean; respuestas: Record<string, string>; resultado: any }>({ abierta: false, respuestas: {}, resultado: null });
   const [guardando, setGuardando] = useState(false);
   const [cambios, setCambios] = useState(false);
+  const [salir, setSalir] = useState(false);
+  const [borrador, setBorrador] = useState<{ form: any; en: number } | null>(null);
 
   async function cargar() {
     const [f, rec, pipes, et, cont] = await Promise.all([
@@ -141,13 +144,19 @@ export default function Flujos() {
   }
   useEffect(() => { cargar(); }, []);
 
-  // Cambios sin guardar: avisar antes de cerrar la pestaña.
+  // Borrador automático (sin ventanas del navegador): si se cierra la pestaña
+  // o se corta la luz, los cambios sin guardar quedan para recuperarlos.
+  const claveBorrador = (id: string | null) => `infocrm_borrador_flujo_${id ?? 'nuevo'}`;
   useEffect(() => {
     if (!abierto || !cambios) return;
-    const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
-    window.addEventListener('beforeunload', h);
-    return () => window.removeEventListener('beforeunload', h);
-  }, [abierto, cambios]);
+    const t = window.setTimeout(() => {
+      try { localStorage.setItem(claveBorrador(editando), JSON.stringify({ form, en: Date.now() })); } catch { /* sin almacenamiento */ }
+    }, 500);
+    return () => window.clearTimeout(t);
+  }, [abierto, cambios, form, editando]);
+  function borrarBorrador(id: string | null) {
+    try { localStorage.removeItem(claveBorrador(id)); } catch { /* sin almacenamiento */ }
+  }
 
   const setFormEditado = (f: (x: any) => any) => { setForm(f); setCambios(true); };
 
@@ -175,6 +184,11 @@ export default function Flujos() {
     setEditando(id); setAbierto(true); setAvisos([]); setMarcados([]); setAviso(null); setCambios(!id);
     setPrueba({ abierta: false, respuestas: {}, resultado: null });
     setForm(datos);
+    // ¿Quedó un borrador sin guardar de la última vez?
+    try {
+      const b = localStorage.getItem(claveBorrador(id));
+      setBorrador(b ? JSON.parse(b) : null);
+    } catch { setBorrador(null); }
   }
   function nuevoFlujo(pl?: any) {
     abrir(pl
@@ -185,9 +199,14 @@ export default function Flujos() {
     const pasos = (fl.pasos ?? []).map((p: any) => (p.tipo === 'entregar_recurso' ? { ...p, tipo: 'enviar_dm', texto: p.recurso ?? p.texto ?? '' } : p));
     abrir({ nombre: fl.nombre, disparo: fl.disparo, palabra_clave: fl.palabra_clave ?? '', contenido_id: fl.contenido_id ?? '', pasos, activo: fl.activo }, fl.id);
   }
+  function cerrarDefinitivo() {
+    if (cambios) borrarBorrador(editando);
+    setSalir(false); setAbierto(false); setEditando(null); setForm(FLUJO_VACIO);
+    setAvisos([]); setMarcados([]); setCambios(false); setBorrador(null);
+  }
   function cerrar() {
-    if (cambios && !window.confirm('Tenés cambios sin guardar. ¿Salir igual?')) return;
-    setAbierto(false); setEditando(null); setForm(FLUJO_VACIO); setAvisos([]); setMarcados([]); setCambios(false);
+    if (cambios) { setSalir(true); return; }
+    cerrarDefinitivo();
   }
 
   async function guardar(): Promise<string | null> {
@@ -202,6 +221,8 @@ export default function Flujos() {
       const r = editando
         ? await api<any>(`/flujos/${editando}`, { method: 'PATCH', json: cuerpo })
         : await api<any>('/flujos', { method: 'POST', json: cuerpo });
+      borrarBorrador(editando);
+      setBorrador(null);
       setEditando(r.id);
       setForm((f: any) => ({ ...f, activo: r.activo, pasos: r.pasos }));
       setAvisos(r.avisos ?? []);
@@ -265,6 +286,14 @@ export default function Flujos() {
           </button>
         </div>
 
+        {borrador && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-hairline)] px-3 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--page-plane))' }}>
+            <span>📝 Quedaron cambios sin guardar{borrador.form?.nombre ? ` en «${borrador.form.nombre}»` : ''} de la última vez.</span>
+            <Boton tamano="xs" variante="primario" onClick={() => { setForm(borrador.form); setCambios(true); setBorrador(null); }}>Recuperarlos</Boton>
+            <Boton tamano="xs" variante="fantasma" onClick={() => { borrarBorrador(editando); setBorrador(null); }}>Descartar</Boton>
+          </div>
+        )}
+
         {(aviso || avisos.length > 0) && (
           <div className="border-b border-[var(--border-hairline)] px-3 py-2 text-[12px]" style={{ background: 'var(--page-plane)' }}>
             {aviso && <div>{aviso}</div>}
@@ -314,6 +343,16 @@ export default function Flujos() {
         <div className="min-h-0 flex-1">
           <Pizarra form={form} setForm={setFormEditado} ctx={ctx} marcados={marcados} recorrido={recorrido} />
         </div>
+
+        <Dialogo abierto={salir} onCerrar={() => setSalir(false)} titulo="Tenés cambios sin guardar"
+          descripcion="Si salís sin guardar, se descartan."
+          pie={(
+            <>
+              <Boton variante="fantasma" onClick={() => setSalir(false)}>Seguir editando</Boton>
+              <Boton variante="secundario" onClick={cerrarDefinitivo}>Salir sin guardar</Boton>
+              <Boton variante="primario" cargando={guardando} onClick={async () => { const id = await guardar(); if (id) cerrarDefinitivo(); }}>Guardar y salir</Boton>
+            </>
+          )} />
       </div>
     );
   }

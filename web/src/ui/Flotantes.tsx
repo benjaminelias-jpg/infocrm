@@ -117,8 +117,31 @@ export function Menu({
   const envoltura = useRef<HTMLDivElement>(null);
   const boton = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
+  const flotante = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number; arriba: boolean } | null>(null);
   const cerrar = useCallback(() => setAbierto(false), []);
-  useCerrarFuera(abierto && !movil, [envoltura, panel], cerrar);
+  useCerrarFuera(abierto && !movil, [envoltura, panel, flotante], cerrar);
+
+  // En escritorio el menú se dibuja por encima de todo (portal), pegado a su
+  // botón: así no lo recorta una columna o una lista que se desplaza.
+  useEffect(() => {
+    if (!abierto || movil) { setPos(null); return; }
+    const ubicar = () => {
+      const r = (envoltura.current?.firstElementChild as HTMLElement | null)?.getBoundingClientRect()
+        ?? envoltura.current?.getBoundingClientRect();
+      if (!r) return;
+      const alto = Math.min(window.innerHeight * 0.6, 420);
+      const arriba = r.bottom + alto + 12 > window.innerHeight && r.top > alto;
+      let left = alinear === 'derecha' ? r.right - ancho : r.left;
+      left = Math.max(8, Math.min(left, window.innerWidth - ancho - 8));
+      setPos({ top: arriba ? r.top - 6 : r.bottom + 6, left, arriba });
+    };
+    ubicar();
+    const alDesplazar = (e: Event) => { if (!flotante.current?.contains(e.target as Node)) cerrar(); };
+    window.addEventListener('resize', ubicar);
+    window.addEventListener('scroll', alDesplazar, true);
+    return () => { window.removeEventListener('resize', ubicar); window.removeEventListener('scroll', alDesplazar, true); };
+  }, [abierto, movil, alinear, ancho, cerrar]);
   useEffect(() => bloquearScroll(abierto && movil), [abierto, movil]);
   useEffect(() => {
     if (!abierto || !movil) return;
@@ -136,12 +159,16 @@ export function Menu({
   return (
     <div ref={envoltura} className={`relative inline-flex ${className}`}>
       {disparador({ abierto, alternar: () => setAbierto((v) => !v), ref: boton })}
-      {abierto && !movil && (
-        <div className={`ui-aparecer absolute top-[calc(100%+6px)] z-50 max-h-[60vh] overflow-y-auto rounded-xl shadow-xl ${alinear === 'derecha' ? 'right-0' : 'left-0'}`}
-          style={{ width: ancho, background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}>
+      {abierto && !movil && pos && createPortal(
+        <div ref={flotante} className="ui-aparecer fixed z-[65] max-h-[60vh] overflow-y-auto rounded-xl shadow-xl"
+          style={{
+            width: ancho, left: pos.left, top: pos.top, transform: pos.arriba ? 'translateY(-100%)' : undefined,
+            background: 'var(--surface-1)', border: '1px solid var(--border-hairline)',
+          }}>
           {titulo && <div className="px-3 pb-0.5 pt-2.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{titulo}</div>}
           {contenido}
-        </div>
+        </div>,
+        document.body,
       )}
       {abierto && movil && createPortal(
         <div className="fixed inset-0 z-[60] flex items-end">

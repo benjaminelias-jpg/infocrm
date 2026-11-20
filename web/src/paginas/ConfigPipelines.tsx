@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, fmtNum, hace } from '../api';
+import { SelectorConMas, useAviso } from '../ui';
 
 // Configuración del Pipeline: pipelines, etapas, qué pasa SOLO al mover un
 // lead de etapa, y las reglas automáticas ("cuando pasa X, hacé Y").
@@ -49,7 +50,7 @@ const sel = 'rounded-md border border-[var(--border-hairline)] bg-[var(--surface
 export default function ConfigPipelines({ onCerrar, foco }: { onCerrar: () => void; foco?: 'reglas' }) {
   const [pipes, setPipes] = useState<any[]>([]);
   const [selId, setSelId] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
+  const aviso = useAviso();
   const [expandida, setExpandida] = useState<string | null>(null);
   const [nuevaEtapa, setNuevaEtapa] = useState('');
   const [recursos, setRecursos] = useState<any[]>([]);
@@ -70,14 +71,14 @@ export default function ConfigPipelines({ onCerrar, foco }: { onCerrar: () => vo
   const pipe = pipes.find((p) => p.id === selId);
 
   async function accion(f: () => Promise<any>, ok?: string) {
-    try { await f(); await cargar(); if (ok) setAviso(ok); } catch (e: any) { setAviso(e.message); }
+    try { await f(); await cargar(); if (ok) aviso.exito(ok); } catch (e: any) { aviso.error(e.message); }
   }
-  async function crearPipe() {
-    const nombre = window.prompt('Nombre del nuevo pipeline (ej. "Cierre high-ticket")');
-    if (!nombre?.trim()) return;
-    const p = await api<any>('/pipelines', { method: 'POST', json: { nombre: nombre.trim() } });
-    await cargar(); setSelId(p.id);
-    setAviso(`Pipeline «${nombre}» creado con 5 etapas básicas. Cambiales el nombre o agregá las tuyas.`);
+  async function crearPipe(nombre: string) {
+    try {
+      const p = await api<any>('/pipelines', { method: 'POST', json: { nombre: nombre.trim() } });
+      await cargar(); setSelId(p.id);
+      aviso.exito(`Pipeline «${nombre}» creado con 5 etapas básicas. Cambiales el nombre o agregá las tuyas.`);
+    } catch (e: any) { aviso.error(e.message); }
   }
   const renombrarPipe = (nombre: string) => pipe && nombre.trim() && nombre !== pipe.nombre
     && accion(() => api(`/pipelines/${pipe.id}`, { method: 'PATCH', json: { nombre: nombre.trim() } }));
@@ -106,21 +107,10 @@ export default function ConfigPipelines({ onCerrar, foco }: { onCerrar: () => vo
         <button onClick={onCerrar} className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--page-plane)]">← Volver al tablero</button>
       </div>
 
-      {aviso && (
-        <div className="mb-3 rounded-md px-3 py-2 text-[12px]" style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}>
-          {aviso} <button onClick={() => setAviso(null)} className="ml-1 underline">ok</button>
-        </div>
-      )}
-
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        {pipes.map((p) => (
-          <button key={p.id} onClick={() => setSelId(p.id)}
-            className={`rounded-md px-3 py-1.5 text-[12px] ${selId === p.id ? 'font-medium text-white' : 'border border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--surface-1)]'}`}
-            style={selId === p.id ? { background: 'var(--series-1)' } : {}}>
-            {p.nombre}{p.es_predeterminado ? ' ★' : ''}
-          </button>
-        ))}
-        <button onClick={crearPipe} className="rounded-md border border-dashed border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--page-plane)]">+ Nuevo pipeline</button>
+        <SelectorConMas items={pipes.map((p) => ({ id: p.id, nombre: `${p.nombre}${p.es_predeterminado ? ' ★' : ''}` }))}
+          actualId={selId} onElegir={setSelId} onCrear={crearPipe} queEs="pipeline"
+          extra={(p) => `${(pipes.find((x) => x.id === p.id)?.etapas ?? []).length} etapas`} />
       </div>
 
       {pipe && (

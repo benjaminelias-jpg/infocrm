@@ -204,6 +204,9 @@ export async function kanban(cuentaId: string, pipelineId?: string, limitePorEta
     `SELECT o.id AS oportunidad_id, o.etapa_id, o.valor, o.estado, o.abierta_en,
             o.reunion_agendada_en,
             l.id AS lead_id, l.nombre, l.ig_username, l.avatar_url, l.etiquetas, l.valor_total,
+            l.mensajes_sin_leer,
+            GREATEST(o.abierta_en, COALESCE(l.ultimo_contacto_en, o.abierta_en),
+                     COALESCE(l.ultimo_mensaje_en, o.abierta_en)) AS ultima_actividad,
             c.titulo AS contenido_titulo, c.tipo AS contenido_tipo,
             u.nombre AS propietario_nombre,
             row_number() OVER (PARTITION BY o.etapa_id ORDER BY o.abierta_en DESC) AS rn
