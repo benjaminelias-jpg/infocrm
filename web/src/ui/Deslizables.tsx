@@ -96,7 +96,7 @@ export function Pestanas<T extends string>({ pestanas, actual, onCambiar, classN
             {p.icono && <span className="text-[14px]">{p.icono}</span>}
             {p.etiqueta}
             {p.contador !== undefined && p.contador !== null && p.contador !== 0 && (
-              <span className="cifras rounded-[5px] px-1.5 text-[10px] font-semibold" style={{ background: activa ? 'var(--tint)' : 'var(--surface-2)', color: activa ? 'var(--series-1)' : 'var(--text-secondary)' }}>
+              <span className="cifras rounded-[5px] px-1.5 text-[10px] font-semibold" style={{ background: activa ? 'var(--tint)' : 'var(--surface-2)', color: activa ? 'var(--tint-texto)' : 'var(--text-secondary)' }}>
                 {p.contador}
               </span>
             )}

@@ -445,7 +445,7 @@ export default function Pipeline() {
               <button key={e.id} type="button" data-chip={i} onClick={() => irAColumna(i)} role="tab" aria-selected={enVista}
                 aria-current={i === visibles[0] ? 'true' : undefined}
                 className={`ui-foco inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] border px-3 text-[12px] transition-colors ${enVista ? 'border-transparent font-semibold' : 'border-[var(--border-hairline)] bg-[var(--surface-1)] font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-2)]'}`}
-                style={enVista ? { background: 'var(--tint)', color: 'var(--series-1)' } : undefined}>
+                style={enVista ? { background: 'var(--tint)', color: 'var(--tint-texto)' } : undefined}>
                 <span className="h-2 w-2 rounded-full" style={{ background: e.color }} aria-hidden />
                 {e.nombre}
                 <span className="cifras text-[10px] opacity-80">{fmtNum(n)}</span>
@@ -509,7 +509,7 @@ export default function Pipeline() {
                         <span className="min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wide">{etapa.nombre}</span>
                         {acciones.length > 0 && (
                           <span className="inline-flex items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] font-semibold"
-                            style={{ background: 'var(--tint)', color: 'var(--series-1)' }}>
+                            style={{ background: 'var(--tint)', color: 'var(--tint-texto)' }}>
                             ⚡{acciones.length}
                             <Ayuda titulo={`Al entrar a «${etapa.nombre}»`}>
                               <ul className="list-disc space-y-0.5 pl-4">{acciones.map((a, i) => <li key={i}>{resumirAccion(a)}</li>)}</ul>

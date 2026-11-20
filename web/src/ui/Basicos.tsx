@@ -38,11 +38,11 @@ export function EsqueletoPantalla({ tarjetas = 4, filas = 6 }: { tarjetas?: numb
 export type Tono = 'neutro' | 'azul' | 'verde' | 'amarillo' | 'rojo' | 'violeta';
 const TONOS: Record<Tono, { fondo: string; texto: string }> = {
   neutro: { fondo: 'var(--surface-2)', texto: 'var(--text-secondary)' },
-  azul: { fondo: 'var(--tint)', texto: 'var(--series-1)' },
-  verde: { fondo: 'color-mix(in srgb, var(--status-good) 16%, transparent)', texto: 'var(--status-good)' },
+  azul: { fondo: 'var(--tint)', texto: 'var(--tint-texto)' },
+  verde: { fondo: 'color-mix(in srgb, var(--status-good) 14%, transparent)', texto: 'var(--bien-texto)' },
   amarillo: { fondo: 'color-mix(in srgb, var(--status-warning) 22%, transparent)', texto: 'color-mix(in srgb, var(--status-warning) 60%, var(--text-primary))' },
   rojo: { fondo: 'color-mix(in srgb, var(--status-critical) 14%, transparent)', texto: 'var(--status-critical)' },
-  violeta: { fondo: 'var(--tint)', texto: 'var(--series-1)' },
+  violeta: { fondo: 'var(--tint)', texto: 'var(--tint-texto)' },
 };
 
 export function Insignia({ tono = 'neutro', children, punto, className = '' }: {
