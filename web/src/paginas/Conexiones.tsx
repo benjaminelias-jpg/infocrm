@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, fmtNum, hace } from '../api';
 import Cabecera from '../componentes/Cabecera';
 import { Dialogo, Desplegable, EsqueletoPantalla, TarjetaIntegracion, useAviso } from '../ui';
-import GuiaInstagram from '../componentes/integraciones/GuiaInstagram';
+import GuiaInstagram, { traducirErrorInstagram } from '../componentes/integraciones/GuiaInstagram';
 import GuiaEntrada from '../componentes/integraciones/GuiaEntrada';
 import GuiaSalida from '../componentes/integraciones/GuiaSalida';
 import GuiaClaude from '../componentes/integraciones/GuiaClaude';
@@ -107,8 +107,8 @@ export default function Conexiones() {
       estado: ig?.conectado ? (dias !== null && dias <= 10 ? 'atencion' : 'conectado') : ig?.ultimo_error ? 'atencion' : 'desconectado',
       para: ig?.conectado
         ? <>@{ig.username ?? '—'} · {dms ? `${fmtNum(dms)} DMs esta semana` : 'sin DMs esta semana'}{dias !== null && dias <= 10 ? ' · vence pronto' : ''}</>
-        : DIALOGOS.instagram.descripcion,
-      boton: ig?.conectado ? 'Ver / probar →' : 'Conectar →',
+        : ig?.ultimo_error ? traducirErrorInstagram(ig.ultimo_error).titulo : DIALOGOS.instagram.descripcion,
+      boton: ig?.conectado ? 'Ver / probar →' : ig?.ultimo_error ? 'Ver qué pasó →' : 'Conectar →',
     },
     {
       clave: 'manychat', icono: '💬',

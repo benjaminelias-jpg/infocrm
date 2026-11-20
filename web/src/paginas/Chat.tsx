@@ -152,7 +152,7 @@ export default function Chat() {
   const ventana = hilo?.ventana;
 
   return (
-    <div className="flex h-[calc(100vh-49px)] md:h-screen">
+    <div className="alto-app flex">
       {/* Conversaciones */}
       <div className={`${sel ? 'hidden md:flex' : 'flex'} w-full shrink-0 flex-col border-r border-[var(--border-hairline)] md:w-[300px]`}>
         <div className="border-b border-[var(--border-hairline)] p-3">

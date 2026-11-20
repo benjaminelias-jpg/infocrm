@@ -99,7 +99,7 @@ export default function GuiaInstagram({ ig, ultimoSync, onCambio }: {
           </div>
         </div>
       ) : ig?.ultimo_error ? (
-        <Verificacion estado="error" error={<>No se pudo conectar: {ig.ultimo_error}</>} />
+        <ErrorInstagram mensaje={ig.ultimo_error} />
       ) : null}
 
       {conectado ? (
@@ -172,6 +172,34 @@ export default function GuiaInstagram({ ig, ultimoSync, onCambio }: {
           </div>
         </Desplegable>
       )}
+    </div>
+  );
+}
+
+/** Traduce los errores de Meta a algo entendible + qué hacer; el texto crudo queda plegado. */
+export function traducirErrorInstagram(m: string): { titulo: string; hacer: string } {
+  if (/no pude identificar tu Instagram/i.test(m)) {
+    return {
+      titulo: 'Meta aceptó, pero no encontramos tu cuenta de Instagram profesional.',
+      hacer: 'Revisá que tu Instagram sea profesional y esté vinculado a tu página de Facebook. Si sigue igual, conectá pegando un token (abajo).',
+    };
+  }
+  if (/rechazó el código/i.test(m)) return { titulo: 'Meta no aceptó la autorización (puede haber vencido).', hacer: 'Tocá «Conectar Instagram» otra vez y aceptá sin demorarte.' };
+  if (/rechazó el token o el ID/i.test(m)) return { titulo: 'Meta no aceptó el token o el ID de Instagram.', hacer: 'Generá el token con los permisos instagram_basic e instagram_manage_messages y usá el ID de tu cuenta de Instagram.' };
+  if (/Faltan las credenciales|Falta la App/i.test(m)) return { titulo: 'Faltan los datos de tu app de Meta.', hacer: 'Completá el paso «Los datos de tu app de Meta».' };
+  if (/expired|caduc|venci/i.test(m)) return { titulo: 'La conexión con Instagram venció.', hacer: 'Tocá «Conectar Instagram» para renovarla.' };
+  return { titulo: 'No se pudo conectar con Instagram.', hacer: 'Probá de nuevo. Si se repite, conectá pegando un token (abajo).' };
+}
+
+function ErrorInstagram({ mensaje }: { mensaje: string }) {
+  const t = traducirErrorInstagram(mensaje);
+  return (
+    <div className="space-y-1.5">
+      <Verificacion estado="error" error={<><b>{t.titulo}</b> {t.hacer}</>} />
+      <details className="px-1 text-[11px] text-[var(--text-muted)]">
+        <summary className="cursor-pointer select-none">Detalle técnico</summary>
+        <p className="mt-1 break-words">{mensaje}</p>
+      </details>
     </div>
   );
 }

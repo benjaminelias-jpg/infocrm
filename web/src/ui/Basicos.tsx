@@ -114,7 +114,7 @@ export function TituloSeccion({ titulo, subtitulo, onMas, textoMas = 'Agregar', 
 export function BotonFlotante({ onClick, etiqueta, icono = '+' }: { onClick: () => void; etiqueta: string; icono?: React.ReactNode }) {
   return (
     <button type="button" onClick={onClick} aria-label={etiqueta}
-      className="ui-foco fixed bottom-[max(20px,env(safe-area-inset-bottom))] right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full text-[26px] text-white shadow-xl md:hidden"
+      className="ui-foco ui-sobre-barra-fab fixed right-5 z-30 flex h-14 w-14 items-center justify-center rounded-full text-[26px] text-white shadow-xl md:hidden"
       style={{ background: 'var(--series-1)' }}>
       {icono}
     </button>

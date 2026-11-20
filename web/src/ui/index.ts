@@ -14,4 +14,7 @@ export type { Tono } from './Basicos';
 export { TablaResponsiva } from './Datos';
 export type { Columna } from './Datos';
 export { PasosGuiados, Verificacion, TarjetaIntegracion } from './Guias';
+export { useCarga, ErrorCarga } from './Estados';
+export { useTema, aplicarTema, leerTema } from './Tema';
+export type { Tema } from './Tema';
 export type { EstadoPaso } from './Guias';

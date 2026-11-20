@@ -154,7 +154,7 @@ export default function Pipeline() {
   const items = pipes.map((p) => ({ id: p.id, nombre: p.nombre }));
 
   return (
-    <div className="flex h-[calc(100vh-49px)] flex-col md:h-screen">
+    <div className="alto-app flex flex-col">
       {/* Barra superior: pipeline actual (desplegable) + "+" para crear */}
       <div className="flex flex-wrap items-center gap-2 px-4 pb-3 pt-4 lg:px-8">
         <SelectorConMas items={items} actualId={pipeId} onElegir={elegirPipe} onCrear={crearPipe}

@@ -192,6 +192,20 @@ body {
 /* Hojas y diálogos: alto máximo que respeta la barra del navegador del celular */
 .ui-alto-hoja { max-height: 88vh; max-height: 88dvh; }
 
+/* Barra inferior del celular: su alto vive en una variable para que las
+   pantallas de alto completo (Chat, Pipeline, pizarra), los avisos y el botón
+   flotante no queden tapados. En escritorio (o en subpantallas sin barra) vale 0. */
+:root { --alto-barra-inf: 0px; }
+@media (max-width: 767px) {
+  .con-barra-inf { --alto-barra-inf: calc(56px + env(safe-area-inset-bottom)); }
+}
+.alto-app { height: 100vh; height: 100dvh; }
+@media (max-width: 767px) {
+  .alto-app { height: calc(100vh - var(--alto-barra-inf)); height: calc(100dvh - var(--alto-barra-inf)); }
+}
+.ui-sobre-barra { bottom: max(12px, calc(var(--alto-barra-inf) + 8px), env(safe-area-inset-bottom)); }
+.ui-sobre-barra-fab { bottom: max(20px, calc(var(--alto-barra-inf) + 14px), env(safe-area-inset-bottom)); }
+
 /* Desplegables con altura animada */
 .ui-desplegable {
   display: grid;

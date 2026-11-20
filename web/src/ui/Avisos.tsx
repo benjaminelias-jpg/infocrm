@@ -34,7 +34,7 @@ export function ProveedorAvisos({ children }: { children: React.ReactNode }) {
   return (
     <Ctx.Provider value={api}>
       {children}
-      <div className="pointer-events-none fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-[70] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:right-4 sm:w-[380px]"
+      <div className="ui-sobre-barra pointer-events-none fixed inset-x-3 z-[70] flex flex-col items-stretch gap-2 sm:inset-x-auto sm:right-4 sm:w-[380px]"
         aria-live="polite">
         {avisos.map((a) => (
           <div key={a.id} role={a.tono === 'error' ? 'alert' : 'status'}

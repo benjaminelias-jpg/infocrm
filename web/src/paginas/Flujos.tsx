@@ -269,7 +269,7 @@ export default function Flujos() {
   // ---------------- Pizarra ----------------
   if (abierto) {
     return (
-      <div className="flex h-[calc(100vh-49px)] flex-col md:h-screen">
+      <div className="alto-app flex flex-col">
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-hairline)] px-3 py-2">
           <button onClick={cerrar} className="rounded-md border border-[var(--border-hairline)] px-2.5 py-1.5 text-[12px] hover:bg-[var(--surface-1)]">←</button>
           <input value={form.nombre} onChange={(e) => setFormEditado((f: any) => ({ ...f, nombre: e.target.value }))}
