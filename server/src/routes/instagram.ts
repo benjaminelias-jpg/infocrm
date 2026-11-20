@@ -8,7 +8,7 @@ import {
   guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri, conectarConToken,
 } from '../modules/instagram_oauth.js';
 import {
-  ejecutarFlujo, normalizarPasos, validarFlujo, procesarEsperasVencidas,
+  ejecutarFlujo, normalizarPasos, validarFlujo, validarFlujoDetallado, procesarEsperasVencidas,
 } from '../modules/instagram_dm.js';
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
 import { integracionInstagram } from '../modules/instagram.js';
@@ -44,11 +44,13 @@ function firmaValida(crudo: string, firma: string, secreto: string): boolean {
  * (no se pierde trabajo) pero EN PAUSA, para que nunca corra roto.
  */
 function prepararFlujo<T extends { pasos?: any[]; activo?: boolean }>(d: T) {
-  if (!d.pasos) return { datos: d, avisos: [] as string[] };
+  if (!d.pasos) return { datos: d, avisos: [] as string[], marcados: [] as string[] };
   const pasos = normalizarPasos(d.pasos);
-  const avisos = validarFlujo(pasos);
+  const problemas = validarFlujoDetallado(pasos);
+  const avisos = problemas.map((p) => p.texto);
+  const marcados = [...new Set(problemas.map((p) => p.nodo).filter((x): x is string => !!x))];
   const datos = { ...d, pasos, ...(avisos.length && d.activo !== false ? { activo: false } : {}) };
-  return { datos, avisos };
+  return { datos, avisos, marcados };
 }
 
 export default async function rutasInstagram(app: FastifyInstance) {
@@ -136,29 +138,33 @@ export default async function rutasInstagram(app: FastifyInstance) {
 
   // ---------------- Flujos (ManyChat propio) ----------------
 
-  app.get('/api/flujos', async (req) =>
-    query(
+  // Siempre en formato pizarra (los flujos viejos en árbol se convierten al vuelo).
+  app.get('/api/flujos', async (req) => {
+    const filas = await query(
       `SELECT f.*, c.titulo AS contenido_titulo,
               (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado <> 'simulado')::int AS ejecuciones
          FROM flujos f LEFT JOIN contenidos c ON c.id=f.contenido_id
-        WHERE f.cuenta_id=$1 ORDER BY f.creado_en DESC`, [req.sesion.cuentaId]));
+        WHERE f.cuenta_id=$1 ORDER BY f.creado_en DESC`, [req.sesion.cuentaId]);
+    return filas.map((f: any) => ({ ...f, pasos: normalizarPasos(f.pasos ?? []) }));
+  });
 
   app.post('/api/flujos', async (req, reply) => {
-    const { datos: d, avisos } = prepararFlujo(esquemaFlujo.parse(req.body));
+    const { datos: d, avisos, marcados } = prepararFlujo(esquemaFlujo.parse(req.body));
     const fila = await queryOne(
       `INSERT INTO flujos (cuenta_id, nombre, descripcion, disparo, palabra_clave, contenido_id, pasos, activo)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
       [req.sesion.cuentaId, d.nombre, d.descripcion ?? null, d.disparo, d.palabra_clave ?? null,
        d.contenido_id ?? null, JSON.stringify(d.pasos), d.activo ?? true]);
-    return reply.code(201).send({ ...fila, avisos });
+    return reply.code(201).send({ ...fila, avisos, marcados });
   });
 
   app.patch('/api/flujos/:id', async (req) => {
     const { id } = req.params as { id: string };
     let d: any = esquemaFlujo.partial().parse(req.body);
     let avisos: string[] = [];
+    let marcados: string[] = [];
     if (d.pasos) {
-      ({ datos: d, avisos } = prepararFlujo(d));
+      ({ datos: d, avisos, marcados } = prepararFlujo(d));
     } else if (d.activo === true) {
       // Activar un flujo guardado con problemas: se revisa antes.
       const actual = await queryOne(`SELECT pasos FROM flujos WHERE cuenta_id=$1 AND id=$2`, [req.sesion.cuentaId, id]);
@@ -176,7 +182,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const fila = await queryOne(
       `UPDATE flujos SET ${sets.join(', ')} WHERE cuenta_id=$1 AND id=$2 RETURNING *`, params);
     if (!fila) throw noEncontrado('Flujo');
-    return { ...fila, avisos };
+    return { ...fila, avisos, marcados };
   });
 
   /** Duplicar un flujo (queda en pausa para editarlo tranquilo). */

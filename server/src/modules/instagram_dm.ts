@@ -170,121 +170,250 @@ export async function registrarSaliente(
 }
 
 // ---------------------------------------------------------------------
-// Árbol de pasos
+// Pizarra libre (grafo)
 // ---------------------------------------------------------------------
+//
+// Un flujo es un GRAFO, como en n8n: cada paso tiene posición (x, y) en la
+// pizarra y apunta al siguiente por id. El nodo "inicio" es el disparador.
+//   - pasos normales:  siguiente
+//   - pregunta:        opciones[].siguiente (una flecha por botón)
+//   - condición:       siguiente_si / siguiente_no
+// Varias flechas pueden llegar al mismo paso (ramas que se juntan) y se
+// puede volver atrás (seguimientos), siempre que el círculo tenga una espera.
 
-export type Paso = { id?: string; tipo: string; [k: string]: any };
-type Marco = { seq: Paso[]; idx: number };
+export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente?: string | null; [k: string]: any };
 
-const RAMIFICAN = new Set(['pregunta', 'condicion']);
+/** Pasos que pausan la ejecución (cortan cualquier círculo). */
+const PAUSAN = new Set(['pregunta', 'esperar_respuesta', 'esperar']);
 
-/** Ramas hijas de un nodo. */
-function ramas(p: Paso): Paso[][] {
-  if (p.tipo === 'pregunta') return (p.opciones ?? []).map((o: any) => o.pasos ?? []);
-  if (p.tipo === 'condicion') return [p.si ?? [], p.no ?? []];
-  return [];
+export const ETIQUETA_PASO: Record<string, string> = {
+  enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso',
+  responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición',
+  esperar_respuesta: 'Esperar su respuesta', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
+  quitar_etiqueta: 'Quitar etiqueta', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
+  notificar: 'Avisar al equipo', webhook: 'Avisar a otra app', inicio: 'Disparador',
+};
+
+/** Ids a los que apunta un paso. */
+export function salidas(n: Paso): Array<string | null | undefined> {
+  if (n.tipo === 'pregunta') return (n.opciones ?? []).map((o: any) => o.siguiente);
+  if (n.tipo === 'condicion') return [n.siguiente_si, n.siguiente_no];
+  return [n.siguiente];
 }
 
-/**
- * Normaliza un árbol: ids estables donde falten, botones recortados al
- * límite de Meta, ramas siempre como listas. Se aplica al guardar y al
- * ejecutar, así un flujo viejo (lista plana) sigue funcionando igual.
- */
-export function normalizarPasos(pasos: any, prefijo = 'n'): Paso[] {
-  if (!Array.isArray(pasos)) return [];
-  return pasos
-    .filter((p) => p && typeof p === 'object' && typeof p.tipo === 'string')
-    .map((p: any, i: number) => {
-      const n: Paso = { ...p, id: p.id ? String(p.id) : `${prefijo}${i}` };
-      if (n.tipo === 'pregunta') {
-        n.opciones = (Array.isArray(p.opciones) ? p.opciones : [])
-          .slice(0, MAX_BOTONES)
-          .map((o: any, j: number) => {
-            const oid = o?.id ? String(o.id) : `${n.id}o${j}`;
-            return {
-              ...o,
-              id: oid,
-              titulo: String(o?.titulo ?? `Opción ${j + 1}`).slice(0, MAX_TITULO_BOTON),
-              pasos: normalizarPasos(o?.pasos ?? [], `${oid}n`),
-            };
-          });
-      }
-      if (n.tipo === 'condicion') {
-        n.si = normalizarPasos(p.si ?? [], `${n.id}s`);
-        n.no = normalizarPasos(p.no ?? [], `${n.id}x`);
-      }
-      return n;
-    });
-}
-
-/**
- * Revisa que el flujo no se vaya a romper. Devuelve los problemas en
- * lenguaje normal; si hay alguno, el flujo se guarda en pausa.
- */
-export function validarFlujo(pasos: Paso[]): string[] {
-  const problemas: string[] = [];
-  const ver = (seq: Paso[], donde: string) => {
-    seq.forEach((p, i) => {
-      const lugar = `${donde}paso ${i + 1}`;
-      switch (p.tipo) {
-        case 'enviar_dm':
-        case 'entregar_recurso':
-          if (!String(p.texto ?? p.recurso ?? '').trim()) problemas.push(`${lugar}: escribe el mensaje.`);
-          else if (String(p.texto ?? p.recurso).length > MAX_TEXTO_DM) problemas.push(`${lugar}: el mensaje pasa de ${MAX_TEXTO_DM} caracteres (límite de Instagram).`);
-          break;
-        case 'enviar_recurso':
-          if (!p.recurso_id) problemas.push(`${lugar}: elegí qué audio o recurso mandar.`);
-          break;
-        case 'responder_comentario':
-          if (!String(p.texto ?? '').trim()) problemas.push(`${lugar}: escribe la respuesta al comentario.`);
-          break;
-        case 'etiquetar':
-        case 'quitar_etiqueta':
-          if (!String(p.etiqueta ?? '').trim()) problemas.push(`${lugar}: escribe la etiqueta.`);
-          break;
-        case 'mover_etapa':
-          if (!p.etapa_slug && !p.etapa_id) problemas.push(`${lugar}: elegí la etapa.`);
-          break;
-        case 'webhook':
-          if (!/^https?:\/\//.test(String(p.url ?? ''))) problemas.push(`${lugar}: pega una URL válida (https://…).`);
-          break;
-        case 'pregunta':
-          if (!String(p.texto ?? '').trim()) problemas.push(`${lugar}: escribe la pregunta.`);
-          if (!(p.opciones ?? []).length) problemas.push(`${lugar}: la pregunta necesita al menos un botón.`);
-          (p.opciones ?? []).forEach((o: any, j: number) => {
-            if (!String(o.titulo ?? '').trim()) problemas.push(`${lugar}: el botón ${j + 1} no tiene texto.`);
-          });
-          break;
-        case 'condicion':
-          if (!p.campo) problemas.push(`${lugar}: elegí qué revisar en la condición.`);
-          else if (['etiqueta', 'etapa', 'texto'].includes(p.campo) && !String(p.valor ?? '').trim()) {
-            problemas.push(`${lugar}: completá el valor de la condición.`);
-          }
-          break;
-      }
-      if (p.tipo === 'pregunta') {
-        (p.opciones ?? []).forEach((o: any) => ver(o.pasos ?? [], `${donde}botón «${o.titulo}» → `));
-      } else if (p.tipo === 'condicion') {
-        ver(p.si ?? [], `${donde}rama Sí → `);
-        ver(p.no ?? [], `${donde}rama No → `);
-      }
-    });
+/** Convierte un flujo viejo (árbol con ramas anidadas) en grafo. */
+function arbolAGrafo(pasos: any[]): Paso[] {
+  const nodos: Paso[] = [];
+  const usados = new Set<string>(['inicio']);
+  const unico = (sug: string) => {
+    let id = sug; let k = 1;
+    while (usados.has(id)) id = `${sug}_${k++}`;
+    usados.add(id);
+    return id;
   };
-  ver(pasos, '');
+  // `continuacion`: a dónde seguía el motor viejo al terminar una rama.
+  const secuencia = (lista: any[], prefijo: string, continuacion: string | null): string | null => {
+    const validos = (Array.isArray(lista) ? lista : []).filter((p) => p && typeof p.tipo === 'string');
+    const ids = validos.map((p, i) => unico(p.id ? String(p.id) : `${prefijo}${i}`));
+    validos.forEach((p, i) => {
+      const id = ids[i];
+      const despues = i + 1 < validos.length ? ids[i + 1] : continuacion;
+      const { si, no, opciones, pasos: _pasos, ...resto } = p;
+      const n: Paso = { ...resto, id, tipo: p.tipo };
+      if (p.tipo === 'pregunta') {
+        n.opciones = (Array.isArray(opciones) ? opciones : []).map((o: any, j: number) => {
+          const oid = o?.id ? String(o.id) : `${id}o${j}`;
+          return { id: oid, titulo: String(o?.titulo ?? ''), siguiente: secuencia(o?.pasos ?? [], `${oid}n`, despues) };
+        });
+      } else if (p.tipo === 'condicion') {
+        n.siguiente_si = secuencia(si ?? [], `${id}s`, despues);
+        n.siguiente_no = secuencia(no ?? [], `${id}x`, despues);
+      } else {
+        n.siguiente = despues;
+      }
+      nodos.push(n);
+    });
+    return ids[0] ?? continuacion;
+  };
+  const inicio: Paso = { id: 'inicio', tipo: 'inicio', siguiente: null };
+  inicio.siguiente = secuencia(pasos, 'n', null);
+  return [inicio, ...nodos];
+}
+
+/**
+ * Acomoda los pasos en columnas de izquierda a derecha según su distancia al
+ * disparador. Solo si a alguno le falta posición (o si se pide "ordenar").
+ */
+export function ordenarGrafo(nodos: Paso[], forzar = false): Paso[] {
+  if (!forzar && nodos.every((n) => typeof n.x === 'number' && typeof n.y === 'number')) return nodos;
+  const mapa = new Map(nodos.map((n) => [n.id, n]));
+  const nivel = new Map<string, number>();
+  const inicio = nodos.find((n) => n.tipo === 'inicio');
+  const cola: string[] = [];
+  if (inicio) { nivel.set(inicio.id, 0); cola.push(inicio.id); }
+  while (cola.length) {
+    const id = cola.shift()!;
+    for (const s of salidas(mapa.get(id)!)) {
+      if (s && mapa.has(s) && !nivel.has(s)) { nivel.set(s, nivel.get(id)! + 1); cola.push(s); }
+    }
+  }
+  const columnas = new Map<number, Paso[]>();
+  const sueltos: Paso[] = [];
+  for (const n of nodos) {
+    const nv = nivel.get(n.id);
+    if (nv === undefined) { sueltos.push(n); continue; }
+    if (!columnas.has(nv)) columnas.set(nv, []);
+    columnas.get(nv)!.push(n);
+  }
+  const ANCHO = 360; const ALTO = 200;
+  let maxY = 0;
+  const pos = new Map<string, { x: number; y: number }>();
+  for (const [nv, col] of columnas) {
+    col.forEach((n, i) => {
+      const y = Math.round((i - (col.length - 1) / 2) * ALTO);
+      pos.set(n.id, { x: nv * ANCHO, y });
+      maxY = Math.max(maxY, y);
+    });
+  }
+  sueltos.forEach((n, i) => pos.set(n.id, { x: i * ANCHO, y: maxY + 2 * ALTO }));
+  return nodos.map((n) => ({ ...n, ...(forzar || typeof n.x !== 'number' || typeof n.y !== 'number' ? pos.get(n.id) : {}) }));
+}
+
+/**
+ * Normaliza un flujo a grafo: ids, punteros a pasos inexistentes fuera,
+ * botones al límite de Meta, un único disparador y posiciones. Acepta el
+ * formato viejo (árbol) y lo convierte, así ningún flujo existente se rompe.
+ */
+export function normalizarFlujo(pasos: any): Paso[] {
+  const lista = Array.isArray(pasos)
+    ? pasos.filter((p) => p && typeof p === 'object' && typeof p.tipo === 'string')
+    : [];
+  const esGrafo = lista.some((p: any) => p.tipo === 'inicio');
+  const base: Paso[] = esGrafo
+    ? lista.map((p: any, i: number) => ({ ...p, id: String(p.id ?? `n${i}`) }))
+    : arbolAGrafo(lista);
+  const ids = new Set(base.map((n) => n.id));
+  const ok = (v: any) => (v && ids.has(String(v)) ? String(v) : null);
+  let vistoInicio = false;
+  const limpio: Paso[] = [];
+  for (const n of base) {
+    if (n.tipo === 'inicio') { if (vistoInicio) continue; vistoInicio = true; }
+    const m: Paso = { ...n };
+    if (m.tipo === 'pregunta') {
+      m.opciones = (Array.isArray(m.opciones) ? m.opciones : []).slice(0, MAX_BOTONES).map((o: any, j: number) => ({
+        ...o,
+        id: String(o?.id ?? `${m.id}o${j}`),
+        titulo: String(o?.titulo ?? '').slice(0, MAX_TITULO_BOTON),
+        siguiente: ok(o?.siguiente),
+      }));
+      delete m.siguiente;
+    } else if (m.tipo === 'condicion') {
+      m.siguiente_si = ok(m.siguiente_si);
+      m.siguiente_no = ok(m.siguiente_no);
+      delete m.siguiente;
+    } else {
+      m.siguiente = ok(m.siguiente);
+    }
+    limpio.push(m);
+  }
+  if (!vistoInicio) limpio.unshift({ id: 'inicio', tipo: 'inicio', siguiente: null });
+  return ordenarGrafo(limpio);
+}
+/** Compatibilidad con el nombre anterior. */
+export const normalizarPasos = normalizarFlujo;
+
+function alcanzablesDesde(mapa: Map<string, Paso>, desde?: string | null): Set<string> {
+  const vistos = new Set<string>();
+  const pila = desde ? [desde] : [];
+  while (pila.length) {
+    const id = pila.pop()!;
+    if (vistos.has(id) || !mapa.has(id)) continue;
+    vistos.add(id);
+    for (const s of salidas(mapa.get(id)!)) if (s) pila.push(s);
+  }
+  return vistos;
+}
+
+/** ¿Hay un círculo que no pase por ninguna espera? Se repetiría sin parar. */
+function hayCirculoSinPausa(mapa: Map<string, Paso>, alcanzables: Set<string>): boolean {
+  const color = new Map<string, number>();
+  const corre = (id: string) => { const n = mapa.get(id); return !!n && !PAUSAN.has(n.tipo); };
+  const dfs = (id: string): boolean => {
+    color.set(id, 1);
+    for (const s of salidas(mapa.get(id)!)) {
+      if (!s || !corre(s)) continue;
+      const c = color.get(s) ?? 0;
+      if (c === 1) return true;
+      if (c === 0 && dfs(s)) return true;
+    }
+    color.set(id, 2);
+    return false;
+  };
+  for (const id of alcanzables) {
+    if (corre(id) && (color.get(id) ?? 0) === 0 && dfs(id)) return true;
+  }
+  return false;
+}
+
+/**
+ * Revisa que el flujo no se vaya a romper. Devuelve cada problema con el
+ * paso afectado (para marcarlo en rojo en la pizarra). Los pasos sueltos (sin
+ * flecha que llegue) no son un problema: simplemente no se ejecutan.
+ */
+export function validarFlujoDetallado(nodos: Paso[]): Array<{ nodo: string | null; texto: string }> {
+  const problemas: Array<{ nodo: string | null; texto: string }> = [];
+  const mapa = new Map(nodos.map((n) => [n.id, n]));
+  const inicio = nodos.find((n) => n.tipo === 'inicio');
+  if (!inicio?.siguiente) {
+    problemas.push({ nodo: inicio?.id ?? null, texto: 'Conectá el disparador («Cuando…») con el primer paso.' });
+  }
+  const alcanzables = alcanzablesDesde(mapa, inicio?.id);
+  for (const p of nodos) {
+    if (p.tipo === 'inicio' || !alcanzables.has(p.id)) continue;
+    const mal = (msg: string) => problemas.push({ nodo: p.id, texto: `${ETIQUETA_PASO[p.tipo] ?? p.tipo}: ${msg}` });
+    switch (p.tipo) {
+      case 'enviar_dm':
+      case 'entregar_recurso':
+        if (!String(p.texto ?? p.recurso ?? '').trim()) mal('escribí el mensaje.');
+        else if (String(p.texto ?? p.recurso).length > MAX_TEXTO_DM) mal(`pasa de ${MAX_TEXTO_DM} caracteres (límite de Instagram).`);
+        break;
+      case 'enviar_recurso':
+        if (!p.recurso_id) mal('elegí qué audio o recurso mandar.');
+        break;
+      case 'responder_comentario':
+        if (!String(p.texto ?? '').trim()) mal('escribí la respuesta al comentario.');
+        break;
+      case 'etiquetar':
+      case 'quitar_etiqueta':
+        if (!String(p.etiqueta ?? '').trim()) mal('escribí la etiqueta.');
+        break;
+      case 'mover_etapa':
+        if (!p.etapa_slug && !p.etapa_id) mal('elegí la etapa.');
+        break;
+      case 'webhook':
+        if (!/^https?:\/\//.test(String(p.url ?? ''))) mal('pegá una URL válida (https://…).');
+        break;
+      case 'pregunta':
+        if (!String(p.texto ?? '').trim()) mal('escribí la pregunta.');
+        if (!(p.opciones ?? []).length) mal('necesita al menos un botón.');
+        (p.opciones ?? []).forEach((o: any, j: number) => {
+          if (!String(o.titulo ?? '').trim()) mal(`el botón ${j + 1} no tiene texto.`);
+        });
+        break;
+      case 'condicion':
+        if (!p.campo) mal('elegí qué revisar.');
+        else if (['etiqueta', 'etapa', 'texto'].includes(p.campo) && !String(p.valor ?? '').trim()) mal('completá el valor.');
+        break;
+    }
+  }
+  if (hayCirculoSinPausa(mapa, alcanzables)) {
+    problemas.push({ nodo: null, texto: 'Hay un círculo sin ninguna espera: se repetiría sin parar. Poné un «Esperar» o una pregunta dentro del círculo.' });
+  }
   return problemas;
 }
 
-/** Camino de marcos desde la raíz hasta el nodo con ese id. */
-function rutaHasta(seq: Paso[], id: string): Marco[] | null {
-  for (let i = 0; i < seq.length; i++) {
-    const p = seq[i];
-    if (p.id === id) return [{ seq, idx: i }];
-    for (const sub of ramas(p)) {
-      const r = rutaHasta(sub, id);
-      if (r) return [{ seq, idx: i }, ...r];
-    }
-  }
-  return null;
+export function validarFlujo(nodos: Paso[]): string[] {
+  return validarFlujoDetallado(nodos).map((p) => p.texto);
 }
 
 // ---------------------------------------------------------------------
@@ -313,11 +442,15 @@ function corto(s: string, n = 60) {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 
-function rellenar(texto: string, lead: any): string {
-  const nombre = (lead?.nombre ? String(lead.nombre).split(' ')[0] : '') || lead?.ig_username || '';
+function rellenar(texto: string, lead: any, simular = false): string {
+  const nombre = (lead?.nombre ? String(lead.nombre).split(' ')[0] : '') || lead?.ig_username
+    || (simular ? '[nombre]' : '');
+  const usuario = lead?.ig_username ? `@${lead.ig_username}` : (simular ? '[@usuario]' : '');
   return String(texto ?? '')
     .replace(/\{\{\s*nombre\s*\}\}/gi, nombre)
-    .replace(/\{\{\s*usuario\s*\}\}/gi, lead?.ig_username ? `@${lead.ig_username}` : '');
+    .replace(/\{\{\s*usuario\s*\}\}/gi, usuario)
+    // Si el lead no tiene nombre, que no quede "¡Hola !"
+    .replace(/ +([!?.,;:])/g, '$1');
 }
 
 function fmtMin(min: number) {
@@ -375,16 +508,22 @@ export interface ContextoFlujo {
 interface Corrida {
   cuentaId: string;
   flujo: any;
+  grafo: Map<string, Paso>;
   ejecucionId: number | null;
   ctx: ContextoFlujo;
   resultados: any[];
   fallos: number;
   envios: number;
   pasosCorridos: number;
+  /** Paso que se está ejecutando (para pintar el recorrido en la pizarra). */
+  nodoActual: string | null;
 }
 
+const MAX_ENVIOS_POR_CORRIDA = 15; // tope anti-spam por ejecución
+const ENVIAN = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+
 function anotar(c: Corrida, paso: string, texto: string, extra: Record<string, unknown> = {}) {
-  c.resultados.push({ paso, texto, ...extra });
+  c.resultados.push({ paso, texto, nodo: c.nodoActual, ...extra });
 }
 
 async function cargarLead(cuentaId: string, leadId?: string) {
@@ -494,21 +633,22 @@ async function accion(c: Corrida, p: Paso) {
     case 'enviar_dm':
     case 'entregar_recurso': {
       const lead = await cargarLead(c.cuentaId, leadId);
-      const texto = rellenar(String(p.texto ?? p.recurso ?? ''), lead).slice(0, MAX_TEXTO_DM);
+      const texto = rellenar(String(p.texto ?? p.recurso ?? ''), lead, c.ctx.simular).slice(0, MAX_TEXTO_DM);
       if (!texto.trim()) { anotar(c, p.tipo, '⚠ Mensaje vacío: lo salteo'); return; }
       await enviar(c, { text: texto }, `💬 «${corto(texto)}»`, texto);
       return;
     }
     case 'enviar_recurso': {
+      if (!p.recurso_id) { anotar(c, p.tipo, '⚠ Falta elegir qué audio o recurso mandar: lo salteo'); return; }
       const rec = await recursoPorId(c.cuentaId, p.recurso_id);
-      if (!rec) { anotar(c, p.tipo, '⚠ No encontré el audio/recurso elegido (¿lo borraron?)'); return; }
+      if (!rec) { anotar(c, p.tipo, '⚠ El audio/recurso elegido ya no existe (¿lo borraron?): lo salteo'); return; }
       const { mensaje, descripcion, cuerpo } = mensajeDeRecurso(rec);
       await enviar(c, mensaje, descripcion, cuerpo, rec.id);
       return;
     }
     case 'responder_comentario': {
       const lead = await cargarLead(c.cuentaId, leadId);
-      const texto = rellenar(String(p.texto ?? ''), lead);
+      const texto = rellenar(String(p.texto ?? ''), lead, c.ctx.simular);
       if (sim) { anotar(c, p.tipo, `💭 Respondería el comentario en público: «${corto(texto)}» (prueba)`); return; }
       if (c.ctx.sinInstagram) { anotar(c, p.tipo, `💭 Respuesta pública «${corto(texto)}» (simulado, no salió a Instagram)`); return; }
       if (!c.ctx.commentId) { anotar(c, p.tipo, '💭 No vino de un comentario: no hay nada que responder'); return; }
@@ -612,33 +752,37 @@ async function pausar(
     [c.ejecucionId, tipo, nodoId, reanudarEn, JSON.stringify(c.resultados)]);
 }
 
-/** Recorre el árbol desde la pila de marcos hasta terminar o pausar. */
-async function correr(c: Corrida, pila: Marco[]): Promise<'fin' | 'pausa'> {
-  while (pila.length) {
+/** Recorre el grafo desde un paso hasta terminar o pausar. */
+async function correr(c: Corrida, desde: string | null | undefined): Promise<'fin' | 'pausa'> {
+  let id: string | null = desde ?? null;
+  while (id) {
     if (++c.pasosCorridos > MAX_PASOS_POR_CORRIDA) {
       anotar(c, 'limite', '⚠ El flujo es demasiado largo: se cortó por seguridad.');
       return 'fin';
     }
-    const m = pila[pila.length - 1];
-    if (m.idx >= m.seq.length) {
-      // Fin de una rama: sigue con lo que haya después del nodo que la abrió.
-      pila.pop();
-      if (pila.length) pila[pila.length - 1].idx++;
-      continue;
+    const p: Paso | undefined = c.grafo.get(id);
+    if (!p) {
+      anotar(c, 'fin', '⚠ Una flecha apunta a un paso que ya no existe: terminó aquí.');
+      return 'fin';
     }
-    const p = m.seq[m.idx];
+    c.nodoActual = p.id;
+    if (ENVIAN.has(p.tipo) && c.envios >= MAX_ENVIOS_POR_CORRIDA) {
+      anotar(c, 'limite', `⚠ Ya se mandaron ${MAX_ENVIOS_POR_CORRIDA} mensajes seguidos: corté para no hacer spam.`);
+      return 'fin';
+    }
     try {
+      if (p.tipo === 'inicio') { id = p.siguiente ?? null; continue; }
       if (p.tipo === 'condicion') {
-        const forzada = c.ctx.respuestas?.[p.id!];
+        const forzada = c.ctx.respuestas?.[p.id];
         const si = forzada ? forzada === 'si' : (c.ctx.simular && !c.ctx.leadId ? true : await evaluarCondicion(c, p));
         anotar(c, 'condicion', `🔀 ${describirCondicion(p)} → ${si ? 'Sí' : 'No'}${c.ctx.simular ? ' (prueba)' : ''}`);
-        pila.push({ seq: si ? (p.si ?? []) : (p.no ?? []), idx: 0 });
+        id = (si ? p.siguiente_si : p.siguiente_no) ?? null;
         continue;
       }
       if (p.tipo === 'pregunta') {
         const opciones = (p.opciones ?? []).slice(0, MAX_BOTONES);
         const lead = await cargarLead(c.cuentaId, c.ctx.leadId);
-        const texto = rellenar(String(p.texto ?? ''), lead).slice(0, MAX_TEXTO_DM);
+        const texto = rellenar(String(p.texto ?? ''), lead, c.ctx.simular).slice(0, MAX_TEXTO_DM);
         const salio = await enviar(c, {
           text: texto,
           quick_replies: opciones.map((o: any) => ({
@@ -648,45 +792,46 @@ async function correr(c: Corrida, pila: Marco[]): Promise<'fin' | 'pausa'> {
           })),
         }, `❓ «${corto(texto)}» con ${opciones.length} botón${opciones.length === 1 ? '' : 'es'}`,
         `${texto}\n${opciones.map((o: any) => `[${o.titulo}]`).join(' ')}`);
-        if (!opciones.length) { m.idx++; continue; }
+        if (!opciones.length) return 'fin';
         if (!salio) {
           anotar(c, 'pausa', '⚠ La pregunta no llegó al lead, así que el flujo se detiene aquí (no espera un botón que nunca vio).');
           return 'fin';
         }
         if (c.ctx.simular) {
-          const elegida = opciones.find((o: any) => o.id === c.ctx.respuestas?.[p.id!]) ?? opciones[0];
+          const elegida = opciones.find((o: any) => o.id === c.ctx.respuestas?.[p.id]) ?? opciones[0];
           anotar(c, 'respuesta', `👉 (prueba) el lead toca «${elegida.titulo}»`);
-          pila.push({ seq: elegida.pasos ?? [], idx: 0 });
+          id = elegida.siguiente ?? null;
           continue;
         }
-        await pausar(c, p.id!, 'respuesta', null, '⏸ Esperando a que el lead toque un botón');
+        await pausar(c, p.id, 'respuesta', null, '⏸ Esperando a que el lead toque un botón');
         return 'pausa';
       }
       if (p.tipo === 'esperar_respuesta') {
         if (c.ctx.simular) {
           await guardarRespuesta(c, p, p.guardar_en === 'email' ? 'ejemplo@correo.com' : 'respuesta de ejemplo');
-          m.idx++;
+          id = p.siguiente ?? null;
           continue;
         }
-        await pausar(c, p.id!, 'respuesta', null, '⏸ Esperando la respuesta del lead');
+        await pausar(c, p.id, 'respuesta', null, '⏸ Esperando la respuesta del lead');
         return 'pausa';
       }
       if (p.tipo === 'esperar') {
         const min = Math.max(0, Math.round(Number(p.minutos) || 0));
         if (c.ctx.simular || min === 0) {
           anotar(c, 'esperar', `⏳ Esperar ${fmtMin(min)}${c.ctx.simular ? ' (prueba: sigo de inmediato)' : ''}`);
-          m.idx++;
+          id = p.siguiente ?? null;
           continue;
         }
-        await pausar(c, p.id!, 'tiempo', new Date(Date.now() + min * 60_000), `⏳ Esperando ${fmtMin(min)}`);
+        await pausar(c, p.id, 'tiempo', new Date(Date.now() + min * 60_000), `⏳ Esperando ${fmtMin(min)}`);
         return 'pausa';
       }
       await accion(c, p);
+      id = p.siguiente ?? null;
     } catch (err: any) {
       c.fallos++;
       anotar(c, p.tipo, `⚠ Error: ${String(err?.message ?? err)}`, { ok: false });
+      id = p.siguiente ?? null;
     }
-    m.idx++;
   }
   return 'fin';
 }
@@ -728,9 +873,10 @@ function contextoPersistible(ctx: ContextoFlujo) {
 export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: ContextoFlujo) {
   const flujo = await queryOne(`SELECT * FROM flujos WHERE cuenta_id=$1 AND id=$2`, [cuentaId, flujoId]);
   if (!flujo) return null;
-  const pasos = normalizarPasos(flujo.pasos ?? []);
+  const nodos = normalizarFlujo(flujo.pasos ?? []);
   const c: Corrida = {
-    cuentaId, flujo, ejecucionId: null, ctx, resultados: [], fallos: 0, envios: 0, pasosCorridos: 0,
+    cuentaId, flujo, grafo: new Map(nodos.map((n) => [n.id, n])), ejecucionId: null, ctx,
+    resultados: [], fallos: 0, envios: 0, pasosCorridos: 0, nodoActual: null,
   };
   if (!ctx.simular) {
     const ej = await queryOne(
@@ -742,7 +888,9 @@ export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: Cont
       `UPDATE flujos SET total_disparos = total_disparos + 1, ultimo_disparo_en = now() WHERE id=$1`,
       [flujoId]);
   }
-  const fin = await correr(c, [{ seq: pasos, idx: 0 }]);
+  const inicio = nodos.find((n) => n.tipo === 'inicio');
+  c.nodoActual = inicio?.id ?? null;
+  const fin = await correr(c, inicio?.siguiente);
   return cerrar(c, fin);
 }
 
@@ -759,12 +907,14 @@ async function reclamar(cuentaId: string, ejecucionId: number, nodoId: string) {
       RETURNING *`, [ejecucionId, cuentaId, nodoId]);
 }
 
-/** Reanuda una ejecución ya reclamada desde el nodo donde quedó. */
+/** Reanuda una ejecución ya reclamada desde el paso donde quedó. */
 async function reanudar(fila: any, entrada: Entrada) {
   const flujo = await queryOne(`SELECT * FROM flujos WHERE id = $1`, [fila.flujo_id]);
   const ctxGuardado = fila.contexto ?? {};
+  const nodos = normalizarFlujo(flujo?.pasos ?? []);
   const c: Corrida = {
-    cuentaId: fila.cuenta_id, flujo: flujo ?? { id: fila.flujo_id, nombre: '' }, ejecucionId: fila.id,
+    cuentaId: fila.cuenta_id, flujo: flujo ?? { id: fila.flujo_id, nombre: '' },
+    grafo: new Map(nodos.map((n) => [n.id, n])), ejecucionId: fila.id,
     ctx: {
       leadId: fila.lead_id ?? undefined,
       destinatarioIgId: ctxGuardado.destinatarioIgId ?? undefined,
@@ -772,16 +922,14 @@ async function reanudar(fila: any, entrada: Entrada) {
       sinInstagram: !!ctxGuardado.sinInstagram,
     },
     resultados: Array.isArray(fila.resultado) ? fila.resultado : [],
-    fallos: 0, envios: 1, pasosCorridos: 0,
+    fallos: 0, envios: 1, pasosCorridos: 0, nodoActual: fila.nodo_id ?? null,
   };
-  const pasos = normalizarPasos(flujo?.pasos ?? []);
-  const ruta = flujo ? rutaHasta(pasos, fila.nodo_id) : null;
-  if (!ruta) {
+  const nodo = flujo ? c.grafo.get(fila.nodo_id) : undefined;
+  if (!nodo) {
     anotar(c, 'reanudar', '⚠ El flujo cambió y ese paso ya no existe: terminó aquí.');
     return cerrar(c, 'fin');
   }
-  const ultimo = ruta[ruta.length - 1];
-  const nodo = ultimo.seq[ultimo.idx];
+  let siguiente: string | null = null;
   if (entrada.tipo === 'opcion' && nodo.tipo === 'pregunta') {
     const op = (nodo.opciones ?? []).find((o: any) => o.id === entrada.opcionId);
     if (!op) {
@@ -789,18 +937,18 @@ async function reanudar(fila: any, entrada: Entrada) {
       return cerrar(c, 'fin');
     }
     anotar(c, 'respuesta', `👉 El lead tocó «${op.titulo}»`);
-    ruta.push({ seq: op.pasos ?? [], idx: 0 });
+    siguiente = op.siguiente ?? null;
   } else if (entrada.tipo === 'respuesta' && nodo.tipo === 'esperar_respuesta') {
     await guardarRespuesta(c, nodo, entrada.texto);
-    ultimo.idx++;
+    siguiente = nodo.siguiente ?? null;
   } else if (entrada.tipo === 'tiempo' && nodo.tipo === 'esperar') {
     anotar(c, 'esperar', '⏰ Terminó la espera, sigo');
-    ultimo.idx++;
+    siguiente = nodo.siguiente ?? null;
   } else {
     anotar(c, 'reanudar', '⚠ El paso cambió de tipo: terminó aquí.');
     return cerrar(c, 'fin');
   }
-  const fin = await correr(c, ruta);
+  const fin = await correr(c, siguiente);
   return cerrar(c, fin);
 }
 
@@ -828,8 +976,7 @@ export async function reanudarPorMensaje(
       ORDER BY actualizado_en DESC LIMIT 1`, [cuentaId, leadId]);
   if (!fila) return false;
   const flujo = await queryOne(`SELECT pasos FROM flujos WHERE id = $1`, [fila.flujo_id]);
-  const ruta = rutaHasta(normalizarPasos(flujo?.pasos ?? []), fila.nodo_id);
-  const nodo = ruta ? ruta[ruta.length - 1].seq[ruta[ruta.length - 1].idx] : null;
+  const nodo = normalizarFlujo(flujo?.pasos ?? []).find((n) => n.id === fila.nodo_id) ?? null;
   if (nodo?.tipo === 'pregunta') {
     // Escribió en vez de tocar: si coincide con un botón, cuenta como tocarlo.
     const op = opcionPorTexto(nodo.opciones ?? [], entrada.texto);
@@ -878,4 +1025,3 @@ export async function esperasDeLead(cuentaId: string, leadId: string) {
       ORDER BY e.actualizado_en DESC`, [cuentaId, leadId]);
 }
 
-export { RAMIFICAN };

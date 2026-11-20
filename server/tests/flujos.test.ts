@@ -5,6 +5,9 @@ import { construirApp } from '../src/app.js';
 import {
   normalizarPasos, validarFlujo, coincidePalabra, procesarEsperasVencidas,
 } from '../src/modules/instagram_dm.js';
+
+/** Formato pizarra (grafo): disparador + pasos que se apuntan por id. */
+const g = (nodos: any[], inicio: string) => [{ id: 'inicio', tipo: 'inicio', x: 0, y: 0, siguiente: inicio }, ...nodos];
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../src/modules/instagram_eventos.js';
 import { cuentaDePrueba, leadPorId } from './ayuda.js';
 
@@ -84,10 +87,13 @@ describe('árbol del flujo', () => {
     const pasos = normalizarPasos([
       { tipo: 'pregunta', texto: '¿Te sirve?', opciones: Array.from({ length: 15 }, (_, i) => ({ titulo: `Opción muy larga número ${i}` })) },
     ]);
-    expect(pasos[0].id).toBeTruthy();
-    expect(pasos[0].opciones).toHaveLength(13);
-    expect(pasos[0].opciones[0].titulo.length).toBeLessThanOrEqual(20);
-    expect(pasos[0].opciones[0].id).toBeTruthy();
+    const pregunta = pasos.find((p) => p.tipo === 'pregunta')!;
+    expect(pasos[0].tipo).toBe('inicio');
+    expect(pasos[0].siguiente).toBe(pregunta.id);
+    expect(pregunta.opciones).toHaveLength(13);
+    expect(pregunta.opciones[0].titulo.length).toBeLessThanOrEqual(20);
+    expect(pregunta.opciones[0].id).toBeTruthy();
+    expect(typeof pregunta.x).toBe('number'); // posición para la pizarra
   });
 
   it('explica en lenguaje normal lo que falta', () => {
@@ -173,7 +179,7 @@ describe('flujo con botones: pausa y reanuda donde quedó', () => {
     await simular(otro.id, 'comentario', 'GUIA');
     const ej = await ultimaEjecucion(otro.id);
     const flujo = await queryOne(`SELECT pasos FROM flujos WHERE id = $1`, [flujoId]);
-    const pregunta = flujo.pasos[1];
+    const pregunta = flujo.pasos.find((p: any) => p.tipo === 'pregunta');
     const no = pregunta.opciones[1];
     const r = await simular(otro.id, 'boton', 'No por ahora', `fx:${ej.id}:${pregunta.id}:${no.id}`);
     expect(r.reanudado).toBe(true);
@@ -254,7 +260,7 @@ describe('prueba en seco', () => {
         ],
       }],
     });
-    const preguntaId = f.pasos[0].id;
+    const preguntaId = f.pasos.find((p: any) => p.tipo === 'pregunta').id;
     const r = await app.inject({
       method: 'POST', url: `/api/flujos/${f.id}/simular`, headers: auth(),
       payload: { respuestas: { [preguntaId]: 'b' } },
@@ -409,5 +415,96 @@ describe('automatizaciones por etapa', () => {
     expect(cuerpos).toContain('Llamar a etapa_test hoy');
     // Sin email no entra a la secuencia, y queda explicado en una nota
     expect(cuerpos).toMatch(/no tiene email/);
+  });
+});
+
+describe('pizarra libre (grafo, estilo n8n)', () => {
+  it('dos botones pueden terminar en el MISMO paso (ramas que se juntan)', async () => {
+    const f = await crearFlujo({
+      nombre: 'Se juntan', disparo: 'dm', palabra_clave: 'JUNTAR', activo: true,
+      pasos: g([
+        { id: 'p', tipo: 'pregunta', texto: '¿A o B?', x: 300, y: 0, opciones: [
+          { id: 'a', titulo: 'A', siguiente: 'ea' }, { id: 'b', titulo: 'B', siguiente: 'eb' }] },
+        { id: 'ea', tipo: 'etiquetar', etiqueta: 'eligio-a', x: 600, y: -100, siguiente: 'comun' },
+        { id: 'eb', tipo: 'etiquetar', etiqueta: 'eligio-b', x: 600, y: 100, siguiente: 'comun' },
+        { id: 'comun', tipo: 'etiquetar', etiqueta: 'paso-comun', x: 900, y: 0, siguiente: null },
+      ], 'p'),
+    });
+    expect(f.avisos).toEqual([]);
+    expect(f.pasos.find((n: any) => n.id === 'ea').x).toBe(600); // respeta la posición
+    const l = await nuevoLead('junta_test');
+    await simular(l.id, 'dm', 'juntar');
+    await simular(l.id, 'dm', 'B');
+    const fresco = await leadPorId(l.id);
+    expect(fresco!.etiquetas).toEqual(expect.arrayContaining(['eligio-b', 'paso-comun']));
+    expect(fresco!.etiquetas).not.toContain('eligio-a');
+  });
+
+  it('se puede volver atrás (seguimiento) si el círculo tiene una espera', async () => {
+    const f = await crearFlujo({
+      nombre: 'Insistir', disparo: 'dm', palabra_clave: 'INSISTIR', activo: true,
+      pasos: g([
+        { id: 'p', tipo: 'pregunta', texto: '¿Agendamos?', opciones: [
+          { id: 'si', titulo: 'Sí', siguiente: 'ok' }, { id: 'no', titulo: 'Todavía no', siguiente: 'espera' }] },
+        { id: 'ok', tipo: 'etiquetar', etiqueta: 'agendo', siguiente: null },
+        { id: 'espera', tipo: 'esperar', minutos: 1440, siguiente: 'p' },
+      ], 'p'),
+    });
+    expect(f.avisos).toEqual([]);
+    expect(f.activo).toBe(true);
+    const l = await nuevoLead('vuelve_test');
+    await simular(l.id, 'dm', 'insistir');
+    await simular(l.id, 'dm', 'todavia no');
+    // vence la espera → vuelve a preguntar
+    await pool.query(`UPDATE flujo_ejecuciones SET reanudar_en = now() - interval '1 minute' WHERE lead_id = $1`, [l.id]);
+    await procesarEsperasVencidas(cuentaId);
+    const ej = await ultimaEjecucion(l.id);
+    expect(ej.estado).toBe('esperando');
+    expect(ej.nodo_id).toBe('p');
+    await simular(l.id, 'dm', 'si');
+    expect((await leadPorId(l.id))!.etiquetas).toContain('agendo');
+  });
+
+  it('un círculo SIN espera no se puede activar (se repetiría sin parar)', async () => {
+    const f = await crearFlujo({
+      nombre: 'Bucle', disparo: 'dm', palabra_clave: 'BUCLE', activo: true,
+      pasos: g([
+        { id: 'a', tipo: 'enviar_dm', texto: 'hola', siguiente: 'b' },
+        { id: 'b', tipo: 'etiquetar', etiqueta: 'x', siguiente: 'a' },
+      ], 'a'),
+    });
+    expect(f.activo).toBe(false);
+    expect(f.avisos.join(' ')).toMatch(/círculo sin ninguna espera/);
+    expect(validarFlujo(normalizarPasos(f.pasos)).length).toBeGreaterThan(0);
+  });
+
+  it('marca en rojo el paso con problemas y avisa si el disparador no está conectado', async () => {
+    const f = await crearFlujo({
+      nombre: 'Suelto', disparo: 'dm', palabra_clave: 'SUELTO', activo: true,
+      pasos: [{ id: 'inicio', tipo: 'inicio', siguiente: null }, { id: 'x', tipo: 'enviar_dm', texto: '' }],
+    });
+    expect(f.activo).toBe(false);
+    expect(f.avisos.join(' ')).toMatch(/Conectá el disparador/);
+    const f2 = await crearFlujo({
+      nombre: 'Vacío', disparo: 'dm', palabra_clave: 'VACIO', activo: true,
+      pasos: g([{ id: 'x', tipo: 'enviar_dm', texto: '' }], 'x'),
+    });
+    expect(f2.marcados).toEqual(['x']);
+  });
+
+  it('el recorrido de la prueba dice por qué pasos pasó (para pintarlo en la pizarra)', async () => {
+    const f = await crearFlujo({
+      nombre: 'Recorrido', disparo: 'dm', palabra_clave: 'RECORRIDO', activo: true,
+      pasos: g([
+        { id: 'c', tipo: 'condicion', campo: 'email', siguiente_si: 's', siguiente_no: 'n' },
+        { id: 's', tipo: 'etiquetar', etiqueta: 'con-email' },
+        { id: 'n', tipo: 'etiquetar', etiqueta: 'sin-email' },
+      ], 'c'),
+    });
+    const r = await app.inject({ method: 'POST', url: `/api/flujos/${f.id}/simular`, headers: auth(), payload: { respuestas: { c: 'no' } } });
+    const nodos = r.json().resultados.map((x: any) => x.nodo);
+    expect(nodos).toContain('c');
+    expect(nodos).toContain('n');
+    expect(nodos).not.toContain('s');
   });
 });
