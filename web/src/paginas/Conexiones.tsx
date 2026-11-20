@@ -176,8 +176,8 @@ export default function Conexiones() {
   return (
     <div className="px-5 py-5 lg:px-8">
       <Cabecera
-        titulo="Conexiones"
-        subtitulo="Las URLs que pegas en ManyChat, Calendly y tu pasarela de pago"
+        titulo="Configuración"
+        subtitulo="Lo único imprescindible es conectar tu Instagram 👇. Lo demás es avanzado."
       />
 
       {aviso && (
@@ -191,7 +191,7 @@ export default function Conexiones() {
 
       {/* Webhooks */}
       <section className="mt-5">
-        <h2 className="mb-2 text-[14px] font-semibold">Webhooks de entrada</h2>
+        <h2 className="mb-2 text-[14px] font-semibold">Recibir leads de otras apps <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado (para técnicos)</span></h2>
         <div className="space-y-2">
           {endpoints.map((e) => (
             <div key={e.id} className="tarjeta p-3.5">
@@ -397,7 +397,7 @@ export default function Conexiones() {
 
       {/* Webhooks de salida */}
       <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Webhooks de salida</h2>
+        <h2 className="mb-2 text-[14px] font-semibold">Avisar a otras apps (Zapier/Make) <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado</span></h2>
         <p className="mb-3 text-[12px] text-[var(--text-muted)]">
           Que el CRM avise a otras apps (Zapier, Make, n8n, Slack, tu backend) cuando pasa algo. Cada
           envío va firmado con HMAC en la cabecera <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>x-infocrm-firma</code>.
@@ -510,7 +510,7 @@ export default function Conexiones() {
       {/* Bandeja cruda */}
       <section className="mt-6">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-semibold">Todo lo que ha llegado</h2>
+          <h2 className="text-[14px] font-semibold">Historial técnico <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado</span></h2>
           <div className="flex items-center gap-2">
             <select
               value={filtroEstado}
