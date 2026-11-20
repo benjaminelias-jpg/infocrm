@@ -3,20 +3,31 @@ import { api, fmtDinero, fmtNum, hace } from '../api';
 import { Cargando } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 import FichaLead from '../componentes/FichaLead';
+import ConfigPipelines from './ConfigPipelines';
 
 export default function Pipeline() {
   const [etapas, setEtapas] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
   const [leadAbierto, setLeadAbierto] = useState<string | null>(null);
   const [arrastrando, setArrastrando] = useState<string | null>(null);
+  const [config, setConfig] = useState(false);
+  const [pipes, setPipes] = useState<any[]>([]);
+  const [pipeId, setPipeId] = useState<string | null>(null);
 
-  async function cargar() {
-    const d = await api<any[]>('/kanban');
+  async function cargar(pid?: string | null) {
+    const [d, p] = await Promise.all([
+      api<any[]>(`/kanban${pid ? `?pipeline_id=${pid}` : ''}`),
+      pipes.length ? Promise.resolve(pipes) : api<any[]>('/pipelines').catch(() => []),
+    ]);
     setEtapas(d);
+    if (!pipes.length) { setPipes(p); if (!pipeId) setPipeId(p.find((x: any) => x.es_predeterminado)?.id ?? p[0]?.id ?? null); }
     setCargando(false);
   }
 
-  useEffect(() => { cargar(); }, []);
+  useEffect(() => { cargar(pipeId); }, []);
+  function elegirPipe(id: string) { setPipeId(id); setCargando(true); cargar(id); }
+
+  if (config) return <ConfigPipelines onCerrar={() => { setConfig(false); setPipes([]); setCargando(true); cargar(pipeId); }} />;
 
   async function soltar(etapaId: string) {
     if (!arrastrando) return;
@@ -59,7 +70,18 @@ export default function Pipeline() {
     <div className="flex h-screen flex-col px-5 py-5 lg:px-8">
       <Cabecera
         titulo="Pipeline"
-        subtitulo="Arrastra para mover. Las automatizaciones mueven solas al llegar los webhooks."
+        subtitulo="Arrastra para mover. Al entrar a una etapa se disparan sus acciones (etiqueta, webhook…)."
+        derecha={
+          <div className="flex items-center gap-2">
+            {pipes.length > 1 && (
+              <select value={pipeId ?? ''} onChange={(e) => elegirPipe(e.target.value)}
+                className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1.5 text-[12px] outline-none">
+                {pipes.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              </select>
+            )}
+            <button onClick={() => setConfig(true)} className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--surface-1)]">⚙ Configurar</button>
+          </div>
+        }
       />
 
       <div className="mt-4 flex flex-1 gap-3 overflow-x-auto pb-4">

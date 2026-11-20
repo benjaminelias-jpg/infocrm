@@ -92,7 +92,39 @@ export async function moverEtapa(
      opts.usuarioId ?? null, opts.reglaId ?? null, cuando],
   );
 
+  // Acciones automáticas de la etapa de destino (etiqueta, webhook, nota).
+  if (Array.isArray(destino.acciones) && destino.acciones.length && opp.lead_id) {
+    ejecutarAccionesEtapa(cuentaId, opp.lead_id, destino, db).catch(() => {});
+  }
+
   return { desde: opp.etapa_id, hasta: etapaDestinoId };
+}
+
+/**
+ * Ejecuta las acciones configuradas en una etapa cuando un lead entra en ella.
+ * No bloquea el movimiento: los fallos (p. ej. un webhook caído) se tragan.
+ */
+export async function ejecutarAccionesEtapa(cuentaId: string, leadId: string, etapa: any, db: Ejecutor = pool) {
+  for (const a of etapa.acciones ?? []) {
+    try {
+      if (a.tipo === 'etiquetar' && a.etiqueta) {
+        await db.query(
+          `UPDATE leads SET etiquetas = (SELECT array_agg(DISTINCT x) FROM unnest(etiquetas || ARRAY[$2]) x)
+             WHERE id = $1 AND cuenta_id = $3`, [leadId, a.etiqueta, cuentaId]);
+      } else if (a.tipo === 'nota' && a.texto) {
+        await db.query(
+          `INSERT INTO notas (cuenta_id, lead_id, cuerpo, autor) VALUES ($1,$2,$3,'automática')`,
+          [cuentaId, leadId, a.texto]).catch(() => {});
+      } else if (a.tipo === 'webhook' && a.url) {
+        const lead = (await db.query(`SELECT id, nombre, ig_username, email, telefono, etiquetas FROM leads WHERE id=$1`, [leadId])).rows[0];
+        await fetch(a.url, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ evento: 'lead_movido_a_etapa', etapa: etapa.nombre, etapa_slug: etapa.slug, lead }),
+          signal: AbortSignal.timeout(10_000),
+        }).catch(() => {});
+      }
+    } catch { /* una acción fallida no frena las demás */ }
+  }
 }
 
 /** Encuentra la etapa a la que debe ir una oportunidad para un tipo de evento. */

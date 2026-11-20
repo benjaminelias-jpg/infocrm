@@ -156,6 +156,7 @@ export default async function rutasCrm(app: FastifyInstance) {
       evento_asociado: z.string().nullable().optional(),
       marca_reunion: z.boolean().optional(),
       marca_venta: z.boolean().optional(),
+      acciones: z.array(z.record(z.any())).optional(),
     }).parse(req.body);
 
     const campos = Object.keys(datos);
@@ -163,6 +164,10 @@ export default async function rutasCrm(app: FastifyInstance) {
 
     const params: any[] = [req.sesion.cuentaId, id];
     const sets = campos.map((c) => {
+      if (c === 'acciones') {
+        params.push(JSON.stringify((datos as any)[c]));
+        return `acciones = $${params.length}::jsonb`;
+      }
       params.push((datos as any)[c]);
       return `${c} = $${params.length}`;
     });
