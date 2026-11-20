@@ -56,7 +56,7 @@ export default async function rutasFinanzas(app: FastifyInstance) {
   });
 
   crud(app, '/productos', 'productos',
-    ['nombre', 'descripcion', 'precio_lista', 'moneda', 'duracion', 'activo'], 'nombre');
+    ['nombre', 'descripcion', 'precio_lista', 'moneda', 'duracion', 'activo', 'link_pago'], 'nombre');
   crud(app, '/equipo', 'personas_equipo',
     ['nombre', 'email', 'telefono', 'rol', 'comision_venta_pct', 'comision_cobro_pct',
      'comision_cita_pct', 'contrato_url', 'activo', 'notas'], 'nombre');

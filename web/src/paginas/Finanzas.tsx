@@ -3,7 +3,7 @@ import { api, fmtDinero, fmtFecha, fmtNum, fmtPct } from '../api';
 import { Cargando } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 
-const TABS = ['Resumen', 'Ventas', 'Cobros', 'Gastos', 'Métodos', 'Equipo'] as const;
+const TABS = ['Resumen', 'Ventas', 'Cobros', 'Cursos', 'Gastos', 'Métodos', 'Equipo'] as const;
 type Tab = typeof TABS[number];
 const TIPO_METODO = ['pasarela', 'tarjeta', 'transferencia', 'billetera', 'efectivo', 'crypto', 'otro'];
 
@@ -37,6 +37,7 @@ export default function Finanzas() {
   const [nuevoGasto, setNuevoGasto] = useState<any>({ descripcion: '', importe: '', categoria: 'herramientas', moneda: 'EUR' });
   const [nuevaPersona, setNuevaPersona] = useState<any>({ nombre: '', rol: 'closer', comision_venta_pct: 20 });
   const [nuevoMetodo, setNuevoMetodo] = useState<any>({ nombre: '', tipo: 'pasarela', comision_pct: 2.9 });
+  const [nuevoCurso, setNuevoCurso] = useState<any>({ nombre: '', precio_lista: '', moneda: 'EUR', link_pago: '' });
 
   async function cargar() {
     const [r, v, p, g, eq, pr, m, l] = await Promise.all([
@@ -95,6 +96,20 @@ export default function Finanzas() {
       await cargar();
     } catch (err: any) { setAviso(err.message); }
   }
+  async function crearCurso(e: React.FormEvent) {
+    e.preventDefault();
+    if (!nuevoCurso.nombre) return;
+    try {
+      await api('/productos', { method: 'POST', json: {
+        nombre: nuevoCurso.nombre, moneda: nuevoCurso.moneda,
+        precio_lista: nuevoCurso.precio_lista ? Number(nuevoCurso.precio_lista) : undefined,
+        link_pago: nuevoCurso.link_pago || undefined,
+      } });
+      setNuevoCurso({ nombre: '', precio_lista: '', moneda: 'EUR', link_pago: '' });
+      await cargar();
+    } catch (err: any) { setAviso(err.message); }
+  }
+  async function borrarCurso(id: string) { await api(`/productos/${id}`, { method: 'DELETE' }); await cargar(); }
   async function crearMetodo(e: React.FormEvent) {
     e.preventDefault();
     if (!nuevoMetodo.nombre) return;
@@ -295,6 +310,35 @@ export default function Finanzas() {
                 {gastos.length === 0 && <tr><td colSpan={4} className="py-8 text-center text-[var(--text-muted)]">Sin gastos registrados.</td></tr>}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {tab === 'Cursos' && (
+        <section className="mt-4 space-y-3">
+          <p className="text-[12px] text-[var(--text-muted)]">
+            Tus cursos/mentorías con su precio y <strong>link de pago</strong> (Stripe, Hotmart, Mercado Pago…).
+            El link aparece como atajo en el Chat para venta directa de un clic.
+          </p>
+          <form onSubmit={crearCurso} className="tarjeta p-3.5 flex flex-wrap gap-2 items-end">
+            <input value={nuevoCurso.nombre} onChange={(e) => setNuevoCurso((s: any) => ({ ...s, nombre: e.target.value }))} placeholder="Nombre del curso" className={inp + ' min-w-[200px]'} />
+            <input type="number" step="0.01" value={nuevoCurso.precio_lista} onChange={(e) => setNuevoCurso((s: any) => ({ ...s, precio_lista: e.target.value }))} placeholder="Precio" className={inp + ' w-[110px]'} />
+            <input value={nuevoCurso.link_pago} onChange={(e) => setNuevoCurso((s: any) => ({ ...s, link_pago: e.target.value }))} placeholder="Link de pago (https://…)" className={inp + ' min-w-[220px] flex-1'} />
+            <button type="submit" className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white" style={{ background: 'var(--series-1)' }}>Añadir curso</button>
+          </form>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {productos.map((p) => (
+              <div key={p.id} className="tarjeta p-3 flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-medium">{p.nombre}</div>
+                  <div className="truncate text-[11px] text-[var(--text-muted)]">
+                    {p.precio_lista ? fmtDinero(p.precio_lista, p.moneda) : 'sin precio'}{p.link_pago ? ' · 💳 con link' : ' · sin link'}
+                  </div>
+                </div>
+                <button onClick={() => borrarCurso(p.id)} className="shrink-0 rounded px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]" style={{ color: 'var(--status-critical)' }}>Borrar</button>
+              </div>
+            ))}
+            {productos.length === 0 && <div className="tarjeta p-6 text-center text-[13px] text-[var(--text-muted)]">Añadí tu primer curso con su link de pago.</div>}
           </div>
         </section>
       )}

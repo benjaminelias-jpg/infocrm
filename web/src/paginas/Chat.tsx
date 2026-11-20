@@ -15,17 +15,19 @@ export default function Chat() {
   const [sel, setSel] = useState<string | null>(null);
   const [hilo, setHilo] = useState<any>(null);
   const [recursos, setRecursos] = useState<any[]>([]);
+  const [productos, setProductos] = useState<any[]>([]);
   const [texto, setTexto] = useState('');
   const [cargando, setCargando] = useState(true);
   const [q, setQ] = useState('');
   const finRef = useRef<HTMLDivElement>(null);
 
   async function cargarConvs() {
-    const [c, r] = await Promise.all([
+    const [c, r, pr] = await Promise.all([
       api<any[]>('/chat/conversaciones'),
       api<any[]>('/recursos').catch(() => []),
+      api<any[]>('/productos').catch(() => []),
     ]);
-    setConvs(c); setRecursos(r); setCargando(false);
+    setConvs(c); setRecursos(r); setProductos(pr); setCargando(false);
     if (!sel && c.length) abrir(c[0].id);
   }
   async function abrir(leadId: string) {
@@ -49,6 +51,7 @@ export default function Chat() {
 
   if (cargando) return <Cargando />;
   const audios = recursos.filter((r) => r.tipo === 'audio');
+  const cursosLink = productos.filter((p) => p.link_pago);
   const convsFiltradas = q
     ? convs.filter((c) => `${c.nombre ?? ''} ${c.ig_username ?? ''}`.toLowerCase().includes(q.toLowerCase()))
     : convs;
@@ -131,6 +134,18 @@ export default function Chat() {
                   <button key={a.id} onClick={() => enviar({ recurso_id: a.id })}
                     className="rounded-full border border-[var(--border-hairline)] px-2.5 py-1 text-[11px] hover:bg-[var(--surface-1)]">
                     {a.nombre}
+                  </button>
+                ))}
+              </div>
+            )}
+            {/* Atajos: link de pago (venta directa) */}
+            {cursosLink.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 px-4 pt-2">
+                <span className="self-center text-[11px] text-[var(--text-muted)]">💳 Link de pago:</span>
+                {cursosLink.map((p) => (
+                  <button key={p.id} onClick={() => enviar({ texto: `${p.nombre}${p.precio_lista ? ` — ${p.precio_lista} ${p.moneda || 'EUR'}` : ''}\n${p.link_pago}` })}
+                    className="rounded-full border px-2.5 py-1 text-[11px] text-white" style={{ background: 'var(--status-good)', borderColor: 'var(--status-good)' }}>
+                    {p.nombre}
                   </button>
                 ))}
               </div>
