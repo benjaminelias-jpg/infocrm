@@ -1,11 +1,38 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { query, queryOne } from '../db/pool.js';
-import { noEncontrado } from '../lib/errores.js';
-import { listarContenidos, sincronizarInstagram, probarConexion, guardarCredenciales } from '../modules/instagram.js';
+import { conflicto, noEncontrado } from '../lib/errores.js';
+import {
+  listarContenidos, sincronizarInstagram, probarConexion, guardarCredenciales, integracionInstagram, credsUsables,
+} from '../modules/instagram.js';
 import { reatribuir } from '../modules/atribucion.js';
-import { calidadAtribucion } from '../modules/analitica.js';
-import { etapaEmbudoDe, ANGULOS } from '../modules/infoproduccion.js';
+import { calidadAtribucion, rendimientoPorContenido } from '../modules/analitica.js';
+import { etapaEmbudoDe, ANGULOS, clasificarRoles } from '../modules/infoproduccion.js';
+
+/** Una fecha que se pueda leer, o null (nada de mandarle basura a la base). */
+function fechaValida(v: unknown): string | null {
+  if (typeof v !== 'string' || !v) return null;
+  return Number.isNaN(Date.parse(v)) ? null : v;
+}
+
+/** Los roles se juzgan con los últimos 90 días (con 7 días un reel que vende puede parecer que "no rinde"). */
+const DIAS_ROL = 90;
+
+/**
+ * ¿Está Instagram conectado de verdad? (con lo necesario para traer los
+ * reels). Para que la pantalla no ofrezca "Sincronizar" si no se puede.
+ */
+async function estadoInstagram(cuentaId: string) {
+  const integ = await integracionInstagram(cuentaId);
+  const cred = integ?.credenciales ?? {};
+  const { token, igId } = credsUsables(cred);
+  return {
+    conectado: Boolean(integ && token && igId),
+    usuario: cred.username ?? integ?.config?.perfil?.username ?? null,
+    ultimo_sync_en: integ?.ultimo_sync_en ?? null,
+    con_error: integ?.estado === 'error',
+  };
+}
 
 const esquemaContenido = z.object({
   titulo: z.string().min(1),
@@ -42,8 +69,81 @@ export default async function rutasContenidos(app: FastifyInstance) {
     return listarContenidos(req.sesion.cuentaId, { q: q.q, tipo: q.tipo });
   });
 
+  /**
+   * Pantalla Contenidos: lo de /analitica/contenidos (cohorte del período)
+   * más lo que faltaba para que los números no confundan:
+   *  - rol juzgado con los últimos 90 días (no cambia por mirar 7 días),
+   *    con los leads de esos 90 días para decidir si mostrarlo;
+   *  - leads_dudosos: leads DISTINTOS del período cuyo origen es dudoso
+   *    (no la suma de toques de toda la historia);
+   *  - me gusta, guardados y compartidos de Instagram;
+   *  - si Instagram está conectado (para ofrecer sincronizar o conectar).
+   */
+  app.get('/contenidos/rendimiento', async (req) => {
+    const q = (req.query ?? {}) as Record<string, string>;
+    const cuentaId = req.sesion.cuentaId;
+    const modelo = q.modelo === 'ultimo_toque' ? 'ultimo_toque' : 'primer_toque';
+    const col = modelo === 'ultimo_toque' ? 'ultimo_contenido_id' : 'primer_contenido_id';
+    const desde = fechaValida(q.desde);
+    const hasta = fechaValida(q.hasta);
+    const desdeRol = new Date(Date.now() - DIAS_ROL * 86_400_000).toISOString();
+
+    const [filas, filasRol, metricas, dudosos, instagram] = await Promise.all([
+      rendimientoPorContenido(cuentaId, { modelo, desde, hasta }),
+      rendimientoPorContenido(cuentaId, { modelo, desde: desdeRol, hasta: null }),
+      query(
+        `SELECT id, ig_likes, ig_guardados, ig_compartidos, ig_metricas_en
+           FROM contenidos WHERE cuenta_id = $1`, [cuentaId]),
+      query(
+        `SELECT t.contenido_id, COUNT(DISTINCT t.lead_id)::int AS n
+           FROM toques t
+           JOIN leads l ON l.id = t.lead_id AND l.${col} = t.contenido_id
+          WHERE t.cuenta_id = $1 AND t.confianza = 'baja'
+            AND ($2::timestamptz IS NULL OR l.primer_contacto_en >= $2::timestamptz)
+            AND ($3::timestamptz IS NULL OR l.primer_contacto_en <  $3::timestamptz)
+          GROUP BY t.contenido_id`,
+        [cuentaId, desde, hasta]),
+      estadoInstagram(cuentaId),
+    ]);
+
+    const roles = new Map(
+      clasificarRoles(filasRol as any).filter((c: any) => c.id).map((c: any) => [c.id, c]),
+    );
+    const extra = new Map(metricas.map((m: any) => [m.id, m]));
+    const dudas = new Map(dudosos.map((d: any) => [d.contenido_id, Number(d.n)]));
+
+    return {
+      filas: (filas as any[]).map((f) => {
+        const r: any = f.id ? roles.get(f.id) : null;
+        const m: any = f.id ? extra.get(f.id) : null;
+        return {
+          ...f,
+          ig_likes: m?.ig_likes ?? null,
+          ig_guardados: m?.ig_guardados ?? null,
+          ig_compartidos: m?.ig_compartidos ?? null,
+          ig_metricas_en: m?.ig_metricas_en ?? null,
+          rol: f.id ? (r?.rol ?? (f.rol_manual || 'explorador')) : 'sin_atribuir',
+          rol_leads: f.id ? Number(r?.leads ?? 0) : 0,
+          leads_dudosos: f.id ? (dudas.get(f.id) ?? 0) : 0,
+        };
+      }),
+      instagram,
+      dias_rol: DIAS_ROL,
+    };
+  });
+
   app.post('/contenidos', async (req, reply) => {
     const d = esquemaContenido.parse(req.body);
+    // Cargar un reel a mano dos veces (o uno que ya trajo Instagram) lo partiría en dos filas.
+    const link = d.permalink?.trim().split(/[?#]/)[0].replace(/\/+$/, '');
+    if (link) {
+      const ya = await queryOne(
+        `SELECT id, titulo FROM contenidos
+          WHERE cuenta_id = $1 AND activo AND rtrim(split_part(permalink, '?', 1), '/') = $2 LIMIT 1`,
+        [req.sesion.cuentaId, link]);
+      if (ya) throw conflicto(`Ese contenido ya está en tu lista: «${ya.titulo}».`);
+      d.permalink = link;
+    }
     const fila = await queryOne(
       `INSERT INTO contenidos (cuenta_id, titulo, tipo, ig_media_id, permalink, caption,
                                thumbnail_url, publicado_en, etiquetas, angulo, etapa_embudo, gancho, rol_manual)
@@ -157,7 +257,7 @@ export default async function rutasContenidos(app: FastifyInstance) {
     const res = await reatribuir(req.sesion.cuentaId);
     return {
       ...res,
-      mensaje: `Se han reatribuido ${res.toques} toques y actualizado ${res.leads} leads.`,
+      mensaje: `Listo: se actualizaron ${res.leads} leads (${res.toques} toques revisados).`,
     };
   });
 
@@ -165,8 +265,33 @@ export default async function rutasContenidos(app: FastifyInstance) {
 
   // ---------------- Instagram ----------------
 
-  app.post('/instagram/sincronizar', async (req) =>
-    sincronizarInstagram(req.sesion.cuentaId, { limite: Number((req.query as any)?.limite ?? 50) }));
+  /**
+   * Traer los reels de Instagram. Los mensajes se dicen en simple (voseo y
+   * sin jerga): `motivo` le dice a la pantalla qué ofrecer (conectar o
+   * revisar la conexión) y `detalle` guarda lo técnico por si hace falta.
+   */
+  app.post('/instagram/sincronizar', async (req) => {
+    const limite = Math.min(Math.max(Number((req.query as any)?.limite ?? 50) || 50, 1), 100);
+    const r = await sincronizarInstagram(req.sesion.cuentaId, { limite });
+    if (r.ok) {
+      const total = r.creados + r.actualizados;
+      return {
+        ...r,
+        mensaje: total === 0
+          ? 'Listo: no encontramos publicaciones nuevas en tu Instagram.'
+          : `Listo: ${r.creados} ${r.creados === 1 ? 'publicación nueva' : 'publicaciones nuevas'} y ${r.actualizados} ${r.actualizados === 1 ? 'actualizada' : 'actualizadas'}.`,
+      };
+    }
+    const { conectado } = await estadoInstagram(req.sesion.cuentaId);
+    return {
+      ...r,
+      motivo: conectado ? 'error_instagram' : 'sin_conexion',
+      detalle: r.mensaje,
+      mensaje: conectado
+        ? 'Instagram no respondió bien. Probá de nuevo en un rato o revisá la conexión en Configuración.'
+        : 'Instagram no está conectado. Conectalo en Configuración para traer tus reels con sus números.',
+    };
+  });
 
   app.post('/instagram/probar', async (req) => probarConexion(req.sesion.cuentaId));
 

@@ -2,13 +2,21 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
-import { noEncontrado } from '../lib/errores.js';
+import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import { generarTokenWebhook } from '../lib/auth.js';
 import { randomBytes } from 'node:crypto';
 import {
   recibirWebhook, endpointPorToken, reprocesarWebhook, reprocesarErrores, normalizarPayload,
+  verificarFirmaWebhook, registrarRechazo,
 } from '../modules/ingesta.js';
 import { reintentarEntrega, probarSuscripcion } from '../modules/webhooks_salida.js';
+
+/** Lo que se muestra de una dirección: nunca el secreto de firma. */
+function publico(e: any) {
+  if (!e) return e;
+  const { secreto_firma, ...resto } = e;
+  return { ...resto, verificada: Boolean(secreto_firma), url: `${config.apiUrl}/webhooks/${e.token}` };
+}
 
 export default async function rutasWebhooks(app: FastifyInstance) {
   // =================== ENTRADA PÚBLICA ===================
@@ -37,13 +45,22 @@ export default async function rutasWebhooks(app: FastifyInstance) {
     const { token } = req.params as { token: string };
     const endpoint = await endpointPorToken(token);
     if (!endpoint) return reply.code(404).send({ error: 'webhook_desconocido' });
+    const cabeceras = { 'user-agent': req.headers['user-agent'], 'content-type': req.headers['content-type'] };
 
-    const resultado = await recibirWebhook(
-      endpoint,
-      req.body ?? {},
-      { 'user-agent': req.headers['user-agent'], 'content-type': req.headers['content-type'] },
-      req.ip,
-    );
+    // Stripe / Calendly conectados pegando una clave: el aviso viene firmado
+    // con el secreto que guardamos al conectar. Si la firma no coincide, se
+    // guarda para verlo en el historial pero NO se procesa (nada de ventas
+    // falsas). Las direcciones sin secreto siguen como siempre.
+    if (endpoint.secreto_firma) {
+      const crudo: string = (req as any).rawBody ?? JSON.stringify(req.body ?? {});
+      const v = verificarFirmaWebhook(endpoint.fuente, endpoint.secreto_firma, crudo, req.headers as Record<string, unknown>);
+      if (!v.ok) {
+        const r = await registrarRechazo(endpoint, req.body ?? {}, cabeceras, req.ip, 'firma_invalida', v.motivo ?? 'Firma inválida.');
+        return reply.code(400).send({ ...r, error: 'firma_invalida', mensaje: v.motivo });
+      }
+    }
+
+    const resultado = await recibirWebhook(endpoint, req.body ?? {}, cabeceras, req.ip);
 
     // Siempre 200/202: si devolviéramos error, ManyChat reintentaría en bucle
     // y el payload ya está guardado para poder reprocesarlo desde el panel.
@@ -57,10 +74,26 @@ export default async function rutasWebhooks(app: FastifyInstance) {
       `SELECT * FROM webhook_endpoints WHERE cuenta_id = $1 ORDER BY creado_en ASC`,
       [req.sesion.cuentaId],
     );
-    return filas.map((e: any) => ({
-      ...e,
-      url: `${config.apiUrl}/webhooks/${e.token}`,
-    }));
+    return filas.map(publico);
+  });
+
+  /**
+   * Cambiar la dirección (si se filtró): nuevo token, la vieja deja de
+   * funcionar al instante. Las que maneja una conexión por clave (Stripe,
+   * Calendly) no se cambian acá: hay que desconectar y volver a conectar.
+   */
+  app.post('/api/webhooks/endpoints/:id/rotar', async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const c = req.sesion.cuentaId;
+    const e = await queryOne(`SELECT * FROM webhook_endpoints WHERE cuenta_id = $1 AND id = $2`, [c, id]);
+    if (!e) throw noEncontrado('Dirección');
+    if (e.secreto_firma) {
+      throw peticionInvalida('Esta dirección la maneja tu conexión con Stripe o Calendly: desconectala y volvé a conectarla para cambiarla.');
+    }
+    const fila = await queryOne(
+      `UPDATE webhook_endpoints SET token = $3 WHERE cuenta_id = $1 AND id = $2 RETURNING *`,
+      [c, id, generarTokenWebhook()]);
+    return publico(fila);
   });
 
   app.post('/api/webhooks/endpoints', async (req, reply) => {
@@ -78,7 +111,7 @@ export default async function rutasWebhooks(app: FastifyInstance) {
       [req.sesion.cuentaId, d.nombre, d.slug, generarTokenWebhook(), d.fuente,
        d.evento_defecto, JSON.stringify(d.mapeo ?? {})],
     );
-    return reply.code(201).send({ ...fila, url: `${config.apiUrl}/webhooks/${fila!.token}` });
+    return reply.code(201).send(publico(fila));
   });
 
   app.patch('/api/webhooks/endpoints/:id', async (req) => {
@@ -102,24 +135,26 @@ export default async function rutasWebhooks(app: FastifyInstance) {
       `UPDATE webhook_endpoints SET ${sets.join(', ')} WHERE cuenta_id = $1 AND id = $2 RETURNING *`,
       params);
     if (!fila) throw noEncontrado('Endpoint');
-    return { ...fila, url: `${config.apiUrl}/webhooks/${fila.token}` };
+    return publico(fila);
   });
 
   /** Bandeja de entrada cruda: todo lo que ha llegado, procesado o no. */
   app.get('/api/webhooks/eventos', async (req) => {
     const q = req.query as Record<string, string>;
+    const endpointId = q.endpoint_id && /^[0-9a-f-]{36}$/i.test(q.endpoint_id) ? q.endpoint_id : null;
     return query(
-      `SELECT w.id, w.estado, w.error, w.fuente, w.recibido_en, w.procesado_en, w.intentos,
-              w.payload, w.lead_id, w.evento_id,
+      `SELECT w.id, w.estado, w.error, w.codigo_error, w.fuente, w.recibido_en, w.procesado_en, w.intentos,
+              w.payload, w.lead_id, w.evento_id, w.endpoint_id,
               e.nombre AS endpoint_nombre,
-              l.ig_username, l.nombre AS lead_nombre
+              l.ig_username, l.nombre AS lead_nombre, l.avatar_url
          FROM webhook_eventos w
          LEFT JOIN webhook_endpoints e ON e.id = w.endpoint_id
          LEFT JOIN leads l ON l.id = w.lead_id
         WHERE w.cuenta_id = $1 AND ($2::text IS NULL OR w.estado = $2)
+          AND ($4::uuid IS NULL OR w.endpoint_id = $4::uuid)
         ORDER BY w.recibido_en DESC
         LIMIT $3`,
-      [req.sesion.cuentaId, q.estado ?? null, Math.min(Number(q.limite ?? 100), 500)],
+      [req.sesion.cuentaId, q.estado || null, Math.min(Number(q.limite ?? 100), 500), endpointId],
     );
   });
 
@@ -207,21 +242,28 @@ export default async function rutasWebhooks(app: FastifyInstance) {
 
   app.get('/api/webhooks/salida/entregas', async (req) => {
     const q = req.query as Record<string, string>;
+    const subId = q.suscripcion_id && /^[0-9a-f-]{36}$/i.test(q.suscripcion_id) ? q.suscripcion_id : null;
     return query(
       `SELECT e.id, e.tipo_evento, e.url, e.estado, e.intentos, e.http_status, e.error,
-              e.creado_en, e.entregado_en, s.nombre AS suscripcion
+              e.creado_en, e.entregado_en, e.suscripcion_id, s.nombre AS suscripcion
          FROM entregas_webhook e
          JOIN suscripciones_webhook s ON s.id = e.suscripcion_id
         WHERE e.cuenta_id = $1 AND ($2::text IS NULL OR e.estado = $2)
+          AND ($4::uuid IS NULL OR e.suscripcion_id = $4::uuid)
         ORDER BY e.creado_en DESC LIMIT $3`,
-      [req.sesion.cuentaId, q.estado ?? null, Math.min(Number(q.limite ?? 100), 500)]);
+      [req.sesion.cuentaId, q.estado || null, Math.min(Number(q.limite ?? 100), 500), subId]);
   });
 
   app.post('/api/webhooks/salida/entregas/:id/reintentar', async (req) => {
     const { id } = req.params as { id: string };
     const r = await reintentarEntrega(req.sesion.cuentaId, Number(id));
     if (!r) throw noEncontrado('Entrega');
-    return r;
+    // El reintento queda como una entrega NUEVA: se devuelve esa (la última de
+    // esa conexión), así la pantalla sabe si esta vez llegó.
+    const ultima = await queryOne(
+      `SELECT * FROM entregas_webhook WHERE cuenta_id = $1 AND suscripcion_id = $2 ORDER BY creado_en DESC, id DESC LIMIT 1`,
+      [req.sesion.cuentaId, r.suscripcion_id]);
+    return ultima ?? r;
   });
 
   /**
@@ -250,7 +292,7 @@ export default async function rutasWebhooks(app: FastifyInstance) {
       lead_identificable: Boolean(identificado),
       aviso: identificado
         ? null
-        : 'Con este payload no puedo identificar al lead. Añade subscriber id, ig_username o email.',
+        : 'Con estos datos no se puede identificar al lead. Sumá el id de ManyChat, el @ de Instagram o el email.',
     };
   });
 }

@@ -1,7 +1,24 @@
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import { pool, query, queryOne } from '../db/pool.js';
 import { primerValor, aNumero, aFecha, limpiarUsername } from '../lib/utils.js';
 import { registrarEvento, type IdentidadLead } from './eventos.js';
 import type { SenalesAtribucion } from './atribucion.js';
+
+/**
+ * Códigos de error de lo que llega, para que la pantalla lo explique según
+ * la app ("En ManyChat, revisá que el Body tenga {{ig_username}}") en vez de
+ * mostrar el detalle técnico.
+ */
+export type CodigoErrorIngesta = 'sin_identidad' | 'firma_invalida' | 'error_interno';
+
+class ErrorIngesta extends Error {
+  codigo: CodigoErrorIngesta;
+  constructor(codigo: CodigoErrorIngesta, mensaje: string) { super(mensaje); this.codigo = codigo; }
+}
+
+export const MENSAJE_SIN_IDENTIDAD =
+  'No se puede identificar a la persona: llegó sin id de ManyChat, sin @ de Instagram y sin email. ' +
+  'Sumá al menos uno de esos datos en lo que manda la otra app.';
 
 /**
  * Rutas candidatas por campo. Se prueban en orden y gana la primera que
@@ -185,7 +202,7 @@ export function normalizarPayload(
   const identidad: IdentidadLead = {
     manychatSubscriberId: v('manychat_subscriber_id'),
     igUserId: v('ig_user_id'),
-    igUsername: limpiarUsername(v('ig_username')),
+    igUsername: limpiarUsername(v('ig_username') ?? (endpoint.fuente === 'calendly' ? instagramDeRespuestas(payload) : undefined)),
     nombre: v('nombre'),
     apellido: v('apellido'),
     email: v('email')?.toLowerCase(),
@@ -231,6 +248,22 @@ export function normalizarPayload(
   };
 }
 
+/**
+ * Calendly: si el formulario de la reunión pregunta el Instagram ("¿Cuál es
+ * tu @ de Instagram?"), la respuesta identifica al lead que ya está en el CRM.
+ */
+function instagramDeRespuestas(payload: any): string | undefined {
+  const qa = payload?.payload?.questions_and_answers ?? payload?.questions_and_answers;
+  if (!Array.isArray(qa)) return undefined;
+  for (const x of qa) {
+    if (/instagram|\binsta\b|\big\b|@/i.test(String(x?.question ?? '')) && typeof x?.answer === 'string' && x.answer.trim()) {
+      const m = x.answer.trim().match(/(?:instagram\.com\/)?@?([A-Za-z0-9._]{2,30})/i);
+      if (m) return m[1];
+    }
+  }
+  return undefined;
+}
+
 /** Los custom_fields de ManyChat se guardan tal cual en el lead. */
 function extraerCamposExtra(payload: any): Record<string, unknown> {
   const cf = payload?.custom_fields ?? payload?.customFields;
@@ -250,6 +283,61 @@ export interface ResultadoIngesta {
   tipo?: string;
   atribucion?: unknown;
   error?: string;
+  codigo?: CodigoErrorIngesta;
+}
+
+// ---------------------------------------------------------------------
+// Firma de los avisos (Stripe y Calendly)
+// ---------------------------------------------------------------------
+
+/** Cabecera de firma de cada app ("t=…,v1=…" en las dos). */
+const CABECERA_FIRMA: Record<string, string> = {
+  stripe: 'stripe-signature',
+  calendly: 'calendly-webhook-signature',
+};
+
+/**
+ * Verifica la firma de un aviso con el secreto guardado al conectar la app
+ * pegando una clave. Stripe y Calendly firman igual: HMAC-SHA256 de
+ * "<t>.<cuerpo crudo>" en la cabecera "t=<segundos>,v1=<hex>". Se acepta
+ * hasta 5 minutos de diferencia de reloj (protege de reenvíos viejos).
+ */
+export function verificarFirmaWebhook(
+  fuente: string, secreto: string, crudo: string, cabeceras: Record<string, unknown>,
+  ahoraMs = Date.now(), toleranciaS = 300,
+): { ok: boolean; motivo?: string } {
+  const nombre = CABECERA_FIRMA[fuente];
+  if (!nombre) return { ok: true };
+  const valor = String(cabeceras[nombre] ?? '');
+  if (!valor) return { ok: false, motivo: 'El aviso llegó sin firma.' };
+  const partes = valor.split(',').map((p) => p.trim().split('='));
+  const t = partes.find(([k]) => k === 't')?.[1];
+  const firmas = partes.filter(([k]) => k === 'v1').map(([, v]) => v ?? '');
+  if (!t || !firmas.length || !/^\d+$/.test(t)) return { ok: false, motivo: 'La firma del aviso no tiene el formato esperado.' };
+  if (Math.abs(ahoraMs / 1000 - Number(t)) > toleranciaS) return { ok: false, motivo: 'El aviso es viejo (más de 5 minutos): se descarta por seguridad.' };
+  const esperada = Buffer.from(createHmac('sha256', secreto).update(`${t}.${crudo}`, 'utf8').digest('hex'));
+  const coincide = firmas.some((f) => {
+    const b = Buffer.from(f);
+    return b.length === esperada.length && timingSafeEqual(b, esperada);
+  });
+  return coincide ? { ok: true } : { ok: false, motivo: 'La firma no coincide: el aviso no vino de tu cuenta o el secreto cambió.' };
+}
+
+/**
+ * Guarda un aviso que NO se procesa (firma inválida): queda en el historial
+ * para que se vea qué pasó, pero no toca leads ni ventas.
+ */
+export async function registrarRechazo(
+  endpoint: any, payload: any, headers: Record<string, unknown>, ip: string | undefined,
+  codigo: CodigoErrorIngesta, mensaje: string,
+): Promise<ResultadoIngesta> {
+  const fila = await queryOne(
+    `INSERT INTO webhook_eventos (cuenta_id, endpoint_id, fuente, payload, headers, ip, estado, error, codigo_error, intentos)
+     VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6,'error',$7,$8,1) RETURNING id`,
+    [endpoint.cuenta_id, endpoint.id, endpoint.fuente, JSON.stringify(payload ?? {}),
+     JSON.stringify(headers), ip ?? null, mensaje.slice(0, 500), codigo]);
+  await pool.query(`UPDATE webhook_endpoints SET total_errores = total_errores + 1 WHERE id = $1`, [endpoint.id]);
+  return { webhookEventoId: fila?.id ?? 0, estado: 'error', error: mensaje, codigo };
 }
 
 /**
@@ -320,12 +408,7 @@ async function procesarBruto(
       n.identidad.manychatSubscriberId || n.identidad.igUserId ||
       n.identidad.igUsername || n.identidad.email;
 
-    if (!tieneIdentidad) {
-      throw new Error(
-        'El payload no trae ninguna forma de identificar al lead (ni subscriber id, ni ig_username, ni email). ' +
-        'Añade uno de esos campos en el webhook de ManyChat.',
-      );
-    }
+    if (!tieneIdentidad) throw new ErrorIngesta('sin_identidad', MENSAJE_SIN_IDENTIDAD);
 
     const res = await registrarEvento({
       cuentaId: endpoint.cuenta_id,
@@ -345,7 +428,7 @@ async function procesarBruto(
     await pool.query(
       `UPDATE webhook_eventos
           SET estado = 'procesado', procesado_en = now(), lead_id = $2, evento_id = $3,
-              intentos = intentos + 1, error = NULL
+              intentos = intentos + 1, error = NULL, codigo_error = NULL
         WHERE id = $1`,
       [bruto.id, res.leadId, res.eventoId],
     );
@@ -360,15 +443,16 @@ async function procesarBruto(
     };
   } catch (err: any) {
     const mensaje = String(err?.message ?? err).slice(0, 500);
+    const codigo: CodigoErrorIngesta = err instanceof ErrorIngesta ? err.codigo : 'error_interno';
     await pool.query(
-      `UPDATE webhook_eventos SET estado = 'error', error = $2, intentos = intentos + 1 WHERE id = $1`,
-      [bruto.id, mensaje],
+      `UPDATE webhook_eventos SET estado = 'error', error = $2, codigo_error = $3, intentos = intentos + 1 WHERE id = $1`,
+      [bruto.id, mensaje, codigo],
     );
     await pool.query(
       `UPDATE webhook_endpoints SET total_errores = total_errores + 1 WHERE id = $1`,
       [endpoint.id],
     );
-    return { webhookEventoId: bruto.id, estado: 'error', error: mensaje };
+    return { webhookEventoId: bruto.id, estado: 'error', error: mensaje, codigo };
   }
 }
 
