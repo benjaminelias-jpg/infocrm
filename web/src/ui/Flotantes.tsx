@@ -251,7 +251,6 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
           <button ref={ref} type="button" onClick={alternar} aria-haspopup="menu" aria-expanded={abierto}
             className="ui-foco inline-flex h-10 max-w-[60vw] items-center gap-1.5 rounded-lg border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3 text-[14px] font-semibold hover:bg-[var(--page-plane)] md:h-9 md:text-[13px]">
             <span className="truncate">{actual?.nombre ?? `Elegí un ${queEs}`}</span>
-            {items.length > 1 && <span className="rounded-full px-1.5 text-[10px] font-medium text-[var(--text-muted)]" style={{ background: 'var(--gridline)' }}>{items.length}</span>}
             <svg width="14" height="14" viewBox="0 0 24 24" className={`shrink-0 transition-transform ${abierto ? 'rotate-180' : ''}`} aria-hidden>
               <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>

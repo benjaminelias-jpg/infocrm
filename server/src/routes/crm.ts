@@ -85,7 +85,11 @@ export default async function rutasCrm(app: FastifyInstance) {
   /** Mover una oportunidad de etapa a mano (arrastrar en el kanban). */
   app.post('/oportunidades/:id/etapa', async (req) => {
     const { id } = req.params as { id: string };
-    const { etapa_id } = z.object({ etapa_id: z.string().uuid() }).parse(req.body);
+    const { etapa_id, sin_acciones } = z.object({
+      etapa_id: z.string().uuid(),
+      // "Deshacer" del tablero: vuelve a la etapa anterior sin repetir sus automatizaciones.
+      sin_acciones: z.boolean().optional(),
+    }).parse(req.body);
 
     const etapa = await queryOne(
       `SELECT * FROM etapas WHERE id = $1 AND cuenta_id = $2`, [etapa_id, req.sesion.cuentaId]);
@@ -94,6 +98,7 @@ export default async function rutasCrm(app: FastifyInstance) {
     const movimiento = await moverEtapa(req.sesion.cuentaId, id, etapa_id, undefined, {
       origen: 'manual',
       usuarioId: req.sesion.usuarioId === 'api-key' ? null : req.sesion.usuarioId,
+      sinAcciones: sin_acciones === true,
     });
 
     return { movido: Boolean(movimiento), etapa };
@@ -101,7 +106,13 @@ export default async function rutasCrm(app: FastifyInstance) {
 
   app.get('/kanban', async (req) => {
     const q = req.query as Record<string, string>;
-    return kanban(req.sesion.cuentaId, q.pipeline_id);
+    const usuarioId = req.sesion.usuarioId && req.sesion.usuarioId !== 'api-key' ? req.sesion.usuarioId : undefined;
+    return kanban(req.sesion.cuentaId, q.pipeline_id || undefined, 50, {
+      q: q.q,
+      propietario: q.propietario === 'mios' || q.propietario === 'sin' ? q.propietario : undefined,
+      usuarioId,
+      sinLeer: q.sin_leer === '1' || q.sin_leer === 'true',
+    });
   });
 
   /** Paso del flujo de DM y seguimientos de una oportunidad (método Cubria). */

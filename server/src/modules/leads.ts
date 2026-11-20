@@ -190,7 +190,23 @@ export async function crearNota(cuentaId: string, leadId: string, usuarioId: str
 }
 
 /** Vista kanban: oportunidades agrupadas por etapa. */
-export async function kanban(cuentaId: string, pipelineId?: string, limitePorEtapa = 50) {
+export interface FiltrosKanban {
+  /** Texto: usuario, nombre, etiquetas o responsable. */
+  q?: string;
+  /** 'mios' (los que atiende usuarioId) o 'sin' (sin responsable). */
+  propietario?: 'mios' | 'sin';
+  usuarioId?: string;
+  /** Solo con mensajes sin leer. */
+  sinLeer?: boolean;
+}
+
+/**
+ * Tablero del pipeline. Los filtros se aplican en la base ANTES del límite
+ * por etapa: buscar encuentra a cualquiera, no solo a los primeros 50.
+ * Cada etapa trae `total` (todos los de la etapa) y `coinciden` (con filtros).
+ * Orden: última actividad primero (lo que se mueve, arriba).
+ */
+export async function kanban(cuentaId: string, pipelineId?: string, limitePorEtapa = 50, filtros: FiltrosKanban = {}) {
   const etapas = await query(
     `SELECT e.* FROM etapas e
        JOIN pipelines p ON p.id = e.pipeline_id
@@ -200,32 +216,53 @@ export async function kanban(cuentaId: string, pipelineId?: string, limitePorEta
     [cuentaId, pipelineId ?? null],
   );
 
-  const tarjetas = await query(
-    `SELECT o.id AS oportunidad_id, o.etapa_id, o.valor, o.estado, o.abierta_en,
-            o.reunion_agendada_en,
-            l.id AS lead_id, l.nombre, l.ig_username, l.avatar_url, l.etiquetas, l.valor_total,
-            l.mensajes_sin_leer,
-            GREATEST(o.abierta_en, COALESCE(l.ultimo_contacto_en, o.abierta_en),
-                     COALESCE(l.ultimo_mensaje_en, o.abierta_en)) AS ultima_actividad,
-            c.titulo AS contenido_titulo, c.tipo AS contenido_tipo,
-            u.nombre AS propietario_nombre,
-            row_number() OVER (PARTITION BY o.etapa_id ORDER BY o.abierta_en DESC) AS rn
+  // Totales de cada etapa (sin filtros): para "3 de 232".
+  const totalesFilas = await query(
+    `SELECT o.etapa_id, COUNT(*)::int AS n, COALESCE(SUM(o.valor), 0) AS valor
        FROM oportunidades o
-       JOIN leads l ON l.id = o.lead_id
-       LEFT JOIN contenidos c ON c.id = o.contenido_id
-       LEFT JOIN usuarios u ON u.id = COALESCE(o.propietario_id, l.propietario_id)
-      WHERE o.cuenta_id = $1 AND ($2::uuid IS NULL OR o.pipeline_id = $2::uuid)`,
+      WHERE o.cuenta_id = $1 AND ($2::uuid IS NULL OR o.pipeline_id = $2::uuid)
+      GROUP BY o.etapa_id`,
     [cuentaId, pipelineId ?? null],
+  );
+  const totales = new Map<string, { n: number; valor: number }>(
+    totalesFilas.map((r: any) => [r.etapa_id, { n: Number(r.n), valor: Number(r.valor) }]));
+
+  const q = filtros.q?.trim().replace(/^@/, '') || null;
+  const propietario = filtros.propietario === 'mios' && filtros.usuarioId ? 'mios' : filtros.propietario === 'sin' ? 'sin' : null;
+  const tarjetas = await query(
+    `SELECT * FROM (
+       SELECT o.id AS oportunidad_id, o.etapa_id, o.valor, o.estado, o.abierta_en,
+              o.reunion_agendada_en,
+              l.id AS lead_id, l.nombre, l.ig_username, l.avatar_url, l.etiquetas, l.valor_total,
+              l.mensajes_sin_leer,
+              GREATEST(o.abierta_en, COALESCE(l.ultimo_contacto_en, o.abierta_en),
+                       COALESCE(l.ultimo_mensaje_en, o.abierta_en)) AS ultima_actividad,
+              c.titulo AS contenido_titulo, c.tipo AS contenido_tipo,
+              u.id AS propietario_id, u.nombre AS propietario_nombre,
+              COUNT(*) OVER (PARTITION BY o.etapa_id) AS coinciden,
+              row_number() OVER (PARTITION BY o.etapa_id ORDER BY GREATEST(o.abierta_en, COALESCE(l.ultimo_contacto_en, o.abierta_en),
+                       COALESCE(l.ultimo_mensaje_en, o.abierta_en)) DESC, o.id) AS rn
+         FROM oportunidades o
+         JOIN leads l ON l.id = o.lead_id
+         LEFT JOIN contenidos c ON c.id = o.contenido_id
+         LEFT JOIN usuarios u ON u.id = COALESCE(o.propietario_id, l.propietario_id)
+        WHERE o.cuenta_id = $1 AND ($2::uuid IS NULL OR o.pipeline_id = $2::uuid)
+          AND ($3::text IS NULL OR l.ig_username ILIKE '%' || $3 || '%' OR l.nombre ILIKE '%' || $3 || '%'
+               OR l.email ILIKE '%' || $3 || '%' OR array_to_string(l.etiquetas, ' ') ILIKE '%' || $3 || '%'
+               OR u.nombre ILIKE '%' || $3 || '%')
+          AND ($4::text IS NULL
+               OR ($4 = 'mios' AND COALESCE(o.propietario_id, l.propietario_id) = $5::uuid)
+               OR ($4 = 'sin' AND COALESCE(o.propietario_id, l.propietario_id) IS NULL))
+          AND (NOT $6::boolean OR l.mensajes_sin_leer > 0)
+     ) t WHERE t.rn <= $7
+     ORDER BY t.etapa_id, t.rn`,
+    [cuentaId, pipelineId ?? null, q, propietario, filtros.usuarioId ?? null, Boolean(filtros.sinLeer), limitePorEtapa],
   );
 
   const porEtapa = new Map<string, any[]>();
-  const totales = new Map<string, { n: number; valor: number }>();
+  const coinciden = new Map<string, number>();
   for (const t of tarjetas) {
-    const acc = totales.get(t.etapa_id) ?? { n: 0, valor: 0 };
-    acc.n++;
-    acc.valor += Number(t.valor ?? 0);
-    totales.set(t.etapa_id, acc);
-    if (Number(t.rn) > limitePorEtapa) continue;
+    coinciden.set(t.etapa_id, Number(t.coinciden));
     const lista = porEtapa.get(t.etapa_id) ?? [];
     lista.push(t);
     porEtapa.set(t.etapa_id, lista);
@@ -235,6 +272,7 @@ export async function kanban(cuentaId: string, pipelineId?: string, limitePorEta
     ...e,
     total: totales.get(e.id)?.n ?? 0,
     valor_total: totales.get(e.id)?.valor ?? 0,
+    coinciden: coinciden.get(e.id) ?? 0,
     tarjetas: porEtapa.get(e.id) ?? [],
   }));
 }

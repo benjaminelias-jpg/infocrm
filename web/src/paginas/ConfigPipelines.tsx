@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, fmtNum, hace } from '../api';
 import { SelectorConMas, useAviso } from '../ui';
 
@@ -47,9 +47,18 @@ function describirAccionRegla(a: any) {
 const inp = 'rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1 text-[12px] outline-none';
 const sel = 'rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none';
 
-export default function ConfigPipelines({ onCerrar, foco }: { onCerrar: () => void; foco?: 'reglas' }) {
+export default function ConfigPipelines({ onCerrar, foco, pipelineId, onElegirPipeline }: {
+  onCerrar: () => void; foco?: 'reglas';
+  /** El pipeline que se estaba mirando en el tablero (se abre ese, no el primero). */
+  pipelineId?: string | null;
+  onElegirPipeline?: (id: string) => void;
+}) {
   const [pipes, setPipes] = useState<any[]>([]);
-  const [selId, setSelId] = useState<string | null>(null);
+  const [selId, setSelId] = useState<string | null>(pipelineId ?? null);
+  // El tablero se entera de qué pipeline se está configurando (para volver a ESE).
+  const avisarPipe = useRef(onElegirPipeline);
+  avisarPipe.current = onElegirPipeline;
+  useEffect(() => { if (selId) avisarPipe.current?.(selId); }, [selId]);
   const aviso = useAviso();
   const [expandida, setExpandida] = useState<string | null>(null);
   const [nuevaEtapa, setNuevaEtapa] = useState('');
@@ -60,7 +69,7 @@ export default function ConfigPipelines({ onCerrar, foco }: { onCerrar: () => vo
   async function cargar() {
     const p = await api<any[]>('/pipelines');
     setPipes(p);
-    setSelId((s) => (s && p.some((x) => x.id === s) ? s : p[0]?.id ?? null));
+    setSelId((s) => (s && p.some((x) => x.id === s) ? s : p.find((x) => x.es_predeterminado)?.id ?? p[0]?.id ?? null));
   }
   useEffect(() => {
     cargar();

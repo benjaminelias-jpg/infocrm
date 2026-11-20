@@ -61,7 +61,11 @@ export async function moverEtapa(
   oportunidadId: string,
   etapaDestinoId: string,
   db: Ejecutor = pool,
-  opts: { origen?: string; usuarioId?: string | null; reglaId?: string | null; cuando?: Date } = {},
+  opts: {
+    origen?: string; usuarioId?: string | null; reglaId?: string | null; cuando?: Date;
+    /** "Deshacer" en el tablero: volver a la etapa anterior SIN repetir sus automatizaciones. */
+    sinAcciones?: boolean;
+  } = {},
 ): Promise<MovimientoEtapa | null> {
   const { rows: oppRows } = await db.query(
     `SELECT o.*, e.orden AS etapa_orden FROM oportunidades o
@@ -98,7 +102,7 @@ export async function moverEtapa(
   // Acciones automáticas de la etapa de destino. Se ESPERAN (en serverless lo
   // que queda corriendo tras responder puede no ejecutarse nunca). Dentro de
   // una transacción no: las ejecuta quien la abrió, después del commit.
-  if (Array.isArray(destino.acciones) && destino.acciones.length && opp.lead_id) {
+  if (!opts.sinAcciones && Array.isArray(destino.acciones) && destino.acciones.length && opp.lead_id) {
     if (db === pool) {
       await ejecutarAccionesEtapa(cuentaId, opp.lead_id, destino).catch(() => {});
     } else {

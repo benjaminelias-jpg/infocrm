@@ -75,4 +75,63 @@ export default async function rutasUx_pipeline(app: FastifyInstance) {
     }
     return reply.code(201).send({ lead_id: res.leadId, oportunidad_id: opp.id, ya_existia: !!previo });
   });
+
+  /**
+   * ¿Ya existe este @usuario? Para que el "lead rápido" pregunte antes de
+   * mover a alguien que ya está en otra etapa (en vez de moverlo sin avisar).
+   */
+  app.get('/existe', async (req) => {
+    const { usuario, pipeline_id } = z.object({ usuario: z.string().min(1).max(120), pipeline_id: z.string().uuid().optional() }).parse(req.query);
+    const u = limpiarUsername(usuario);
+    if (!u) return { existe: false };
+    const lead = await queryOne(
+      `SELECT l.id, l.nombre, l.ig_username,
+              e.nombre AS etapa, p.nombre AS pipeline
+         FROM leads l
+         LEFT JOIN LATERAL (
+           SELECT o.etapa_id, o.pipeline_id FROM oportunidades o
+            WHERE o.lead_id = l.id AND o.estado = 'abierta'
+            ORDER BY (o.pipeline_id = $3::uuid) DESC NULLS LAST, o.abierta_en DESC LIMIT 1) o ON true
+         LEFT JOIN etapas e ON e.id = o.etapa_id
+         LEFT JOIN pipelines p ON p.id = o.pipeline_id
+        WHERE l.cuenta_id = $1 AND lower(l.ig_username) = lower($2)`,
+      [req.sesion.cuentaId, u, pipeline_id ?? null]);
+    return lead ? { existe: true, ...lead } : { existe: false };
+  });
+
+  /** Pasar a una etapa "perdida" guardando por qué (para aprender de las pérdidas). */
+  app.post('/perdido', async (req) => {
+    const d = z.object({
+      oportunidad_id: z.string().uuid(), etapa_id: z.string().uuid(),
+      motivo: z.string().trim().max(200).optional(),
+    }).parse(req.body);
+    const c = req.sesion.cuentaId;
+    const etapa = await queryOne(`SELECT id, tipo FROM etapas WHERE id = $1 AND cuenta_id = $2`, [d.etapa_id, c]);
+    if (!etapa) throw noEncontrado('Etapa');
+    const opp = await queryOne(`UPDATE oportunidades SET motivo_perdida = $3 WHERE cuenta_id = $1 AND id = $2 RETURNING id, lead_id`,
+      [c, d.oportunidad_id, d.motivo || null]);
+    if (!opp) throw noEncontrado('Oportunidad');
+    const usuarioId = req.sesion.usuarioId && req.sesion.usuarioId !== 'api-key' ? req.sesion.usuarioId : null;
+    const mov = await moverEtapa(c, d.oportunidad_id, d.etapa_id, pool, { origen: 'manual', usuarioId });
+    if (d.motivo) {
+      await pool.query(`INSERT INTO notas (cuenta_id, lead_id, cuerpo) VALUES ($1, $2, $3)`,
+        [c, opp.lead_id, `Se perdió: ${d.motivo}`]).catch(() => {});
+    }
+    return { movido: Boolean(mov) };
+  });
+
+  /** Asignar quién atiende una tarjeta (desde el "⋯" del tablero). null = sin asignar. */
+  app.post('/asignar', async (req) => {
+    const d = z.object({ oportunidad_id: z.string().uuid(), usuario_id: z.string().uuid().nullable() }).parse(req.body);
+    const c = req.sesion.cuentaId;
+    if (d.usuario_id) {
+      const u = await queryOne(`SELECT id FROM usuarios WHERE id = $1 AND cuenta_id = $2`, [d.usuario_id, c]);
+      if (!u) throw noEncontrado('Usuario');
+    }
+    const opp = await queryOne(`UPDATE oportunidades SET propietario_id = $3 WHERE cuenta_id = $1 AND id = $2 RETURNING lead_id`,
+      [c, d.oportunidad_id, d.usuario_id]);
+    if (!opp) throw noEncontrado('Oportunidad');
+    await pool.query(`UPDATE leads SET propietario_id = $3 WHERE cuenta_id = $1 AND id = $2`, [c, opp.lead_id, d.usuario_id]);
+    return { ok: true };
+  });
 }
