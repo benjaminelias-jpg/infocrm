@@ -41,11 +41,11 @@ export default async function rutasRecursos(app: FastifyInstance) {
       const limpio = d.archivo_base64.replace(/^data:[^;]+;base64,/, '');
       datos = Buffer.from(limpio, 'base64');
       if (datos.length > MAX_BYTES) {
-        throw peticionInvalida('El archivo supera ~3 MB. Graba un audio más corto o pega un enlace.');
+        throw peticionInvalida('El archivo supera ~3 MB. Grabá un audio más corto o pegá un enlace.');
       }
     }
     if (!datos && !d.url && !d.texto) {
-      throw peticionInvalida('Sube un archivo, pega una URL o escribe un texto.');
+      throw peticionInvalida('Subí un archivo, pegá un enlace o escribí un texto.');
     }
 
     // Lo nuevo sale primero en los atajos del Chat.

@@ -67,6 +67,19 @@ describe('crear pipelines', () => {
     expect(c.statusCode).toBe(409);
   });
 
+  it('si falta el nombre, el error dice qué hacer en español (no el mensaje en inglés de zod)', async () => {
+    const r = await pedir('POST', '/api/pipelines', { nombre: '   ' });
+    expect(r.statusCode).toBe(400);
+    expect(r.json().mensaje).toBe('Escribí el nombre del pipeline');
+  });
+
+  it('un archivo demasiado pesado responde 413 con un mensaje claro', async () => {
+    const r = await app.inject({ method: 'POST', url: '/api/pipelines', headers: { ...auth(), 'content-type': 'application/json' },
+      payload: JSON.stringify({ nombre: 'x'.repeat(12 * 1024 * 1024) }) });
+    expect(r.statusCode).toBe(413);
+    expect(r.json().mensaje).toMatch(/muy pesado/);
+  });
+
   it('las etapas básicas ya saben con qué evento se mueven solas', async () => {
     const p = (await pedir('POST', '/api/pipelines', { nombre: 'Lanzamiento julio' })).json();
     const etapas = (await pipelines()).find((x) => x.id === p.id).etapas;

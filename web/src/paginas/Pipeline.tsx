@@ -303,6 +303,21 @@ export default function Pipeline() {
   }, []);
 
   useEffect(() => { alDesplazar(); }, [etapas, alDesplazar]);
+
+  // Enlaces de otras pantallas (?etapa=<id>, p. ej. una fila del embudo del
+  // Panel): lleva a esa columna y la resalta un momento.
+  const [resaltada, setResaltada] = useState<string | null>(null);
+  const etapaPedida = !configAbierta ? params.get('etapa') : null;
+  useEffect(() => {
+    if (!etapaPedida || !etapas?.length) return;
+    const i = etapas.findIndex((e) => e.id === etapaPedida);
+    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('etapa'); return p; }, { replace: true });
+    if (i < 0) return;
+    window.requestAnimationFrame(() => irAColumna(i));
+    setResaltada(etapaPedida);
+    const t = window.setTimeout(() => setResaltada(null), 2600);
+    return () => window.clearTimeout(t);
+  }, [etapaPedida, etapas]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     window.addEventListener('resize', alDesplazar);
     return () => window.removeEventListener('resize', alDesplazar);
@@ -482,7 +497,8 @@ export default function Pipeline() {
                     className="relative flex w-[86vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl transition-colors md:w-[288px]"
                     style={{
                       background: sobre === etapa.id ? 'var(--tint)' : 'color-mix(in srgb, var(--surface-2) 55%, var(--page-plane))',
-                      outline: sobre === etapa.id ? '2px dashed var(--series-1)' : 'none', outlineOffset: -2,
+                      outline: sobre === etapa.id ? '2px dashed var(--series-1)' : resaltada === etapa.id ? '2px solid var(--series-1)' : 'none', outlineOffset: -2,
+                      transition: 'outline-color .3s',
                     }}>
                     <header className="px-2.5 pb-2 pt-2.5">
                       <div className="flex items-center gap-2">

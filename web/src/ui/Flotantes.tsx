@@ -202,7 +202,17 @@ export function Menu({
       setPos({ top: arriba ? r.top - 6 : r.bottom + 6, left, arriba });
     };
     ubicar();
-    const alDesplazar = (e: Event) => { if (!flotante.current?.contains(e.target as Node)) cerrar(); };
+    // Al desplazar, el menú sigue a su botón; solo se cierra si el botón sale
+    // de la vista. Los desplazamientos de los primeros 250 ms (el final de un
+    // scroll suave justo al tocar) no lo cierran.
+    const abiertoEn = performance.now();
+    const alDesplazar = (e: Event) => {
+      if (flotante.current?.contains(e.target as Node)) return;
+      if (performance.now() - abiertoEn < 250) { ubicar(); return; }
+      const r = (envoltura.current?.firstElementChild as HTMLElement | null)?.getBoundingClientRect();
+      if (!r || r.bottom < 0 || r.top > window.innerHeight || r.right < 0 || r.left > window.innerWidth) cerrar();
+      else ubicar();
+    };
     window.addEventListener('resize', ubicar);
     window.addEventListener('scroll', alDesplazar, true);
     return () => { window.removeEventListener('resize', ubicar); window.removeEventListener('scroll', alDesplazar, true); };

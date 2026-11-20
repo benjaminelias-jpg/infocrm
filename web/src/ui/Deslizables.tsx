@@ -71,9 +71,13 @@ export function Pestanas<T extends string>({ pestanas, actual, onCambiar, classN
   pestanas: Array<Pestana<T>>; actual: T; onCambiar: (id: T) => void; className?: string;
 }) {
   const fila = useRef<HTMLDivElement>(null);
+  // La pestaña activa siempre a la vista, moviendo SOLO la fila (scrollIntoView
+  // también bajaba la página entera si las pestañas estaban más abajo).
   useEffect(() => {
-    const el = fila.current?.querySelector<HTMLElement>(`[data-pestana="${actual}"]`);
-    el?.scrollIntoView({ inline: 'center', block: 'nearest', behavior: 'smooth' });
+    const f = fila.current;
+    const el = f?.querySelector<HTMLElement>(`[data-pestana="${actual}"]`);
+    if (!f || !el || f.scrollWidth <= f.clientWidth) return;
+    f.scrollTo({ left: el.offsetLeft - f.clientWidth / 2 + el.offsetWidth / 2, behavior: 'smooth' });
   }, [actual]);
   function tecla(e: React.KeyboardEvent) {
     const i = pestanas.findIndex((p) => p.id === actual);
@@ -112,7 +116,9 @@ export function ContenidoDeslizable<T extends string>({ pestanas, actual, onCamb
     onIzquierda: () => { if (i < pestanas.length - 1) onCambiar(pestanas[i + 1].id); },
     onDerecha: () => { if (i > 0) onCambiar(pestanas[i - 1].id); },
   });
-  return <div ref={ref} className={className} key={actual}><div className="ui-fundido">{children}</div></div>;
+  // El key va en el div de adentro: el de afuera (con los gestos) no se recrea,
+  // así deslizar sigue andando después del primer cambio de pestaña.
+  return <div ref={ref} className={className}><div className="ui-fundido" key={actual}>{children}</div></div>;
 }
 
 // ---------------------------------------------------------------------

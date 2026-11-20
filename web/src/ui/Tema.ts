@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 
 export type Tema = 'claro' | 'oscuro' | 'auto';
 const CLAVE = 'infocrm_tema';
-const COLOR = { claro: '#f9f9f7', oscuro: '#0d0d0d' };
+const COLOR = { claro: '#f3f3f6', oscuro: '#0f0f12' };
 
 export function leerTema(): Tema {
   try {

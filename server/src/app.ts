@@ -108,11 +108,17 @@ export async function construirApp(): Promise<FastifyInstance> {
       });
     }
     if (err instanceof ZodError) {
+      // Si el esquema trae un mensaje propio en español («Escribí el nombre…»),
+      // ese es el que ve la persona; los mensajes por defecto de zod son en inglés.
+      const propio = err.issues.find((i) => !/\b(must|expected|required|invalid|received|string|number)\b/i.test(i.message));
       return reply.code(400).send({
         error: 'peticion_invalida',
-        mensaje: 'Los datos enviados no son válidos',
+        mensaje: propio?.message ?? 'Hay datos que no son válidos. Revisalos y probá de nuevo.',
         detalles: err.issues.map((i) => ({ campo: i.path.join('.'), problema: i.message })),
       });
+    }
+    if ((err as any).code === 'FST_ERR_CTP_BODY_TOO_LARGE' || (err as any).statusCode === 413) {
+      return reply.code(413).send({ error: 'muy_pesado', mensaje: 'El archivo es muy pesado (máximo ~3 MB). Probá con uno más liviano o pegá un enlace.' });
     }
     if ((err as any).statusCode === 400 || (err as any).code === 'FST_ERR_VALIDATION') {
       return reply.code(400).send({ error: 'peticion_invalida', mensaje: err.message });
@@ -120,7 +126,7 @@ export async function construirApp(): Promise<FastifyInstance> {
     req.log?.error({ err }, 'error no controlado');
     return reply.code(500).send({
       error: 'error_interno',
-      mensaje: config.isProd ? 'Algo ha fallado en el servidor' : err.message,
+      mensaje: config.isProd ? 'Algo falló en el servidor. Probá de nuevo en un rato.' : err.message,
     });
   });
 

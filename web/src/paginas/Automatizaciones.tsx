@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, plural } from '../api';
 import Cabecera from '../componentes/Cabecera';
 import {
@@ -14,6 +15,10 @@ type Filtro = 'todas' | 'sin' | 'repetidas';
 export default function Automatizaciones({ embebido = false }: { embebido?: boolean }) {
   const aviso = useAviso();
   const [filtro, setFiltro] = useState<Filtro>('todas');
+  // ?palabra=GUIA (desde el Panel): muestra solo esa palabra, con "Ver todas".
+  const [params, setParams] = useSearchParams();
+  const palabra = params.get('palabra');
+  const quitarPalabra = () => setParams((prev) => { const p = new URLSearchParams(prev); p.delete('palabra'); return p; }, { replace: true });
   const [recuperando, setRecuperando] = useState(false);
   const { datos, error, recargar, setDatos } = useCarga(async () => {
     const [autos, contenidos] = await Promise.all([api<any[]>('/automatizaciones'), api<any>('/contenidos')]);
@@ -62,7 +67,9 @@ export default function Automatizaciones({ embebido = false }: { embebido?: bool
   const sinEnlazar = autos.filter((a: any) => !a.contenido_id);
   // Primero lo que necesita atención: sin reel, después las repetidas, después el resto.
   const ordenadas = [...autos].sort((a: any, b: any) => Number(!!a.contenido_id) - Number(!!b.contenido_id) || Number(esRepetida(b)) - Number(esRepetida(a)));
-  const visibles = ordenadas.filter((a: any) => (filtro === 'sin' ? !a.contenido_id : filtro === 'repetidas' ? esRepetida(a) : true));
+  const visibles = ordenadas
+    .filter((a: any) => !palabra || String(a.palabra_clave ?? '').toLowerCase() === palabra.toLowerCase())
+    .filter((a: any) => (filtro === 'sin' ? !a.contenido_id : filtro === 'repetidas' ? esRepetida(a) : true));
 
   const columnas: Array<Columna<any>> = [
     {
@@ -114,6 +121,12 @@ export default function Automatizaciones({ embebido = false }: { embebido?: bool
             <div className="rounded-xl p-3 text-[13px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 10%, var(--surface-1))', border: '1px solid color-mix(in srgb, var(--status-warning) 30%, transparent)' }}>
               <b>⚠ {sinEnlazar.length === 1 ? '1 palabra sin reel' : `${sinEnlazar.length} palabras sin reel`}.</b>{' '}
               Los leads que entren por {sinEnlazar.length === 1 ? 'esa palabra' : 'esas palabras'} no se pueden atribuir a ningún contenido. Elegí el reel de cada una y después tocá «Recuperar el origen de leads anteriores».
+            </div>
+          )}
+          {palabra && (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2 text-[13px]" style={{ background: 'var(--tint)' }}>
+              <span>Mostrando la palabra <b>«{palabra}»</b></span>
+              <Boton tamano="xs" variante="fantasma" onClick={quitarPalabra}>Ver todas</Boton>
             </div>
           )}
           <div className="flex flex-wrap items-center gap-2">

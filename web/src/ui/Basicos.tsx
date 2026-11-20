@@ -64,7 +64,7 @@ export function Chip({ activo, onClick, children, contador, icono }: {
 }) {
   return (
     <button type="button" onClick={onClick} aria-pressed={activo}
-      className={`ui-foco inline-flex h-8 shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12px] font-medium transition-colors ${activo ? 'border-transparent' : 'border-[var(--border-hairline)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'}`}
+      className={`ui-foco inline-flex h-10 shrink-0 snap-start items-center gap-1.5 whitespace-nowrap rounded-[10px] border px-3 text-[12px] font-medium transition-colors md:h-8 ${activo ? 'border-transparent' : 'border-[var(--border-hairline)] bg-[var(--surface-1)] text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'}`}
       style={activo ? { background: 'var(--ink)', color: 'var(--on-ink)' } : undefined}>
       {icono}
       {children}

@@ -179,8 +179,14 @@ function useNoLeidos() {
     window.addEventListener('focus', leer);
     return () => { window.clearInterval(t); window.removeEventListener('focus', leer); };
   }, [leer]);
-  // Al salir del Chat (donde se leen), refrescamos.
-  useEffect(() => { leer(); }, [ubicacion.pathname, leer]);
+  // Al cambiar de pantalla refrescamos; al abrir una conversación, otra vez
+  // un poco después (el servidor la marca como leída al cargarla).
+  useEffect(() => {
+    leer();
+    if (!ubicacion.pathname.startsWith('/chat/')) return;
+    const t = window.setTimeout(leer, 900);
+    return () => window.clearTimeout(t);
+  }, [ubicacion.pathname, leer]);
   return n;
 }
 
@@ -242,8 +248,9 @@ function Marco({ children }: { children: React.ReactNode }) {
   // Título de la pestaña según la pantalla ("Chat · InfoCRM").
   useEffect(() => {
     const d = TODOS.find((x) => activo(x, ruta));
-    document.title = d ? `${d.etiqueta} · InfoCRM` : 'InfoCRM';
-  }, [ruta]);
+    const previo = noLeidos ? `(${noLeidos > 99 ? '99+' : noLeidos}) ` : '';
+    document.title = `${previo}${d ? `${d.etiqueta} · ` : ''}InfoCRM`;
+  }, [ruta, noLeidos]);
 
   // Con la pantalla ya abierta, se bajan las demás sin apuro (navegar después es instantáneo).
   useEffect(() => {
