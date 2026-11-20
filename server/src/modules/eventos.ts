@@ -10,6 +10,7 @@ import { oportunidadAbierta, moverEtapa, etapaParaEvento, ejecutarAccionesEtapa 
 import { ejecutarReglas } from './reglas.js';
 import { recomputarScore } from './infoproduccion.js';
 import { despacharEvento } from './webhooks_salida.js';
+import { sincronizarVentaDeEvento, sincronizarReembolsoDeEvento } from './ventas_sync.js';
 
 /** Eventos que mueven la oportunidad aunque suponga retroceder de etapa. */
 const EVENTOS_FUERTES = new Set([
@@ -288,10 +289,20 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
       await c.query(
         `UPDATE leads SET valor_total = valor_total + $2, estado = 'ganado' WHERE id = $1`,
         [leadId, valor]);
+      // La misma venta aparece en Finanzas (con su cobro): Panel y Finanzas cuentan igual.
+      await sincronizarVentaDeEvento(c, {
+        cuentaId: entrada.cuentaId, leadId: leadId!, eventoId: evento.id, valor: entrada.valor,
+        moneda: entrada.moneda, tipoPago: entrada.tipoPago, pagoCompletado: entrada.pagoCompletado,
+        fuente: entrada.fuente, idempotencyKey: entrada.idempotencyKey, ocurridoEn,
+      });
     } else if (entrada.tipo === 'reembolso') {
       const valor = entrada.valor ?? 0;
       await c.query(`UPDATE leads SET valor_total = GREATEST(valor_total - $2, 0) WHERE id = $1`,
         [leadId, valor]);
+      await sincronizarReembolsoDeEvento(c, {
+        cuentaId: entrada.cuentaId, leadId: leadId!, valor: entrada.valor, moneda: entrada.moneda,
+        idempotencyKey: entrada.idempotencyKey, ocurridoEn,
+      });
     }
 
     // 8. Movimiento de etapa según el mapeo evento -> etapa

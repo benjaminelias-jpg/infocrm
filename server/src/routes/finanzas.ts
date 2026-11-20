@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { query, queryOne, pool } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import { cargarDemo } from '../modules/demo.js';
+import { registrarEvento } from '../modules/eventos.js';
+import type { FastifyRequest } from 'fastify';
 
 /** Deja solo las claves permitidas y definidas (whitelist → SQL seguro). */
 function pick(body: any, cols: string[]): Record<string, any> {
@@ -11,8 +13,14 @@ function pick(body: any, cols: string[]): Record<string, any> {
   return out;
 }
 
+interface Ganchos {
+  despuesDeCrear?: (req: FastifyRequest, fila: any) => Promise<void>;
+  despuesDeEditar?: (req: FastifyRequest, antes: any, fila: any) => Promise<void>;
+  antesDeBorrar?: (req: FastifyRequest, fila: any) => Promise<void>;
+}
+
 /** CRUD genérico multi-tenant para una tabla con lista de columnas editables. */
-function crud(app: FastifyInstance, ruta: string, tabla: string, cols: string[], orden = 'creado_en DESC') {
+function crud(app: FastifyInstance, ruta: string, tabla: string, cols: string[], orden = 'creado_en DESC', ganchos: Ganchos = {}) {
   app.get(ruta, async (req) =>
     query(`SELECT * FROM ${tabla} WHERE cuenta_id = $1 ORDER BY ${orden}`, [req.sesion.cuentaId]));
 
@@ -24,6 +32,7 @@ function crud(app: FastifyInstance, ruta: string, tabla: string, cols: string[],
     const fila = await queryOne(
       `INSERT INTO ${tabla} (cuenta_id, ${keys.join(', ')}) VALUES ($1, ${ph.join(', ')}) RETURNING *`,
       [req.sesion.cuentaId, ...keys.map((k) => d[k])]);
+    if (ganchos.despuesDeCrear) await ganchos.despuesDeCrear(req, fila);
     return reply.code(201).send(fila);
   });
 
@@ -33,19 +42,86 @@ function crud(app: FastifyInstance, ruta: string, tabla: string, cols: string[],
     const keys = Object.keys(d);
     if (keys.length === 0) throw peticionInvalida('Nada que actualizar');
     const sets = keys.map((k, i) => `${k} = $${i + 3}`);
+    const antes = ganchos.despuesDeEditar
+      ? await queryOne(`SELECT * FROM ${tabla} WHERE cuenta_id = $1 AND id = $2`, [req.sesion.cuentaId, id])
+      : null;
     const fila = await queryOne(
       `UPDATE ${tabla} SET ${sets.join(', ')} WHERE cuenta_id = $1 AND id = $2 RETURNING *`,
       [req.sesion.cuentaId, id, ...keys.map((k) => d[k])]);
     if (!fila) throw noEncontrado(tabla);
+    if (ganchos.despuesDeEditar) await ganchos.despuesDeEditar(req, antes, fila);
     return fila;
   });
 
   app.delete(`${ruta}/:id`, async (req, reply) => {
     const { id } = req.params as { id: string };
+    if (ganchos.antesDeBorrar) {
+      const fila = await queryOne(`SELECT * FROM ${tabla} WHERE cuenta_id = $1 AND id = $2`, [req.sesion.cuentaId, id]);
+      if (fila) await ganchos.antesDeBorrar(req, fila);
+    }
     await queryOne(`DELETE FROM ${tabla} WHERE cuenta_id = $1 AND id = $2 RETURNING id`,
       [req.sesion.cuentaId, id]);
     return reply.code(204).send();
   });
+}
+
+// --- Ventas unificadas con el Panel (ver modules/ventas_sync.ts) ---------
+
+/** Una venta cargada en Finanzas genera su evento "venta" (lo que cuenta el Panel). */
+async function eventoDeVenta(cuentaId: string, v: any) {
+  if (!v?.lead_id || v.evento_id) return;
+  const prod = v.producto_id
+    ? await queryOne(`SELECT nombre FROM productos WHERE cuenta_id = $1 AND id = $2`, [cuentaId, v.producto_id])
+    : null;
+  await registrarEvento({
+    cuentaId, tipo: 'venta', leadId: v.lead_id, valor: Number(v.precio_acordado ?? 0), moneda: v.moneda ?? undefined,
+    titulo: prod?.nombre ?? undefined, tipoPago: v.tipo_cobro === 'cuotas' ? 'cuotas' : 'completo',
+    fuente: 'manual',
+    ocurridoEn: v.fecha ? new Date(`${new Date(v.fecha).toISOString().slice(0, 10)}T12:00:00Z`) : new Date(),
+    idempotencyKey: `venta_${v.id}`, payload: { venta_id: v.id, origen: 'finanzas' },
+  });
+}
+
+const GANCHOS_VENTA: Ganchos = {
+  despuesDeCrear: async (req, fila) => { await eventoDeVenta(req.sesion.cuentaId, fila); },
+  despuesDeEditar: async (req, antes, fila) => {
+    // Marcada como devuelta en Finanzas → devolución en el Panel.
+    if (fila.estado === 'reembolsada' && antes?.estado !== 'reembolsada') {
+      await pool.query(`UPDATE pagos SET estado = 'reembolsado' WHERE cuenta_id = $1 AND venta_id = $2 AND estado = 'pagado'`,
+        [req.sesion.cuentaId, fila.id]);
+    }
+    if (fila.estado === 'reembolsada' && antes?.estado !== 'reembolsada' && fila.lead_id) {
+      await registrarEvento({
+        cuentaId: req.sesion.cuentaId, tipo: 'reembolso', leadId: fila.lead_id,
+        valor: Number(fila.precio_acordado ?? 0), moneda: fila.moneda ?? undefined, fuente: 'manual',
+        idempotencyKey: `reembolso_venta_${fila.id}`, payload: { venta_id: fila.id, origen: 'finanzas' },
+      });
+    }
+    // Cancelada (la venta se cayó): deja de contar en el Panel, igual que si se borrara.
+    if (fila.estado === 'cancelada' && antes?.estado !== 'cancelada') {
+      await quitarEventoDeVenta(req.sesion.cuentaId, fila);
+      return;
+    }
+    // Se le asignó un lead después (o se reactivó): ahora sí cuenta en el Panel.
+    if (fila.lead_id && !fila.evento_id && !['cancelada', 'reembolsada'].includes(fila.estado)) {
+      await eventoDeVenta(req.sesion.cuentaId, fila);
+    }
+  },
+  // Borrar una venta (p. ej. cargada por error) la saca también del Panel.
+  antesDeBorrar: async (req, fila) => { await quitarEventoDeVenta(req.sesion.cuentaId, fila); },
+};
+
+/** Saca del Panel el evento "venta" de una venta de Finanzas (y descuenta el valor del lead). */
+async function quitarEventoDeVenta(cuentaId: string, fila: any) {
+  if (!fila?.evento_id) return;
+  const ev = await queryOne(
+    `DELETE FROM eventos WHERE cuenta_id = $1 AND id = $2 AND tipo = 'venta' RETURNING lead_id, valor`,
+    [cuentaId, fila.evento_id]);
+  if (ev?.lead_id) {
+    await pool.query(
+      `UPDATE leads SET valor_total = GREATEST(valor_total - $2, 0) WHERE cuenta_id = $1 AND id = $3`,
+      [cuentaId, Number(ev.valor ?? 0), ev.lead_id]);
+  }
 }
 
 export default async function rutasFinanzas(app: FastifyInstance) {
@@ -90,7 +166,7 @@ export default async function rutasFinanzas(app: FastifyInstance) {
   const COLS_VENTA = ['lead_id', 'llamada_id', 'producto_id', 'setter_id', 'closer_id', 'fecha',
     'tipo_cobro', 'precio_lista', 'precio_acordado', 'moneda', 'num_cuotas', 'duracion', 'pasarela',
     'estado', 'comision_setter_pct', 'comision_closer_pct', 'notas'];
-  crud(app, '/ventas', 'ventas', COLS_VENTA, 'fecha DESC');
+  crud(app, '/ventas', 'ventas', COLS_VENTA, 'fecha DESC', GANCHOS_VENTA);
   app.get('/ventas/detalle', async (req) =>
     query(
       `SELECT v.*, l.nombre AS lead_nombre, l.ig_username, p.nombre AS producto,
@@ -161,6 +237,8 @@ export default async function rutasFinanzas(app: FastifyInstance) {
          VALUES ($1,$2,$3,$4,$5,'pendiente',$6,$7)`,
         [c, venta!.id, k, montoCuota, vence, pasarela, Math.round(montoCuota * comPct) / 100]);
     }
+    // La venta cuenta en el Panel (evento "venta", que también mueve la oportunidad a ganada).
+    await eventoDeVenta(c, venta);
     return reply.code(201).send({ ...venta, cuotas: nc, comision_pasarela_pct: comPct });
   });
 
