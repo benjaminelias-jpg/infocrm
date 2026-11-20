@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { query, queryOne } from '../db/pool.js';
-import { noEncontrado } from '../lib/errores.js';
+import { conflicto, noEncontrado } from '../lib/errores.js';
 import { generarApiKey } from '../lib/auth.js';
 
 const esquemaRegla = z.object({
@@ -18,6 +18,16 @@ const esquemaRegla = z.object({
   activo: z.boolean().optional(),
 });
 
+/** ¿Ya hay otra regla que hace exactamente lo mismo (mismo evento, condiciones y acciones)? */
+async function reglaRepetida(cuentaId: string, r: { disparador: unknown; condiciones: unknown; acciones: unknown }, excepto?: string) {
+  return queryOne(
+    `SELECT id, nombre FROM reglas
+      WHERE cuenta_id = $1 AND disparador = $2::jsonb AND condiciones = $3::jsonb AND acciones = $4::jsonb
+        AND ($5::uuid IS NULL OR id <> $5::uuid)
+      LIMIT 1`,
+    [cuentaId, JSON.stringify(r.disparador), JSON.stringify(r.condiciones ?? []), JSON.stringify(r.acciones ?? []), excepto ?? null]);
+}
+
 export default async function rutasConfiguracion(app: FastifyInstance) {
   // ---------------- Reglas ----------------
 
@@ -32,6 +42,7 @@ export default async function rutasConfiguracion(app: FastifyInstance) {
 
   app.post('/reglas', async (req, reply) => {
     const d = esquemaRegla.parse(req.body);
+    if (await reglaRepetida(req.sesion.cuentaId, d)) throw conflicto('Ya tenés esta regla: hace exactamente lo mismo.');
     const fila = await queryOne(
       `INSERT INTO reglas (cuenta_id, nombre, descripcion, disparador, condiciones, acciones, orden, activo)
        VALUES ($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7,$8) RETURNING *`,
@@ -47,6 +58,13 @@ export default async function rutasConfiguracion(app: FastifyInstance) {
     const d = esquemaRegla.partial().parse(req.body);
     const campos = Object.keys(d);
     if (campos.length === 0) throw noEncontrado('Nada que actualizar');
+    if (d.disparador || d.condiciones || d.acciones) {
+      const actual = await queryOne(`SELECT disparador, condiciones, acciones FROM reglas WHERE cuenta_id = $1 AND id = $2`,
+        [req.sesion.cuentaId, id]);
+      if (!actual) throw noEncontrado('Regla');
+      const nueva = { disparador: d.disparador ?? actual.disparador, condiciones: d.condiciones ?? actual.condiciones, acciones: d.acciones ?? actual.acciones };
+      if (await reglaRepetida(req.sesion.cuentaId, nueva, id)) throw conflicto('Ya tenés otra regla que hace exactamente lo mismo.');
+    }
 
     const jsonb = new Set(['disparador', 'condiciones', 'acciones']);
     const params: any[] = [req.sesion.cuentaId, id];

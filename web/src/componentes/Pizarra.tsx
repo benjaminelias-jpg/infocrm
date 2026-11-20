@@ -6,6 +6,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AreaTexto, BotonConfirmar, Campo, Chip, Entrada, FilaChips, Seleccion, useAviso, useEsMovil } from '../ui';
+import TextoConVariables from './TextoConVariables';
 
 // =====================================================================
 // Pizarra libre de automensajes, estilo n8n: lienzo infinito punteado,
@@ -733,37 +734,6 @@ function Paleta({ titulo, alElegir, alCerrar }: { titulo: string; alElegir: (t: 
 // ---------------------------------------------------------------------
 // Campos del panel (kit: 16 px en el celular → sin zoom en iPhone)
 // ---------------------------------------------------------------------
-
-/** Texto con atajos "+ Nombre" / "+ @usuario" que se insertan donde está el cursor, y contador. */
-function TextoConVariables({ valor, onCambio, filas = 4, placeholder, max = MAX_TEXTO, linea = false, autoFoco }: {
-  valor: string; onCambio: (v: string) => void; filas?: number; placeholder?: string; max?: number; linea?: boolean; autoFoco?: boolean;
-}) {
-  const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
-  function insertar(variable: string) {
-    const el = ref.current;
-    const ini = el?.selectionStart ?? valor.length;
-    const fin = el?.selectionEnd ?? valor.length;
-    const nuevo = `${valor.slice(0, ini)}${variable}${valor.slice(fin)}`;
-    onCambio(nuevo);
-    requestAnimationFrame(() => { el?.focus(); const pos = ini + variable.length; el?.setSelectionRange(pos, pos); });
-  }
-  const largo = valor.length;
-  return (
-    <div>
-      {linea
-        ? <Entrada ref={ref as any} value={valor} onChange={(e) => onCambio(e.target.value)} placeholder={placeholder} autoFocus={autoFoco} />
-        : <AreaTexto ref={ref as any} value={valor} onChange={(e) => onCambio(e.target.value)} rows={filas} placeholder={placeholder} autoFocus={autoFoco} className="resize-y" />}
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
-        <button type="button" onClick={() => insertar('{{nombre}}')} className="ui-foco rounded-full border border-[var(--border-hairline)] px-2 py-0.5 hover:bg-[var(--surface-1)]">+ Nombre</button>
-        <button type="button" onClick={() => insertar('{{usuario}}')} className="ui-foco rounded-full border border-[var(--border-hairline)] px-2 py-0.5 hover:bg-[var(--surface-1)]">+ @usuario</button>
-        <span className="ml-auto cifras" style={{ color: largo > max ? 'var(--status-critical)' : undefined }}>{largo}/{max}</span>
-      </div>
-      {/\{\{\s*(nombre|usuario)\s*\}\}/i.test(valor) && (
-        <div className="mt-1 text-[11px] text-[var(--text-muted)]">Así le llega: «{conVariables(valor).replace('[Nombre]', 'Sofía').replace('[@usuario]', '@sofi.coach').slice(0, 90)}»</div>
-      )}
-    </div>
-  );
-}
 
 function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: any) => any) => void; ctx: Ctx }) {
   const disp = DISPAROS.find((d) => d.v === form.disparo) ?? DISPAROS[0];

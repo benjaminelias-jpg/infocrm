@@ -1,4 +1,4 @@
-import { forwardRef, useId } from 'react';
+import { Fragment, cloneElement, forwardRef, isValidElement, useId } from 'react';
 
 // Campos de formulario con el mismo alto, borde y foco en toda la app.
 // En el celular miden 40 px (y 16 px de letra en el input para que iOS no
@@ -10,13 +10,27 @@ export function Campo({ etiqueta, ayuda, error, children, className = '', htmlFo
   etiqueta?: React.ReactNode; ayuda?: React.ReactNode; error?: React.ReactNode;
   children: React.ReactNode; className?: string; htmlFor?: string;
 }) {
+  // La etiqueta queda unida al control (lectores de pantalla y tocar la
+  // etiqueta enfoca el campo) aunque no se pase htmlFor, y la ayuda o el
+  // error se anuncian junto con él.
+  const auto = useId();
+  const unico = isValidElement(children) && children.type !== Fragment ? (children as React.ReactElement<any>) : null;
+  const id = htmlFor ?? unico?.props.id ?? (unico ? `campo-${auto}` : undefined);
+  const nota = error || ayuda ? `nota-${auto}` : undefined;
+  const control = unico && !htmlFor
+    ? cloneElement(unico, {
+      id,
+      ...(nota && !unico.props['aria-describedby'] ? { 'aria-describedby': nota } : {}),
+      ...(error && unico.props['aria-invalid'] === undefined ? { 'aria-invalid': true } : {}),
+    })
+    : children;
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
-      {etiqueta && <label htmlFor={htmlFor} className="text-[12px] font-medium text-[var(--text-secondary)]">{etiqueta}</label>}
-      {children}
+      {etiqueta && <label htmlFor={id} className="text-[12px] font-medium text-[var(--text-secondary)]">{etiqueta}</label>}
+      {control}
       {error
-        ? <p className="text-[11px]" style={{ color: 'var(--status-critical)' }}>{error}</p>
-        : ayuda ? <p className="text-[11px] text-[var(--text-muted)]">{ayuda}</p> : null}
+        ? <p id={nota} className="text-[11px]" style={{ color: 'var(--status-critical)' }}>{error}</p>
+        : ayuda ? <p id={nota} className="text-[11px] text-[var(--text-muted)]">{ayuda}</p> : null}
     </div>
   );
 }

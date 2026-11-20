@@ -1,6 +1,7 @@
 import { pool, query } from '../db/pool.js';
 import { moverEtapa } from './pipeline.js';
 import { leerRuta } from '../lib/utils.js';
+import { avisarAConexion } from './webhooks_salida.js';
 
 type Operador =
   | 'igual' | 'distinto' | 'contiene' | 'no_contiene'
@@ -141,6 +142,21 @@ async function ejecutarAccion(
     }
 
     case 'webhook_saliente': {
+      if (accion.suscripcion_id) {
+        // Conexión guardada: firmada y con registro de entregas.
+        const r = await avisarAConexion(cuentaId, String(accion.suscripcion_id), {
+          evento: ctx.evento.tipo, valor: ctx.evento.valor ?? null, moneda: ctx.evento.moneda ?? null,
+          lead: ctx.lead && {
+            id: ctx.lead.id, nombre: ctx.lead.nombre, ig_username: ctx.lead.ig_username,
+            email: ctx.lead.email, etiquetas: ctx.lead.etiquetas,
+          },
+          contenido: ctx.contenido && {
+            id: ctx.contenido.id, titulo: ctx.contenido.titulo, permalink: ctx.contenido.permalink,
+          },
+        });
+        if (!r.ok) throw new Error(r.error ?? 'la otra app no respondió');
+        return { conexion: accion.suscripcion_id };
+      }
       const url = plantilla(String(accion.url ?? ''), ctx);
       if (!url) return { omitida: 'sin url' };
       const cuerpo = {

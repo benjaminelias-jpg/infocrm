@@ -19,6 +19,17 @@ export default async function rutasUx_pipeline(app: FastifyInstance) {
     return Object.fromEntries(filas.map((f: any) => [f.id, f.abiertos]));
   });
 
+  /** Cuántos leads hay en cada etapa de un pipeline (para avisar antes de borrar una). */
+  app.get('/conteos-etapas', async (req) => {
+    const { pipeline_id } = z.object({ pipeline_id: z.string().uuid() }).parse(req.query);
+    const filas = await query(
+      `SELECT e.id, COUNT(o.id)::int AS n
+         FROM etapas e LEFT JOIN oportunidades o ON o.etapa_id = e.id
+        WHERE e.cuenta_id = $1 AND e.pipeline_id = $2
+        GROUP BY e.id`, [req.sesion.cuentaId, pipeline_id]);
+    return Object.fromEntries(filas.map((f: any) => [f.id, f.n]));
+  });
+
   /**
    * Lead rápido (como en Kommo): se carga a mano directo en una etapa.
    * Lo atiende quien lo crea. Si ya existía (mismo @usuario), lo mueve.
@@ -133,5 +144,31 @@ export default async function rutasUx_pipeline(app: FastifyInstance) {
     if (!opp) throw noEncontrado('Oportunidad');
     await pool.query(`UPDATE leads SET propietario_id = $3 WHERE cuenta_id = $1 AND id = $2`, [c, opp.lead_id, d.usuario_id]);
     return { ok: true };
+  });
+
+  /**
+   * "Probar" de una acción que avisa a una dirección pegada a mano (Avanzado):
+   * manda un lead de ejemplo y dice si la otra app lo recibió.
+   */
+  app.post('/probar-aviso', async (req) => {
+    const d = z.object({ url: z.string().max(2000), tipo: z.enum(['webhook', 'email']).default('webhook') }).parse(req.body);
+    let url: URL;
+    try { url = new URL(d.url.trim()); } catch { throw peticionInvalida('Pegá la dirección completa (empieza con https://).'); }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') throw peticionInvalida('La dirección tiene que empezar con https://');
+    const lead = { nombre: 'Lead de prueba', ig_username: 'prueba', email: 'prueba@ejemplo.com', etiquetas: ['prueba'] };
+    const cuerpo = d.tipo === 'email'
+      ? { evento: 'agregar_a_secuencia', prueba: true, secuencia: 'Prueba', email: lead.email, nombre: lead.nombre, ig_username: lead.ig_username }
+      : { evento: 'lead_movido_a_etapa', prueba: true, etapa: 'Prueba', lead };
+    try {
+      const r = await fetch(url, {
+        method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': 'InfoCRM-Webhooks/1.0' },
+        body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(8000),
+      });
+      if (r.ok) return { ok: true, status: r.status };
+      return { ok: false, status: r.status, error: `la otra app respondió ${r.status}` };
+    } catch (err: any) {
+      const motivo = /timeout|abort/i.test(String(err?.name ?? err?.message)) ? 'no respondió a tiempo' : 'no se pudo llegar a esa dirección';
+      return { ok: false, error: motivo };
+    }
   });
 }

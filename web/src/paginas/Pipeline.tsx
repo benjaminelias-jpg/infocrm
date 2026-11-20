@@ -12,6 +12,8 @@ import Tarjeta from '../componentes/pipeline/Tarjeta';
 import LeadRapido from '../componentes/pipeline/LeadRapido';
 import { DialogoVenta, DialogoPerdido } from '../componentes/pipeline/Dialogos';
 import { accionesDe, resumirAccion, resumirAcciones, tieneExternas } from '../componentes/pipeline/acciones';
+import { DialogoNuevoPipeline } from '../componentes/pipeline/config/DialogosPipeline';
+import { EVENTOS } from '../componentes/pipeline/config/datos';
 
 // Pipeline estilo Kommo: columnas por etapa con tarjetas compactas.
 // - Todas las etapas se alcanzan: mapa de etapas arriba (chips), flechas y
@@ -80,6 +82,9 @@ export default function Pipeline() {
   const [rapidoMovil, setRapidoMovil] = useState(false);
   const [venta, setVenta] = useState<{ t: any; etapa: any } | null>(null);
   const [perdido, setPerdido] = useState<{ t: any; etapa: any } | null>(null);
+  const [nuevoPipe, setNuevoPipe] = useState(false);
+  const [nuevaEtapa, setNuevaEtapa] = useState<string | null>(null);
+  const [creandoEtapa, setCreandoEtapa] = useState(false);
   const [visibles, setVisibles] = useState<[number, number]>([0, 0]);
   const [bordes, setBordes] = useState({ izq: false, der: false });
   const tablero = useRef<HTMLDivElement>(null);
@@ -178,26 +183,39 @@ export default function Pipeline() {
     tablero.current?.scrollTo({ left: 0 });
   }
 
-  async function crearPipe(nombre: string) {
-    if (pipes?.some((p) => p.nombre.trim().toLowerCase() === nombre.trim().toLowerCase())) {
-      aviso.error(`Ya tenés un pipeline que se llama «${nombre}».`);
-      return;
-    }
-    try {
-      const nuevo = await api<any>('/pipelines', { method: 'POST', json: { nombre } });
-      await cargarPipes();
-      elegirPipe(nuevo.id);
-      aviso.exito(`Pipeline «${nombre}» creado con 5 etapas. Cambiales el nombre en ⚙ si querés.`);
-    } catch (err: any) { aviso.error(err.message); }
+  async function pipeCreado(nuevo: { id: string }) {
+    setNuevoPipe(false);
+    await cargarPipes();
+    elegirPipe(nuevo.id);
   }
 
-  function abrirConfig(foco?: 'reglas') {
-    setParams((prev) => { const p = new URLSearchParams(prev); p.set('config', foco ?? '1'); if (pipeId) p.set('p', pipeId); return p; },
-      { state: { configApilada: true } });
+  async function crearEtapa(e?: React.FormEvent) {
+    e?.preventDefault();
+    const nombre = (nuevaEtapa ?? '').trim();
+    if (!nombre || !pipeId) return;
+    setCreandoEtapa(true);
+    try {
+      const cierre = etapas?.find((x) => x.tipo !== 'abierta');
+      await api(`/pipelines/${pipeId}/etapas`, { method: 'POST', json: { nombre } });
+      setNuevaEtapa(null);
+      await Promise.all([cargarPipes(), cargarTablero(true)]);
+      aviso.exito(cierre ? `Etapa «${nombre}» creada, antes de «${cierre.nombre}».` : `Etapa «${nombre}» creada.`, {
+        texto: 'Ponerle automatizaciones', onClick: () => abrirConfig(),
+      });
+    } catch (err: any) { aviso.error(err.message); } finally { setCreandoEtapa(false); }
+  }
+
+  function abrirConfig(foco?: 'reglas', etapaId?: string) {
+    setParams((prev) => {
+      const p = new URLSearchParams(prev);
+      p.set('config', foco ?? '1'); if (pipeId) p.set('p', pipeId);
+      if (etapaId) p.set('etapa', etapaId); else p.delete('etapa');
+      return p;
+    }, { state: { configApilada: true } });
   }
   function cerrarConfig() {
     if ((window.history.state as any)?.usr?.configApilada) { window.history.back(); return; }
-    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('config'); return p; }, { replace: true });
+    setParams((prev) => { const p = new URLSearchParams(prev); p.delete('config'); p.delete('etapa'); return p; }, { replace: true });
   }
 
   // ---------------- Mover ----------------
@@ -344,7 +362,7 @@ export default function Pipeline() {
   const columnaParaRapido = etapas?.[visibles[0]] ?? etapas?.[0];
 
   const selector = (
-    <SelectorConMas items={items} actualId={pipeId} onElegir={elegirPipe} onCrear={crearPipe}
+    <SelectorConMas items={items} actualId={pipeId} onElegir={elegirPipe} onNuevo={() => setNuevoPipe(true)}
       queEs="pipeline" extra={(p) => `${plural(conteos[p.id] ?? 0, 'lead abierto', 'leads abiertos')}${pipes?.find((x) => x.id === p.id)?.es_predeterminado ? ' · ★ acá entran los nuevos' : ''}`}
       onGestionar={() => abrirConfig()} textoGestionar="Configurar etapas y automatizaciones" />
   );
@@ -461,7 +479,7 @@ export default function Pipeline() {
                       if (t) moverA(t, etapa.id);
                       setArrastrando(null);
                     }}
-                    className="flex w-[86vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl transition-colors md:w-[288px]"
+                    className="relative flex w-[86vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl transition-colors md:w-[288px]"
                     style={{
                       background: sobre === etapa.id ? 'color-mix(in srgb, var(--series-1) 8%, var(--page-plane))' : 'var(--page-plane)',
                       outline: sobre === etapa.id ? '2px dashed var(--series-1)' : 'none', outlineOffset: -2,
@@ -485,10 +503,18 @@ export default function Pipeline() {
                             <Icono nombre="mas" tam={15} />
                           </BotonIcono>
                         )}
+                        <BotonIcono etiqueta={`Editar «${etapa.nombre}» (nombre, color y automatizaciones)`} variante="fantasma" tamano="xs" onClick={() => abrirConfig(undefined, etapa.id)}>
+                          <Icono nombre="reglas" tam={14} />
+                        </BotonIcono>
                       </div>
-                      <div className="cifras mt-0.5 pl-[18px] text-[11px] text-[var(--text-muted)]">
+                      <div className="cifras mt-0.5 truncate pl-[18px] text-[11px] text-[var(--text-muted)]">
                         {busqueda ? `${fmtNum(n)} de ${fmtNum(etapa.total)}` : plural(etapa.total, 'lead')}
                         {Number(etapa.valor_total) > 0 ? ` · ${fmtDinero(etapa.valor_total)}` : ''}
+                        {etapa.evento_asociado && EVENTOS.some((ev) => ev.id === etapa.evento_asociado) && (
+                          <span title={`Se mueve sola cuando el lead ${EVENTOS.find((ev) => ev.id === etapa.evento_asociado)!.lead}`}>
+                            {' · ↻ '}{EVENTOS.find((ev) => ev.id === etapa.evento_asociado)!.corto}
+                          </span>
+                        )}
                       </div>
                       <div className="mt-1.5 h-[3px] rounded-full" style={{ background: etapa.color, opacity: 0.55 }} aria-hidden />
                     </header>
@@ -523,6 +549,28 @@ export default function Pipeline() {
                   </section>
                 );
               })}
+              {/* "+ Nueva etapa": se crea antes de las de cierre (venta / perdido). */}
+              <div className="flex w-[70vw] max-w-[260px] shrink-0 snap-start flex-col md:w-[220px]">
+                {nuevaEtapa === null ? (
+                  <button type="button" onClick={() => setNuevaEtapa('')}
+                    className="ui-foco flex h-12 items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--border-hairline)] text-[13px] text-[var(--text-secondary)] hover:bg-[var(--page-plane)]">
+                    <Icono nombre="mas" tam={15} /> Nueva etapa
+                  </button>
+                ) : (
+                  <form onSubmit={crearEtapa} className="space-y-2 rounded-xl border border-dashed p-2" style={{ borderColor: 'var(--series-1)' }}>
+                    <input autoFocus value={nuevaEtapa} onChange={(e) => setNuevaEtapa(e.target.value)} maxLength={40}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setNuevaEtapa(null); }} placeholder="Nombre (ej. Seguimiento)" aria-label="Nombre de la nueva etapa"
+                      className="ui-control h-10 w-full rounded-lg px-3 text-[16px] md:h-9 md:text-[13px]" />
+                    <div className="flex gap-1.5">
+                      <Boton type="submit" variante="primario" tamano="sm" cargando={creandoEtapa} disabled={!nuevaEtapa.trim()}>Crear</Boton>
+                      <Boton type="button" variante="fantasma" tamano="sm" onClick={() => setNuevaEtapa(null)}>Cancelar</Boton>
+                    </div>
+                    {etapas.some((x) => x.tipo !== 'abierta') && (
+                      <p className="text-[11px] text-[var(--text-muted)]">Va antes de «{etapas.find((x) => x.tipo !== 'abierta')!.nombre}».</p>
+                    )}
+                  </form>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -543,6 +591,7 @@ export default function Pipeline() {
         </Dialogo>
       )}
 
+      <DialogoNuevoPipeline abierto={nuevoPipe} pipes={pipes ?? []} actualId={pipeId} onCerrar={() => setNuevoPipe(false)} onCreado={pipeCreado} />
       {venta && (
         <DialogoVenta tarjeta={venta.t} etapa={venta.etapa} onCerrar={() => setVenta(null)}
           onListo={async (_registrada, texto) => {

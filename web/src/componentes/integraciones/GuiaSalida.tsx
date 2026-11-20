@@ -18,7 +18,7 @@ const EVENTOS: Array<{ id: string; nombre: string }> = [
   { id: 'venta', nombre: 'Venta' },
   { id: 'reembolso', nombre: 'Devolución' },
 ];
-const nombreEvento = (id: string) => EVENTOS.find((e) => e.id === id)?.nombre ?? id;
+const nombreEvento = (id: string) => (id === 'solo_etapas' ? 'Solo cuando una etapa o regla lo usa' : EVENTOS.find((e) => e.id === id)?.nombre ?? id);
 
 function nombrePorUrl(url: string) {
   if (/zapier\.com/i.test(url)) return 'Zapier';

@@ -224,10 +224,12 @@ export function SeparadorMenu() {
  * para crear uno nuevo ahí mismo. Tocando el nombre se despliega la lista.
  */
 export function SelectorConMas<T extends { id: string; nombre: string }>({
-  items, actualId, onElegir, onCrear, queEs = 'pipeline', extra, onGestionar, textoGestionar = 'Configurar',
+  items, actualId, onElegir, onCrear, onNuevo, queEs = 'pipeline', extra, onGestionar, textoGestionar = 'Configurar',
 }: {
   items: T[]; actualId: string | null; onElegir: (id: string) => void;
   onCrear?: (nombre: string) => Promise<void> | void; queEs?: string;
+  /** En vez del mini formulario: el "+" abre tu propio diálogo (con más opciones). */
+  onNuevo?: () => void;
   extra?: (item: T) => React.ReactNode; onGestionar?: () => void; textoGestionar?: string;
 }) {
   const actual = items.find((i) => i.id === actualId) ?? items[0];
@@ -259,12 +261,12 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
         {items.map((i) => (
           <ItemMenu key={i.id} activo={i.id === actual?.id} onClick={() => onElegir(i.id)} descripcion={extra?.(i)}>{i.nombre}</ItemMenu>
         ))}
-        {(onCrear || onGestionar) && <SeparadorMenu />}
-        {onCrear && <ItemMenu icono="+" onClick={() => setCreando(true)}>Nuevo {queEs}</ItemMenu>}
+        {(onCrear || onNuevo || onGestionar) && <SeparadorMenu />}
+        {(onCrear || onNuevo) && <ItemMenu icono="+" onClick={() => (onNuevo ? onNuevo() : setCreando(true))}>Nuevo {queEs}</ItemMenu>}
         {onGestionar && <ItemMenu icono="⚙" onClick={onGestionar}>{textoGestionar}</ItemMenu>}
       </Menu>
-      {onCrear && (
-        <button type="button" onClick={() => setCreando((v) => !v)} aria-label={`Crear ${queEs}`} title={`Crear ${queEs}`}
+      {(onCrear || onNuevo) && (
+        <button type="button" onClick={() => (onNuevo ? onNuevo() : setCreando((v) => !v))} aria-label={`Crear ${queEs}`} title={`Crear ${queEs}`}
           className="ui-foco flex h-10 w-10 items-center justify-center rounded-lg text-[18px] font-medium text-white shadow-sm hover:brightness-110 md:h-9 md:w-9"
           style={{ background: 'var(--series-1)' }}>+</button>
       )}

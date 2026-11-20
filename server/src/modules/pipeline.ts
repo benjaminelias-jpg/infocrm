@@ -3,6 +3,7 @@ import type { Ejecutor, ResultadoAtribucion } from './atribucion.js';
 import {
   enviarMensajeIG, registrarSaliente, mensajeDeRecurso, ejecutarFlujo,
 } from './instagram_dm.js';
+import { avisarAConexion } from './webhooks_salida.js';
 
 /** Devuelve la oportunidad abierta del lead, o abre una nueva. */
 export async function oportunidadAbierta(
@@ -173,7 +174,13 @@ export async function ejecutarAccionesEtapa(cuentaId: string, leadId: string, et
           if (a.texto) await notaAuto(cuentaId, leadId, rellenar(a.texto, lead));
           break;
         case 'webhook':
-          if (a.url) {
+          if (a.suscripcion_id) {
+            // Una conexión guardada (Configuración → Avisar a otra app): va firmada y queda registrada.
+            const r = await avisarAConexion(cuentaId, a.suscripcion_id, {
+              evento: 'lead_movido_a_etapa', etapa: etapa.nombre, etapa_slug: etapa.slug, lead: datosLead,
+            });
+            if (!r.ok) await notaAuto(cuentaId, leadId, `No se pudo avisar a la otra app al pasar a «${etapa.nombre}» (${r.error}).`);
+          } else if (a.url) {
             const ok = await postJson(a.url, {
               evento: 'lead_movido_a_etapa', etapa: etapa.nombre, etapa_slug: etapa.slug, lead: datosLead,
             });
@@ -183,16 +190,19 @@ export async function ejecutarAccionesEtapa(cuentaId: string, leadId: string, et
         case 'email': {
           // Suma el lead a una secuencia del proveedor de email (ActiveCampaign,
           // Mailchimp, Brevo… o vía Zapier/Make) llamando a su webhook.
-          if (!a.url) break;
+          if (!a.url && !a.suscripcion_id) break;
           if (!lead.email) {
             await notaAuto(cuentaId, leadId, `No entró a la secuencia «${a.secuencia ?? ''}»: el lead todavía no tiene email.`);
             break;
           }
-          const ok = await postJson(a.url, {
+          const datosSecuencia = {
             evento: 'agregar_a_secuencia', secuencia: a.secuencia ?? null, etapa: etapa.nombre,
             email: lead.email, nombre: lead.nombre, telefono: lead.telefono,
             ig_username: lead.ig_username, etiquetas: lead.etiquetas,
-          });
+          };
+          const ok = a.suscripcion_id
+            ? (await avisarAConexion(cuentaId, a.suscripcion_id, { ...datosSecuencia, lead: datosLead })).ok
+            : await postJson(a.url, datosSecuencia);
           await notaAuto(cuentaId, leadId, ok
             ? `Agregado a la secuencia de email «${a.secuencia ?? ''}».`
             : `El proveedor de email no respondió bien al sumar a «${a.secuencia ?? ''}».`);

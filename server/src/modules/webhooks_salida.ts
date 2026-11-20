@@ -6,6 +6,7 @@ import { pool, query, queryOne } from '../db/pool.js';
 // =====================================================================
 
 export interface PayloadSalida {
+  [extra: string]: unknown;
   evento: string;
   ocurrido_en: string;
   cuenta_id: string;
@@ -68,7 +69,7 @@ async function entregar(
   suscripcion: any,
   payload: PayloadSalida,
   eventoId: number | null,
-): Promise<void> {
+): Promise<boolean> {
   const cuerpo = JSON.stringify(payload);
   const cabeceras: Record<string, string> = {
     'content-type': 'application/json',
@@ -108,7 +109,7 @@ async function entregar(
           `UPDATE suscripciones_webhook SET total_enviados=total_enviados+1,
                   ultimo_envio_en=now(), ultimo_error=NULL WHERE id=$1`,
           [suscripcion.id]);
-        return;
+        return true;
       }
       ultimoError = `HTTP ${status}: ${respuesta}`;
     } catch (err: any) {
@@ -123,6 +124,25 @@ async function entregar(
   await pool.query(
     `UPDATE suscripciones_webhook SET total_fallos=total_fallos+1, ultimo_error=$2 WHERE id=$1`,
     [suscripcion.id, ultimoError]);
+  return false;
+}
+
+/**
+ * Avisa a UNA conexión concreta (la que eligió una etapa o una regla), con la
+ * misma firma y el mismo registro de entregas que los avisos por evento.
+ * Devuelve si llegó, o por qué no.
+ */
+export async function avisarAConexion(
+  cuentaId: string, suscripcionId: string, payload: Omit<PayloadSalida, 'cuenta_id' | 'ocurrido_en'> & { ocurrido_en?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const sub = await queryOne(
+    `SELECT * FROM suscripciones_webhook WHERE cuenta_id = $1 AND id = $2`, [cuentaId, suscripcionId]);
+  if (!sub) return { ok: false, error: 'esa conexión ya no existe' };
+  if (!sub.activo) return { ok: false, error: `la conexión «${sub.nombre}» está pausada` };
+  const ok = await entregar(sub, { ocurrido_en: new Date().toISOString(), cuenta_id: cuentaId, ...payload } as PayloadSalida, null);
+  if (ok) return { ok: true };
+  const ultimo = await queryOne(`SELECT ultimo_error FROM suscripciones_webhook WHERE id = $1`, [sub.id]);
+  return { ok: false, error: ultimo?.ultimo_error ?? 'no respondió' };
 }
 
 /**
