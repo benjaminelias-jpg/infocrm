@@ -21,6 +21,7 @@ export default function Panel() {
   if (!datos) return null;
 
   const k = datos.kpis;
+  const a = datos.anterior; // mismo periodo, inmediatamente anterior (null en "Todo")
   const serie = datos.serie ?? [];
   const topContenidos = (datos.contenidos ?? [])
     .filter((c: any) => c.id)
@@ -38,11 +39,13 @@ export default function Panel() {
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4 xl:grid-cols-6">
         <Kpi
           etiqueta="Leads" valor={fmtNum(k.leads)} acento="var(--series-1)"
+          actual={k.leads} anterior={a?.leads}
           sub={`${fmtPct(k.cobertura_atribucion)} con origen conocido`}
           ayuda="Leads que entraron en el periodo seleccionado"
         />
         <Kpi
           etiqueta="Reuniones" valor={fmtNum(k.reuniones_agendadas)} acento="var(--series-2)"
+          actual={k.reuniones_agendadas} anterior={a?.reuniones_agendadas}
           sub={`${fmtPct(k.tasa_lead_reunion)} de los leads`}
         />
         <Kpi
@@ -51,14 +54,18 @@ export default function Panel() {
         />
         <Kpi
           etiqueta="Ventas" valor={fmtNum(k.ventas)} acento="var(--series-3)"
-          sub={`${fmtPct(k.tasa_reunion_venta)} de las reuniones hechas`}
+          actual={k.ventas} anterior={a?.ventas}
+          sub={`${fmtPct(k.tasa_reunion_venta)} de las reuniones hechas${k.reembolsos ? ` · ${fmtNum(k.reembolsos)} devueltas` : ''}`}
         />
         <Kpi
           etiqueta="Ingresos" valor={fmtDinero(k.ingresos)}
+          actual={k.ingresos} anterior={a?.ingresos}
+          ayuda="Netos: las devoluciones ya están restadas"
           sub={`ticket medio ${fmtDinero(k.ticket_medio)}`}
         />
         <Kpi
           etiqueta="Valor por lead" valor={fmtDinero(k.valor_por_lead)}
+          actual={k.valor_por_lead} anterior={a?.valor_por_lead}
           sub={k.dias_medios_cierre > 0 ? `cierra en ${k.dias_medios_cierre} días` : undefined}
           ayuda="Cuánto factura de media cada lead que entra. Es el número que decide cuánto puedes pagar por un lead."
         />
@@ -299,7 +306,7 @@ export default function Panel() {
                 ))}
               </ul>
               <Link
-                to="/automatizaciones"
+                to="/flujos?tab=manychat"
                 className="mt-2 inline-block text-[11px] text-[var(--series-1)] hover:underline"
               >
                 Arreglarlo →
@@ -348,6 +355,57 @@ export default function Panel() {
           </div>
         </section>
       )}
+
+      {/* Lo que pide atención */}
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <section className="tarjeta min-w-0 p-4">
+          <h2 className="text-[14px] font-semibold">Contenido mudo</h2>
+          <p className="mb-2 text-[12px] text-[var(--text-muted)]">Lo que publicaste y no trajo a nadie. Revisá el gancho o la llamada a la acción.</p>
+          {(datos.mudos ?? []).length === 0 ? (
+            <div className="rounded-md p-3 text-[12px] text-[var(--text-muted)]" style={{ background: 'var(--page-plane)' }}>
+              Nada mudo en este período: todo lo publicado trajo al menos un lead 👏
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--border-hairline)] text-[12px]">
+              {datos.mudos.map((c: any) => (
+                <li key={c.id} className="flex items-center justify-between gap-2 py-1.5">
+                  <span className="min-w-0 truncate">
+                    {c.permalink ? <a href={c.permalink} target="_blank" rel="noreferrer" className="hover:underline">{c.titulo}</a> : c.titulo}
+                  </span>
+                  <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                    {c.tipo}{c.reproducciones ? ` · ${fmtNum(c.reproducciones)} vistas` : c.alcance ? ` · ${fmtNum(c.alcance)} alcance` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+
+        <section className="tarjeta min-w-0 p-4">
+          <h2 className="text-[14px] font-semibold">
+            Leads estancados {datos.estancados?.total ? <span className="text-[12px] font-normal text-[var(--text-muted)]">· {fmtNum(datos.estancados.total)}</span> : null}
+          </h2>
+          <p className="mb-2 text-[12px] text-[var(--text-muted)]">Llevan más de {datos.estancados?.dias ?? 7} días sin moverse ni recibir mensajes. Escribiles hoy.</p>
+          {(datos.estancados?.leads ?? []).length === 0 ? (
+            <div className="rounded-md p-3 text-[12px] text-[var(--text-muted)]" style={{ background: 'var(--page-plane)' }}>
+              Nadie quieto: tu equipo está al día ✅
+            </div>
+          ) : (
+            <ul className="divide-y divide-[var(--border-hairline)] text-[12px]">
+              {datos.estancados.leads.map((l: any) => (
+                <li key={l.oportunidad_id} className="flex items-center justify-between gap-2 py-1.5">
+                  <Link to={`/chat?lead=${l.lead_id}`} className="min-w-0 truncate hover:underline">
+                    {l.nombre ?? (l.ig_username ? `@${l.ig_username}` : 'Lead')}
+                  </Link>
+                  <span className="shrink-0 text-[11px] text-[var(--text-muted)]">
+                    {l.etapa} · {l.dias_quieto} días{l.responsable ? ` · ${l.responsable}` : ''}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </div>
     </div>
   );
 }

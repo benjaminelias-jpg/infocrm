@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, fmtDinero, fmtNum, hace } from '../api';
 import { Cargando } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
@@ -10,7 +11,8 @@ export default function Pipeline() {
   const [cargando, setCargando] = useState(true);
   const [leadAbierto, setLeadAbierto] = useState<string | null>(null);
   const [arrastrando, setArrastrando] = useState<string | null>(null);
-  const [config, setConfig] = useState(false);
+  const [params, setParams] = useSearchParams();
+  const [config, setConfig] = useState(!!params.get('config'));
   const [pipes, setPipes] = useState<any[]>([]);
   const [pipeId, setPipeId] = useState<string | null>(null);
 
@@ -27,12 +29,25 @@ export default function Pipeline() {
   useEffect(() => { cargar(pipeId); }, []);
   function elegirPipe(id: string) { setPipeId(id); setCargando(true); cargar(id); }
 
-  if (config) return <ConfigPipelines onCerrar={() => { setConfig(false); setPipes([]); setCargando(true); cargar(pipeId); }} />;
+  if (config) {
+    return (
+      <ConfigPipelines foco={params.get('config') === 'reglas' ? 'reglas' : undefined}
+        onCerrar={() => {
+          setConfig(false); setPipes([]); setCargando(true); cargar(pipeId);
+          if (params.get('config')) { params.delete('config'); setParams(params, { replace: true }); }
+        }} />
+    );
+  }
 
   async function soltar(etapaId: string) {
     if (!arrastrando) return;
     const oportunidadId = arrastrando;
     setArrastrando(null);
+    await moverA(oportunidadId, etapaId);
+  }
+
+  /** Mueve una tarjeta (arrastrando o desde el desplegable de la tarjeta). */
+  async function moverA(oportunidadId: string, etapaId: string) {
 
     // Movimiento optimista: la tarjeta salta ya, y si falla se recarga
     setEtapas((prev) => {
@@ -60,17 +75,17 @@ export default function Pipeline() {
         method: 'POST', json: { etapa_id: etapaId },
       });
     } catch {
-      cargar();
+      cargar(pipeId);
     }
   }
 
   if (cargando) return <Cargando />;
 
   return (
-    <div className="flex h-screen flex-col px-5 py-5 lg:px-8">
+    <div className="flex h-[calc(100vh-49px)] flex-col px-4 py-5 md:h-screen lg:px-8">
       <Cabecera
         titulo="Pipeline"
-        subtitulo="Arrastra para mover. Al entrar a una etapa se disparan sus acciones (etiqueta, webhook…)."
+        subtitulo="Arrastrá la tarjeta o cambiá la etapa desde su desplegable. Cada etapa puede disparar sus automatizaciones."
         derecha={
           <div className="flex items-center gap-2">
             {pipes.length > 1 && (
@@ -145,6 +160,16 @@ export default function Pipeline() {
                     </div>
                   )}
 
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+                    <span className="truncate">👤 {t.propietario_nombre ?? 'sin asignar'}</span>
+                    <select value={etapa.id} onClick={(ev) => ev.stopPropagation()}
+                      onChange={(ev) => { ev.stopPropagation(); moverA(t.oportunidad_id, ev.target.value); }}
+                      aria-label="Cambiar de etapa"
+                      className="ml-auto max-w-[110px] rounded border border-[var(--border-hairline)] bg-[var(--surface-1)] px-1 py-0.5 text-[10px] outline-none">
+                      {etapas.map((x) => <option key={x.id} value={x.id}>{x.nombre}</option>)}
+                    </select>
+                  </div>
+
                   <div className="mt-1.5 flex flex-wrap items-center gap-1">
                     {(t.etiquetas ?? []).slice(0, 3).map((e: string) => (
                       <span
@@ -164,7 +189,7 @@ export default function Pipeline() {
 
               {etapa.tarjetas.length === 0 && (
                 <div className="px-2 py-6 text-center text-[11px] text-[var(--text-muted)]">
-                  Vacío
+                  Nadie acá todavía
                 </div>
               )}
 
@@ -181,7 +206,7 @@ export default function Pipeline() {
       {leadAbierto && (
         <FichaLead
           leadId={leadAbierto}
-          alCerrar={() => { setLeadAbierto(null); cargar(); }}
+          alCerrar={() => { setLeadAbierto(null); cargar(pipeId); }}
         />
       )}
     </div>

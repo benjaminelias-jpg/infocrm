@@ -1,21 +1,20 @@
 import { useEffect, useState } from 'react';
 import {
-  BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate,
+  BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation,
 } from 'react-router-dom';
 import { api, cerrarSesion, guardarSesion, leerSesion, token } from './api';
 import Panel from './paginas/Panel';
 import Contenidos from './paginas/Contenidos';
 import Pipeline from './paginas/Pipeline';
 import Leads from './paginas/Leads';
-import Automatizaciones from './paginas/Automatizaciones';
 import Conexiones from './paginas/Conexiones';
-import Reglas from './paginas/Reglas';
 import Flujos from './paginas/Flujos';
 import Finanzas from './paginas/Finanzas';
-import Recursos from './paginas/Recursos';
 import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
 
+// Ocho destinos, nada más. Recursos vive dentro del Chat, las reglas dentro
+// del Pipeline y las palabras de ManyChat dentro de Automensajes.
 const NAV = [
   { a: '/', etiqueta: 'Panel', icono: 'panel' },
   { a: '/chat', etiqueta: 'Chat', icono: 'bandeja' },
@@ -23,10 +22,7 @@ const NAV = [
   { a: '/pipeline', etiqueta: 'Pipeline', icono: 'pipeline' },
   { a: '/leads', etiqueta: 'Leads', icono: 'leads' },
   { a: '/flujos', etiqueta: 'Automensajes', icono: 'flujos' },
-  { a: '/recursos', etiqueta: 'Recursos', icono: 'recursos' },
   { a: '/finanzas', etiqueta: 'Finanzas', icono: 'finanzas' },
-  { a: '/automatizaciones', etiqueta: 'Palabras clave', icono: 'automatizaciones' },
-  { a: '/reglas', etiqueta: 'Reglas automáticas', icono: 'reglas' },
   { a: '/conexiones', etiqueta: 'Configuración', icono: 'conexiones' },
 ];
 
@@ -90,6 +86,10 @@ function Login() {
 
 function Marco({ children }: { children: React.ReactNode }) {
   const sesion = leerSesion();
+  const [menuMovil, setMenuMovil] = useState(false);
+  const ubicacion = useLocation();
+  useEffect(() => { setMenuMovil(false); }, [ubicacion.pathname]);
+  const actual = NAV.find((n) => (n.a === '/' ? ubicacion.pathname === '/' : ubicacion.pathname.startsWith(n.a)));
   const [tema, setTema] = useState<string>(
     () => document.documentElement.getAttribute('data-theme') ?? 'auto',
   );
@@ -102,7 +102,28 @@ function Marco({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen flex-col md:flex-row">
+      {/* Barra superior en el celular */}
+      <header className="sticky top-0 z-30 flex h-[49px] items-center gap-3 border-b border-[var(--border-hairline)] px-3 md:hidden"
+        style={{ background: 'var(--page-plane)' }}>
+        <button onClick={() => setMenuMovil((v) => !v)} aria-label="Menú" className="rounded-md px-2 py-1 text-[18px]">☰</button>
+        <span className="text-[14px] font-semibold">{actual?.etiqueta ?? 'InfoCRM'}</span>
+      </header>
+      {menuMovil && (
+        <nav className="fixed inset-x-0 top-[49px] z-30 grid grid-cols-2 gap-1 border-b border-[var(--border-hairline)] p-3 shadow-lg md:hidden"
+          style={{ background: 'var(--page-plane)' }}>
+          {NAV.map((n) => (
+            <NavLink key={n.a} to={n.a} end={n.a === '/'}
+              className={({ isActive }) => `flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-[14px] ${isActive ? 'bg-[var(--surface-1)] font-medium' : 'text-[var(--text-secondary)]'}`}>
+              <Icono nombre={n.icono} tam={20} />{n.etiqueta}
+            </NavLink>
+          ))}
+          <button onClick={cerrarSesion} className="col-span-2 mt-1 rounded-lg px-3 py-2 text-left text-[13px] text-[var(--text-secondary)]">
+            Salir · {sesion?.usuario?.nombre ?? ''}
+          </button>
+        </nav>
+      )}
+
       <aside className="sticky top-0 hidden h-screen w-[218px] shrink-0 flex-col border-r border-[var(--border-hairline)] px-3 py-4 md:flex">
         <div className="mb-5 px-2">
           <div className="text-[15px] font-semibold tracking-tight">InfoCRM</div>
@@ -173,10 +194,11 @@ export default function App() {
         <Route path="/leads" element={<Protegida><Leads /></Protegida>} />
         <Route path="/flujos" element={<Protegida><Flujos /></Protegida>} />
         <Route path="/finanzas" element={<Protegida><Finanzas /></Protegida>} />
-        <Route path="/recursos" element={<Protegida><Recursos /></Protegida>} />
         <Route path="/chat" element={<Protegida><Chat /></Protegida>} />
-        <Route path="/automatizaciones" element={<Protegida><Automatizaciones /></Protegida>} />
-        <Route path="/reglas" element={<Protegida><Reglas /></Protegida>} />
+        {/* Enlaces viejos: ahora viven dentro de otras pantallas */}
+        <Route path="/recursos" element={<Navigate to="/chat?recursos=1" replace />} />
+        <Route path="/automatizaciones" element={<Navigate to="/flujos?tab=manychat" replace />} />
+        <Route path="/reglas" element={<Navigate to="/pipeline?config=reglas" replace />} />
         <Route path="/conexiones" element={<Protegida><Conexiones /></Protegida>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

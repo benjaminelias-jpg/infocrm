@@ -261,14 +261,31 @@ export function Embudo({ pasos }: { pasos: PasoEmbudo[] }) {
 // ---------------------------------------------------------------------
 
 export function Kpi({
-  etiqueta, valor, sub, acento, ayuda,
+  etiqueta, valor, sub, acento, ayuda, actual, anterior, menosEsMejor,
 }: {
   etiqueta: string;
   valor: string;
   sub?: string;
   acento?: string;
   ayuda?: string;
+  /** Para mostrar la variación contra el periodo anterior. */
+  actual?: number;
+  anterior?: number | null;
+  menosEsMejor?: boolean;
 }) {
+  let delta: { texto: string; color: string } | null = null;
+  if (actual !== undefined && anterior !== undefined && anterior !== null) {
+    if (anterior === 0) {
+      delta = actual > 0 ? { texto: 'nuevo vs período anterior', color: 'var(--text-muted)' } : null;
+    } else {
+      const pct = Math.round(((actual - anterior) / Math.abs(anterior)) * 100);
+      const bueno = menosEsMejor ? pct < 0 : pct > 0;
+      delta = {
+        texto: `${pct > 0 ? '▲' : pct < 0 ? '▼' : '='} ${Math.abs(pct)}% vs período anterior`,
+        color: pct === 0 ? 'var(--text-muted)' : bueno ? 'var(--status-good)' : 'var(--status-critical)',
+      };
+    }
+  }
   return (
     <div className="tarjeta px-4 py-3" title={ayuda}>
       <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-secondary)]">
@@ -278,7 +295,8 @@ export function Kpi({
         {etiqueta}
       </div>
       <div className="cifras mt-1 text-[26px] font-semibold leading-none tracking-tight">{valor}</div>
-      {sub && <div className="mt-1.5 text-[12px] text-[var(--text-muted)]">{sub}</div>}
+      {delta && <div className="mt-1 text-[11px] font-medium" style={{ color: delta.color }}>{delta.texto}</div>}
+      {sub && <div className="mt-1 text-[12px] text-[var(--text-muted)]">{sub}</div>}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { api, fmtNum } from '../api';
 import { Cargando, Vacio } from '../componentes/Graficas';
 import Cabecera from '../componentes/Cabecera';
 
-export default function Automatizaciones() {
+export default function Automatizaciones({ embebido = false }: { embebido?: boolean }) {
   const [autos, setAutos] = useState<any[]>([]);
   const [contenidos, setContenidos] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -55,20 +55,29 @@ export default function Automatizaciones() {
   if (cargando) return <Cargando />;
 
   return (
-    <div className="px-5 py-5 lg:px-8">
-      <Cabecera
-        titulo="Automatizaciones"
-        subtitulo="El puente entre la palabra que comentan en tu reel y el lead que entra en el CRM"
-        derecha={
-          <button
-            onClick={reatribuir}
-            disabled={reatribuyendo}
-            className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--surface-1)] disabled:opacity-60"
-          >
+    <div className={embebido ? '' : 'px-5 py-5 lg:px-8'}>
+      {embebido ? (
+        <div className="flex justify-end">
+          <button onClick={reatribuir} disabled={reatribuyendo}
+            className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--surface-1)] disabled:opacity-60">
             {reatribuyendo ? 'Reatribuyendo…' : '⟳ Reatribuir leads antiguos'}
           </button>
-        }
-      />
+        </div>
+      ) : (
+        <Cabecera
+          titulo="Palabras de ManyChat"
+          subtitulo="El puente entre la palabra que comentan en tu reel y el lead que entra en el CRM"
+          derecha={
+            <button
+              onClick={reatribuir}
+              disabled={reatribuyendo}
+              className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--surface-1)] disabled:opacity-60"
+            >
+              {reatribuyendo ? 'Reatribuyendo…' : '⟳ Reatribuir leads antiguos'}
+            </button>
+          }
+        />
+      )}
 
       {aviso && (
         <div
@@ -86,7 +95,7 @@ export default function Automatizaciones() {
         >
           <div className="flex items-center gap-1.5 text-[13px] font-medium">
             <span style={{ color: 'var(--status-warning)' }} aria-hidden>⚠</span>
-            {sinEnlazar.length} automatizacion{sinEnlazar.length === 1 ? '' : 'es'} sin contenido enlazado
+            {sinEnlazar.length} palabra{sinEnlazar.length === 1 ? '' : 's'} sin reel enlazado
           </div>
           <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
             Los leads que entren por estas palabras no se pueden atribuir a ningún reel. Elige el
@@ -96,13 +105,13 @@ export default function Automatizaciones() {
       )}
 
       {autos.length === 0 ? (
-        <Vacio mensaje="Aún no hay automatizaciones. Se crean solas en cuanto ManyChat manda la primera palabra clave por el webhook." />
+        <Vacio mensaje="Todavía no llegó ninguna palabra desde ManyChat. Aparecen solas cuando ManyChat manda el primer lead al CRM (Configuración → Opciones avanzadas → Recibir leads de otras apps)." />
       ) : (
         <div className="tarjeta mt-4 overflow-x-auto">
           <table className="w-full min-w-[840px] text-[13px]">
             <thead>
               <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-4 py-2.5 font-medium">Automatización</th>
+                <th className="px-4 py-2.5 font-medium">En ManyChat</th>
                 <th className="px-3 py-2.5 font-medium">Palabra</th>
                 <th className="px-3 py-2.5 font-medium">Disparo</th>
                 <th className="px-3 py-2.5 font-medium">Contenido enlazado</th>

@@ -45,6 +45,18 @@ export default function Conexiones() {
   const [conectando, setConectando] = useState(false);
   const [filtroEstado, setFiltroEstado] = useState('');
   const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
+  const [sincronizando, setSincronizando] = useState(false);
+
+  async function sincronizar() {
+    setSincronizando(true);
+    try {
+      const r = await api<any>('/instagram/sincronizar', { method: 'POST' });
+      setAviso(r.ok === false
+        ? `No se pudo sincronizar: ${r.error ?? r.mensaje ?? 'error de Meta'}`
+        : `Listo: ${Number(r.creados ?? 0) + Number(r.actualizados ?? 0)} publicaciones sincronizadas con sus métricas.`);
+      await cargar();
+    } catch (err: any) { setAviso(err.message); } finally { setSincronizando(false); }
+  }
 
   async function cargar() {
     const p = new URLSearchParams({ limite: '60' });
@@ -177,7 +189,7 @@ export default function Conexiones() {
     <div className="px-5 py-5 lg:px-8">
       <Cabecera
         titulo="Configuración"
-        subtitulo="Lo único imprescindible es conectar tu Instagram 👇. Lo demás es avanzado."
+        subtitulo="Lo único imprescindible: tu Instagram conectado. Todo lo técnico está abajo, plegado."
       />
 
       {aviso && (
@@ -189,8 +201,211 @@ export default function Conexiones() {
         </div>
       )}
 
+      {/* Instagram */}
+      <section className="mt-6">
+        <h2 className="mb-2 text-[14px] font-semibold">Tu Instagram</h2>
+        <div className="tarjeta p-3.5">
+          <div className="flex items-center gap-2 text-[13px]">
+            <span
+              className="inline-block h-2 w-2 rounded-full"
+              style={{
+                background:
+                  igEstado?.conectado ? 'var(--status-good)'
+                  : ig?.estado === 'error' ? 'var(--status-critical)'
+                  : 'var(--baseline)',
+              }}
+              aria-hidden
+            />
+            <span className="font-medium">
+              {igEstado?.conectado
+                ? `Conectado como @${igEstado.username ?? '—'}`
+                : igEstado?.ultimo_error
+                  ? 'No se pudo conectar'
+                  : 'Sin conectar'}
+            </span>
+          </div>
+          {igEstado?.conectado && (
+            <div className="mt-1 text-[12px] text-[var(--text-secondary)]">
+              {ig?.ultimo_sync_en ? `Contenido sincronizado ${hace(ig.ultimo_sync_en)}` : 'Contenido sin sincronizar todavía'}
+              {igEstado.token_expira_en && (() => {
+                const dias = Math.ceil((new Date(igEstado.token_expira_en).getTime() - Date.now()) / 86_400_000);
+                return (
+                  <span style={{ color: dias <= 10 ? 'var(--status-critical)' : undefined }}>
+                    {' '}· la conexión vence el {fmtFecha(igEstado.token_expira_en)}{dias <= 10 ? ` (en ${dias} días: reconectá)` : ''}
+                  </span>
+                );
+              })()}
+            </div>
+          )}
+          {!igEstado?.conectado && igEstado?.ultimo_error && (
+            <p className="mt-1 text-[12px]" style={{ color: 'var(--status-critical)' }}>{igEstado.ultimo_error}</p>
+          )}
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {igEstado?.conectado && (
+              <button onClick={sincronizar} disabled={sincronizando}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-60" style={{ background: 'var(--series-1)' }}>
+                {sincronizando ? 'Sincronizando…' : '↻ Traer mis publicaciones y métricas'}
+              </button>
+            )}
+          </div>
+
+          <p className="mt-3 text-[12px] text-[var(--text-secondary)]">
+            Con Instagram conectado, el CRM trae tus reels con sus métricas y puede responder DMs y
+            comentarios con tus automensajes. Se configura una sola vez.
+          </p>
+
+          {/* Paso 1: App de Meta */}
+          <details className="mt-3 rounded-md border border-[var(--border-hairline)] p-3" open={!igEstado?.tiene_app}>
+            <summary className="cursor-pointer text-[12px] font-medium">
+              1. Tu App de Meta
+              {igEstado?.tiene_app && <span className="ml-2 text-[11px]" style={{ color: 'var(--status-good)' }}>✓ guardada</span>}
+            </summary>
+            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
+              En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
+              → tu app → <strong>Configuración → Básica</strong>: copia el <strong>Identificador
+              de la app</strong> (App ID) y la <strong>Clave secreta</strong>. Si tu app usa el
+              <strong> login unificado</strong> (lo verás en «Casos de uso → Administrar mensajes…
+              → API de Instagram»), copia también el <strong>Identificador de configuración</strong>.
+              Registra esta <strong>redirect URI</strong> en «URL de redireccionamiento»:
+            </p>
+            <div className="mt-1.5 flex items-center gap-2">
+              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
+                {igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`}
+              </code>
+              <Copiable texto={igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`} />
+            </div>
+            <form onSubmit={guardarApp} className="mt-2 flex flex-wrap gap-2">
+              <input
+                value={appForm.app_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value.trim() }))}
+                placeholder="Instagram app ID (solo números)"
+                inputMode="numeric"
+                className="w-[260px] rounded-md border bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+                style={{ borderColor: appIdInvalido ? 'var(--status-critical)' : 'var(--border-hairline)' }}
+              />
+              <input
+                value={appForm.app_secret}
+                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value.trim() }))}
+                type="password"
+                placeholder="App Secret (texto largo de letras y números)"
+                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={appForm.config_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, config_id: e.target.value.trim() }))}
+                inputMode="numeric"
+                placeholder="Identificador de configuración (si usas login unificado)"
+                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={appForm.ig_user_id}
+                onChange={(e) => setAppForm((f) => ({ ...f, ig_user_id: e.target.value.trim() }))}
+                inputMode="numeric"
+                placeholder="ID de Instagram (en Business settings → Cuentas de Instagram → Identificador)"
+                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
+                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">
+                Guardar App
+              </button>
+            </form>
+            {appIdInvalido && (
+              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--status-critical)' }}>
+                ⚠ El Instagram app ID es un <strong>número</strong> que te da Meta (no tu email ni tu
+                usuario). Lo ves en developers.facebook.com → tu app → Instagram → «API setup with
+                Instagram login» → «Instagram app ID».
+              </p>
+            )}
+          </details>
+
+          {/* Paso 2: Conectar */}
+          <div className="mt-2.5 flex flex-wrap items-center gap-2">
+            <button
+              onClick={conectarInstagram}
+              disabled={!igEstado?.tiene_app || conectando}
+              className="rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
+              style={{ background: 'linear-gradient(90deg,#833ab4,#fd1d1d,#fcb045)' }}
+            >
+              {conectando ? 'Abriendo Instagram…' : igEstado?.conectado ? '↻ Reconectar Instagram' : '2. Conectar Instagram'}
+            </button>
+            {!igEstado?.tiene_app && (
+              <span className="text-[11px] text-[var(--text-muted)]">Guarda primero tu App de Meta.</span>
+            )}
+          </div>
+
+          {/* Conexión con token a mano (SUAT) — el método fiable para login unificado */}
+          <details className="mt-3 rounded-md border border-[var(--border-hairline)] p-3">
+            <summary className="cursor-pointer text-[12px] font-medium">
+              Conectar pegando un token (si el botón falla)
+            </summary>
+            <p className="mt-2 text-[11px] text-[var(--text-muted)]">
+              Genera un <strong>token de usuario del sistema</strong> en Meta (Business settings →
+              Usuarios → Usuarios del sistema → asigna tu cuenta de Instagram y genera un token con
+              los permisos <code>instagram_basic</code> e <code>instagram_manage_messages</code>).
+              Pega aquí ese token y el <strong>ID de tu Instagram</strong>. Si el token es de los que duran
+              poco (Explorador de la API), el CRM lo cambia solo por uno de ~60 días.
+            </p>
+            <form onSubmit={guardarInstagram} className="mt-2 flex flex-wrap gap-2">
+              <input
+                value={igUserId}
+                onChange={(e) => setIgUserId(e.target.value)}
+                inputMode="numeric"
+                placeholder="ID de Instagram (p. ej. 17841423317278715)"
+                className="w-[260px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <input
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                type="password"
+                placeholder="token de usuario del sistema (SUAT)"
+                className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
+              />
+              <button type="submit" disabled={!token || !igUserId}
+                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+                style={{ background: 'var(--series-1)' }}>
+                Conectar con token
+              </button>
+            </form>
+          </details>
+        </div>
+      </section>
+
+      <details className="mt-8 rounded-lg border border-[var(--border-hairline)] p-4">
+        <summary className="cursor-pointer text-[14px] font-semibold">
+          ⚙ Opciones avanzadas <span className="text-[12px] font-normal text-[var(--text-muted)]">· webhooks de Meta, ManyChat, Zapier/Make e historial técnico</span>
+        </summary>
+
+        {/* Recibir DMs y comentarios en vivo */}
+        <section className="mt-5">
+          <h2 className="mb-1 text-[14px] font-semibold">Recibir DMs y comentarios en vivo (Meta)</h2>
+          <p className="mb-2 text-[12px] text-[var(--text-muted)]">
+            Para que los comentarios, DMs, respuestas a historias, menciones, reacciones y botones lleguen
+            al Chat y disparen tus automensajes: en developers.facebook.com → tu app → Webhooks →
+            Instagram, pegá esta URL y este token, y suscribí los campos <code>comments</code>,{' '}
+            <code>messages</code>, <code>messaging_postbacks</code>, <code>message_reactions</code>,{' '}
+            <code>messaging_referral</code> y <code>mentions</code>. Cada aviso de Meta se verifica con
+            la firma de tu App Secret.
+          </p>
+          <div className="tarjeta space-y-2 p-3.5">
+            <div className="flex items-center gap-2">
+              <span className="w-[110px] shrink-0 text-[11px] text-[var(--text-muted)]">URL de callback</span>
+              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>{igEstado?.webhook_url ?? '—'}</code>
+              {igEstado?.webhook_url && <Copiable texto={igEstado.webhook_url} />}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-[110px] shrink-0 text-[11px] text-[var(--text-muted)]">Token de verificación</span>
+              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>{igEstado?.webhook_verify_token ?? '—'}</code>
+              {igEstado?.webhook_verify_token && <Copiable texto={igEstado.webhook_verify_token} />}
+            </div>
+            <p className="text-[11px] text-[var(--text-muted)]">
+              Mientras Meta no apruebe tu app para mensajes, podés probar todo con «🧪 Probar» dentro del Chat.
+            </p>
+          </div>
+        </section>
+
       {/* Webhooks */}
-      <section className="mt-5">
+      <section className="mt-6">
         <h2 className="mb-2 text-[14px] font-semibold">Recibir leads de otras apps <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado (para técnicos)</span></h2>
         <div className="space-y-2">
           {endpoints.map((e) => (
@@ -250,149 +465,6 @@ export default function Conexiones() {
             configurar nada: busca los campos en todos los sitios habituales.
           </p>
         </details>
-      </section>
-
-      {/* Instagram */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Instagram</h2>
-        <div className="tarjeta p-3.5">
-          <div className="flex items-center gap-2 text-[13px]">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{
-                background:
-                  igEstado?.conectado ? 'var(--status-good)'
-                  : ig?.estado === 'error' ? 'var(--status-critical)'
-                  : 'var(--baseline)',
-              }}
-              aria-hidden
-            />
-            {igEstado?.conectado
-              ? `Conectado como @${igEstado.username ?? '—'}${ig?.ultimo_sync_en ? ` · última sincronización ${hace(ig.ultimo_sync_en)}` : ''}`
-              : igEstado?.ultimo_error
-                ? `Error: ${igEstado.ultimo_error}`
-                : 'Sin conectar'}
-          </div>
-
-          <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
-            Conecta tu cuenta de Instagram Business para traer tus reels con portada y métricas, y
-            para que el CRM pueda mandar DMs con sus propios flujos. Se hace en dos pasos, una sola
-            vez.
-          </p>
-
-          {/* Paso 1: App de Meta */}
-          <div className="mt-3 rounded-md border border-[var(--border-hairline)] p-3">
-            <div className="text-[12px] font-medium">
-              1. Tu App de Meta
-              {igEstado?.tiene_app && <span className="ml-2 text-[11px]" style={{ color: 'var(--status-good)' }}>✓ guardada</span>}
-            </div>
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
-              → tu app → <strong>Configuración → Básica</strong>: copia el <strong>Identificador
-              de la app</strong> (App ID) y la <strong>Clave secreta</strong>. Si tu app usa el
-              <strong> login unificado</strong> (lo verás en «Casos de uso → Administrar mensajes…
-              → API de Instagram»), copia también el <strong>Identificador de configuración</strong>.
-              Registra esta <strong>redirect URI</strong> en «URL de redireccionamiento»:
-            </p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
-                {igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`}
-              </code>
-              <Copiable texto={igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`} />
-            </div>
-            <form onSubmit={guardarApp} className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={appForm.app_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value.trim() }))}
-                placeholder="Instagram app ID (solo números)"
-                inputMode="numeric"
-                className="w-[260px] rounded-md border bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-                style={{ borderColor: appIdInvalido ? 'var(--status-critical)' : 'var(--border-hairline)' }}
-              />
-              <input
-                value={appForm.app_secret}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value.trim() }))}
-                type="password"
-                placeholder="App Secret (texto largo de letras y números)"
-                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={appForm.config_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, config_id: e.target.value.trim() }))}
-                inputMode="numeric"
-                placeholder="Identificador de configuración (si usas login unificado)"
-                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={appForm.ig_user_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, ig_user_id: e.target.value.trim() }))}
-                inputMode="numeric"
-                placeholder="ID de Instagram (en Business settings → Cuentas de Instagram → Identificador)"
-                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
-                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">
-                Guardar App
-              </button>
-            </form>
-            {appIdInvalido && (
-              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--status-critical)' }}>
-                ⚠ El Instagram app ID es un <strong>número</strong> que te da Meta (no tu email ni tu
-                usuario). Lo ves en developers.facebook.com → tu app → Instagram → «API setup with
-                Instagram login» → «Instagram app ID».
-              </p>
-            )}
-          </div>
-
-          {/* Paso 2: Conectar */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <button
-              onClick={conectarInstagram}
-              disabled={!igEstado?.tiene_app || conectando}
-              className="rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
-              style={{ background: 'linear-gradient(90deg,#833ab4,#fd1d1d,#fcb045)' }}
-            >
-              {conectando ? 'Abriendo Instagram…' : igEstado?.conectado ? '↻ Reconectar Instagram' : '2. Conectar Instagram'}
-            </button>
-            {!igEstado?.tiene_app && (
-              <span className="text-[11px] text-[var(--text-muted)]">Guarda primero tu App de Meta.</span>
-            )}
-          </div>
-
-          {/* Conexión con token a mano (SUAT) — el método fiable para login unificado */}
-          <details className="mt-3" open>
-            <summary className="cursor-pointer text-[12px] font-medium">
-              Conectar con token de la app (SUAT) — recomendado si el botón falla
-            </summary>
-            <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-              Genera un <strong>token de usuario del sistema</strong> en Meta (Business settings →
-              Usuarios → Usuarios del sistema → asigna tu cuenta de Instagram y genera un token con
-              los permisos <code>instagram_basic</code> e <code>instagram_manage_messages</code>).
-              Pega aquí ese token y el <strong>ID de tu Instagram</strong>. Este token no caduca.
-            </p>
-            <form onSubmit={guardarInstagram} className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={igUserId}
-                onChange={(e) => setIgUserId(e.target.value)}
-                inputMode="numeric"
-                placeholder="ID de Instagram (p. ej. 17841423317278715)"
-                className="w-[260px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                type="password"
-                placeholder="token de usuario del sistema (SUAT)"
-                className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <button type="submit" disabled={!token || !igUserId}
-                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-                style={{ background: 'var(--series-1)' }}>
-                Conectar con token
-              </button>
-            </form>
-          </details>
-        </div>
       </section>
 
       {/* Webhooks de salida */}
@@ -596,6 +668,7 @@ export default function Conexiones() {
           </table>
         </div>
       </section>
+      </details>
     </div>
   );
 }
