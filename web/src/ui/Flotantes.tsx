@@ -15,7 +15,7 @@ export function useEsMovil(px = 640) {
 }
 
 /** Cierra con clic afuera o Escape. */
-function useCerrarFuera(abierto: boolean, refs: Array<React.RefObject<HTMLElement>>, cerrar: () => void) {
+function useCerrarFuera(abierto: boolean, refs: Array<React.RefObject<HTMLElement>>, cerrar: () => void, esArriba?: () => boolean) {
   useEffect(() => {
     if (!abierto) return;
     const abajo = (e: MouseEvent | TouchEvent) => {
@@ -23,7 +23,7 @@ function useCerrarFuera(abierto: boolean, refs: Array<React.RefObject<HTMLElemen
       if (refs.some((r) => r.current?.contains(t))) return;
       cerrar();
     };
-    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar(); };
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape' && (!esArriba || esArriba())) cerrar(); };
     document.addEventListener('mousedown', abajo);
     document.addEventListener('touchstart', abajo, { passive: true });
     document.addEventListener('keydown', tecla);
@@ -40,6 +40,61 @@ function bloquearScroll(activo: boolean) {
   const prev = document.body.style.overflow;
   document.body.style.overflow = 'hidden';
   return () => { document.body.style.overflow = prev; };
+}
+
+/**
+ * Capas abiertas (diálogos y hojas), de abajo hacia arriba. Escape cierra
+ * solo la de arriba: con un diálogo dentro de otro no se cierran los dos.
+ */
+const capas: string[] = [];
+function useCapa(abierta: boolean) {
+  const id = useId();
+  useEffect(() => {
+    if (!abierta) return;
+    capas.push(id);
+    return () => { const i = capas.lastIndexOf(id); if (i >= 0) capas.splice(i, 1); };
+  }, [abierta, id]);
+  return () => capas[capas.length - 1] === id;
+}
+
+/**
+ * En el celular, arrastrar el encabezado de una hoja hacia abajo la sigue con
+ * el dedo; si se suelta pasado el 30 % de su alto (o con un tirón) se cierra,
+ * si no vuelve a su lugar.
+ */
+function useArrastrarParaCerrar(hoja: React.RefObject<HTMLElement>, cerrar: () => void, activo: boolean) {
+  const a = useRef<{ y0: number; t0: number; dy: number; id: number } | null>(null);
+  if (!activo) return {};
+  const fin = (e: React.PointerEvent) => {
+    const x = a.current; a.current = null;
+    const el = hoja.current;
+    if (!x || !el || x.id !== e.pointerId) return;
+    const v = x.dy / Math.max(1, performance.now() - x.t0);
+    el.style.transition = 'transform 180ms ease-out';
+    if (x.dy > el.offsetHeight * 0.3 || (v > 0.5 && x.dy > 40)) {
+      el.style.transform = 'translateY(100%)';
+      window.setTimeout(() => { cerrar(); window.setTimeout(() => { el.style.transform = ''; el.style.transition = ''; }, 300); }, 170);
+    } else {
+      el.style.transform = '';
+    }
+  };
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if ((e.target as HTMLElement).closest('button, a, input, textarea, select')) return;
+      a.current = { y0: e.clientY, t0: performance.now(), dy: 0, id: e.pointerId };
+      try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* sin captura */ }
+      if (hoja.current) hoja.current.style.transition = 'none';
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const x = a.current;
+      if (!x || x.id !== e.pointerId || !hoja.current) return;
+      x.dy = Math.max(0, e.clientY - x.y0);
+      hoja.current.style.transform = x.dy ? `translateY(${x.dy}px)` : '';
+    },
+    onPointerUp: fin,
+    onPointerCancel: fin,
+    style: { touchAction: 'none' } as React.CSSProperties,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -61,10 +116,12 @@ export function Dialogo({
   const movil = useEsMovil();
   const caja = useRef<HTMLDivElement>(null);
   const id = useId();
+  const arriba = useCapa(abierto);
+  const arrastre = useArrastrarParaCerrar(caja, onCerrar, movil);
   useEffect(() => bloquearScroll(abierto), [abierto]);
   useEffect(() => {
     if (!abierto) return;
-    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') onCerrar(); };
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape' && arriba()) { e.stopPropagation(); onCerrar(); } };
     document.addEventListener('keydown', tecla);
     // Foco al primer campo (o al diálogo) para poder escribir de una.
     const t = window.setTimeout(() => {
@@ -80,16 +137,19 @@ export function Dialogo({
       <div ref={caja} role="dialog" aria-modal="true" aria-labelledby={titulo ? id : undefined} tabIndex={-1}
         className={`${movil ? 'ui-subir w-full rounded-t-2xl pb-[max(16px,env(safe-area-inset-bottom))]' : 'ui-aparecer rounded-2xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
         style={{ background: 'var(--surface-1)', width: movil ? '100%' : ancho, border: '1px solid var(--border-hairline)' }}>
-        {movil && <div className="mx-auto mt-2 h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} aria-hidden />}
-        {(titulo || descripcion) && (
-          <div className="flex items-start justify-between gap-3 px-5 pb-1 pt-4">
-            <div className="min-w-0">
-              {titulo && <h2 id={id} className="text-[16px] font-semibold leading-snug">{titulo}</h2>}
-              {descripcion && <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">{descripcion}</p>}
+        {/* Encabezado fijo: en guías largas el título y la ✕ no se van; en el celular se arrastra para cerrar. */}
+        <div {...arrastre} className={`sticky top-0 z-10 ${titulo || descripcion ? '' : 'pb-1'}`} style={{ background: 'var(--surface-1)', ...arrastre.style }}>
+          {movil && <div className="mx-auto h-5 pt-2" aria-hidden><div className="mx-auto h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} /></div>}
+          {(titulo || descripcion) && (
+            <div className={`flex items-start justify-between gap-3 px-5 pb-1 ${movil ? 'pt-1.5' : 'pt-4'}`}>
+              <div className="min-w-0">
+                {titulo && <h2 id={id} className="text-[16px] font-semibold leading-snug">{titulo}</h2>}
+                {descripcion && <p className="mt-0.5 text-[12px] text-[var(--text-muted)]">{descripcion}</p>}
+              </div>
+              <button onClick={onCerrar} aria-label="Cerrar" className="ui-foco -mr-1.5 -mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[14px] text-[var(--text-muted)] hover:bg-[var(--page-plane)] md:h-8 md:w-8">✕</button>
             </div>
-            <button onClick={onCerrar} aria-label="Cerrar" className="ui-foco -mr-1.5 -mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[14px] text-[var(--text-muted)] hover:bg-[var(--page-plane)]">✕</button>
-          </div>
-        )}
+          )}
+        </div>
         <div className="px-5 py-3">{children}</div>
         {pie && <div className="flex flex-wrap items-center justify-end gap-2 border-t border-[var(--border-hairline)] px-5 py-3">{pie}</div>}
       </div>
@@ -122,7 +182,10 @@ export function Menu({
   const flotante = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ top: number; left: number; arriba: boolean } | null>(null);
   const cerrar = useCallback(() => setAbierto(false), []);
-  useCerrarFuera(abierto && !movil, [envoltura, panel, flotante], cerrar);
+  const hoja = useRef<HTMLDivElement>(null);
+  const arriba = useCapa(abierto);
+  const arrastre = useArrastrarParaCerrar(hoja, cerrar, movil);
+  useCerrarFuera(abierto && !movil, [envoltura, panel, flotante], cerrar, arriba);
 
   // En escritorio el menú se dibuja por encima de todo (portal), pegado a su
   // botón: así no lo recorta una columna o una lista que se desplaza.
@@ -147,10 +210,10 @@ export function Menu({
   useEffect(() => bloquearScroll(abierto && movil), [abierto, movil]);
   useEffect(() => {
     if (!abierto || !movil) return;
-    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape') cerrar(); };
+    const tecla = (e: KeyboardEvent) => { if (e.key === 'Escape' && arriba()) { e.stopPropagation(); cerrar(); } };
     document.addEventListener('keydown', tecla);
     return () => document.removeEventListener('keydown', tecla);
-  }, [abierto, movil, cerrar]);
+  }, [abierto, movil, cerrar]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const contenido = (
     <CtxMenu.Provider value={{ cerrar }}>
@@ -175,10 +238,12 @@ export function Menu({
       {abierto && movil && createPortal(
         <div className="fixed inset-0 z-[60] flex items-end">
           <div className="ui-fundido absolute inset-0 bg-black/35" onClick={cerrar} aria-hidden />
-          <div className="ui-subir relative max-h-[75vh] w-full overflow-y-auto rounded-t-2xl pb-[max(12px,env(safe-area-inset-bottom))] shadow-2xl"
+          <div ref={hoja} className="ui-subir relative max-h-[75vh] w-full overflow-y-auto rounded-t-2xl pb-[max(12px,env(safe-area-inset-bottom))] shadow-2xl"
             style={{ background: 'var(--surface-1)' }}>
-            <div className="mx-auto mt-2 h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} aria-hidden />
-            {titulo && <div className="px-4 pb-1 pt-3 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{titulo}</div>}
+            <div {...arrastre} className="sticky top-0 z-10" style={{ background: 'var(--surface-1)', ...arrastre.style }}>
+              <div className="h-5 pt-2" aria-hidden><div className="mx-auto h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} /></div>
+              {titulo && <div className="px-4 pb-1 pt-1 text-[12px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{titulo}</div>}
+            </div>
             {contenido}
           </div>
         </div>,
