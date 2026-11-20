@@ -378,7 +378,10 @@ export default function Pipeline() {
 
   const selector = (
     <SelectorConMas items={items} actualId={pipeId} onElegir={elegirPipe} onNuevo={() => setNuevoPipe(true)}
-      queEs="pipeline" extra={(p) => `${plural(conteos[p.id] ?? 0, 'lead abierto', 'leads abiertos')}${pipes?.find((x) => x.id === p.id)?.es_predeterminado ? ' · ★ acá entran los nuevos' : ''}`}
+      queEs="pipeline" extra={(p) => [
+        conteos[p.id] !== undefined ? plural(conteos[p.id], 'lead abierto', 'leads abiertos') : null,
+        pipes?.find((x) => x.id === p.id)?.es_predeterminado ? '★ acá entran los nuevos' : null,
+      ].filter(Boolean).join(' · ') || undefined}
       onGestionar={() => abrirConfig()} textoGestionar="Configurar etapas y automatizaciones" />
   );
   const chipsFiltro = (
