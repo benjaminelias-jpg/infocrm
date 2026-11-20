@@ -1,3 +1,5 @@
+import { useId } from 'react';
+
 // Pasos guiados para conectar cosas (integraciones) sin perderse: cada paso
 // numerado, el actual abierto, los hechos con ✓, y una verificación en vivo
 // que dice "esperando…" hasta que llega el primer dato.
@@ -53,31 +55,45 @@ export function Verificacion({ estado, esperando, ok, error, accion }: {
   );
 }
 
-/** Tarjeta de una integración: logo/ícono, nombre, para qué sirve, estado y botón. */
+/**
+ * Tarjeta de una integración: ícono, nombre, para qué sirve, estado y botón.
+ * En el celular es una fila compacta (ícono · nombre y estado · una línea · ›)
+ * para que entren todas sin scroll infinito; desde sm es una tarjeta de grilla.
+ */
 export function TarjetaIntegracion({ icono, nombre, para, estado, onClick, textoBoton, destacada }: {
   icono: React.ReactNode; nombre: string; para: React.ReactNode;
   estado: 'conectado' | 'desconectado' | 'atencion' | 'pronto'; onClick?: () => void; textoBoton?: string; destacada?: boolean;
 }) {
   const etiquetaEstado = { conectado: 'Conectado', desconectado: 'Sin conectar', atencion: 'Revisar', pronto: 'Próximamente' }[estado];
   const colorEstado = { conectado: 'var(--status-good)', desconectado: 'var(--baseline)', atencion: 'var(--status-warning)', pronto: 'var(--baseline)' }[estado];
+  const colorTexto = estado === 'desconectado' || estado === 'pronto' ? 'var(--text-muted)' : colorEstado;
+  const idPara = useId();
+  const chip = (
+    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium" style={{ color: colorTexto }}>
+      <span className="h-1.5 w-1.5 rounded-full" style={{ background: colorEstado }} aria-hidden />{etiquetaEstado}
+    </span>
+  );
   return (
-    <button type="button" onClick={onClick} disabled={estado === 'pronto'}
-      className={`tarjeta ui-foco flex h-full w-full flex-col gap-2 p-4 text-left transition-shadow hover:shadow-md disabled:cursor-default disabled:opacity-60 ${destacada ? '!border-[var(--series-1)]' : ''}`}>
-      <div className="flex items-start justify-between gap-2">
+    // Para lectores de pantalla: "Instagram, Conectado" + la descripción (no "Conectado Instagram…").
+    <button type="button" onClick={onClick} disabled={estado === 'pronto'} aria-label={`${nombre}, ${etiquetaEstado}`} aria-describedby={idPara}
+      className={`tarjeta ui-foco flex w-full items-center gap-3 px-3 py-2.5 text-left transition-shadow hover:shadow-md disabled:cursor-default disabled:opacity-60 sm:h-full sm:flex-col sm:items-stretch sm:gap-2 sm:p-4 ${destacada ? '!border-[var(--series-1)]' : ''}`}>
+      <div className="flex shrink-0 items-start justify-between gap-2">
         <span className="flex h-10 w-10 items-center justify-center rounded-xl text-[20px]" style={{ background: 'var(--page-plane)' }} aria-hidden>{icono}</span>
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium" style={{ color: estado === 'desconectado' || estado === 'pronto' ? 'var(--text-muted)' : colorEstado }}>
-          <span className="h-1.5 w-1.5 rounded-full" style={{ background: colorEstado }} aria-hidden />{etiquetaEstado}
-        </span>
+        <span className="hidden sm:inline-flex">{chip}</span>
       </div>
-      <div>
-        <div className="text-[14px] font-semibold">{nombre}</div>
-        <div className="mt-0.5 text-[12px] leading-snug text-[var(--text-muted)]">{para}</div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="truncate text-[14px] font-semibold">{nombre}</span>
+          <span className="sm:hidden">{chip}</span>
+        </div>
+        <div id={idPara} className="mt-0.5 line-clamp-2 text-[12px] leading-snug text-[var(--text-muted)] sm:line-clamp-none">{para}</div>
       </div>
       {estado !== 'pronto' && (
-        <span className="mt-auto pt-1 text-[12px] font-medium" style={{ color: 'var(--series-1)' }}>
+        <span className="mt-auto hidden pt-1 text-[12px] font-medium sm:block" style={{ color: 'var(--series-1)' }}>
           {textoBoton ?? (estado === 'conectado' ? 'Ver / ajustar →' : 'Conectar →')}
         </span>
       )}
+      {estado !== 'pronto' && <span className="shrink-0 text-[20px] leading-none text-[var(--text-muted)] sm:hidden" aria-hidden>›</span>}
     </button>
   );
 }

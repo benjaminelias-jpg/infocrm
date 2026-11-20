@@ -27,10 +27,33 @@ aislamiento de datos, porque se autentica con una API key tuya.
 | `clasificar_contenido` | Asigna el ángulo de un contenido |
 | `crear_nota` | Deja una nota en un lead |
 
+## 0. La forma fácil: una URL, sin instalar nada
+
+En el panel: **Configuración → Tu Claude → Crear mi conexión**. Te da una
+dirección del estilo `https://tu-crm/mcp/ic_xxxx_xxxxxxxx`. En Claude
+(claude.ai o la app de escritorio): **Configuración → Conectores → Agregar
+conector personalizado**, pegá la dirección y listo. La pantalla del CRM
+confirma en vivo cuando Claude la usa por primera vez.
+
+En Claude Code:
+
+```bash
+claude mcp add --transport http infocrm https://tu-crm/mcp/ic_tu_clave
+```
+
+Es el mismo juego de herramientas que este servidor local, servido por la API
+del CRM (`POST /mcp/<clave>`, transporte Streamable HTTP sin sesión). La URL
+es secreta como una contraseña: si se filtra, desconectala en la misma pantalla
+y creá otra. También acepta la clave por cabecera (`POST /mcp` con
+`x-api-key: ic_…` o `Authorization: Bearer ic_…`).
+
+Lo que sigue es para correr el servidor MCP en tu propia máquina.
+
 ## 1. Consigue una API key
 
-En el panel del CRM: **Conexiones → Claves de API → Nueva**. Cópiala (se muestra
-una sola vez), tiene el formato `ic_xxxx_xxxxxxxx`.
+En el panel del CRM: **Configuración → Tu Claude → Crear mi conexión**. La clave
+es lo que va después de `/mcp/` en la dirección (se muestra una sola vez) y tiene
+el formato `ic_xxxx_xxxxxxxx`.
 
 ## 2. Conéctalo a Claude Desktop
 

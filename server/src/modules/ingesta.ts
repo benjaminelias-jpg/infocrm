@@ -50,14 +50,52 @@ const MAPEO_POR_FUENTE: Record<string, Record<string, string[]>> = {
   manychat: {
     manychat_subscriber_id: ['id', ...MAPEO_BASE.manychat_subscriber_id],
   },
+  // Agenda: Calendly (v1 y v2) y Cal.com ({ triggerEvent, payload: { attendees: [...] } }).
   calendly: {
-    idempotency_key: ['payload.uri', 'uri', ...MAPEO_BASE.idempotency_key],
-    ocurrido_en: ['payload.scheduled_event.start_time', 'payload.event.start_time', ...MAPEO_BASE.ocurrido_en],
+    evento: ['triggerEvent', ...MAPEO_BASE.evento],
+    idempotency_key: ['payload.uri', 'uri', 'payload.uid', ...MAPEO_BASE.idempotency_key],
+    ocurrido_en: ['payload.scheduled_event.start_time', 'payload.event.start_time', 'payload.startTime', ...MAPEO_BASE.ocurrido_en],
+    email: ['payload.email', 'payload.attendees.0.email', ...MAPEO_BASE.email],
+    nombre: ['payload.name', 'payload.attendees.0.name', ...MAPEO_BASE.nombre],
+    zona_horaria: ['payload.timezone', 'payload.attendees.0.timeZone', ...MAPEO_BASE.zona_horaria],
+    titulo: ['payload.scheduled_event.name', 'payload.title', ...MAPEO_BASE.titulo],
   },
+  // Stripe: el evento viene en "type" y los datos en data.object (checkout
+  // session, charge o payment intent). Los importes van en céntimos: el
+  // endpoint de Stripe que crea la pantalla de Integraciones divide por 100.
   stripe: {
     idempotency_key: ['id', ...MAPEO_BASE.idempotency_key],
+    email: ['data.object.customer_details.email', 'data.object.customer_email', 'data.object.billing_details.email',
+      'data.object.receipt_email', ...MAPEO_BASE.email],
+    nombre: ['data.object.customer_details.name', 'data.object.billing_details.name', ...MAPEO_BASE.nombre],
+    telefono: ['data.object.customer_details.phone', 'data.object.billing_details.phone', ...MAPEO_BASE.telefono],
+    valor: ['data.object.amount_total', 'data.object.amount_refunded', 'data.object.amount', ...MAPEO_BASE.valor],
+    moneda: ['data.object.currency', ...MAPEO_BASE.moneda],
+    ig_username: ['data.object.metadata.ig_username', 'data.object.metadata.instagram', ...MAPEO_BASE.ig_username],
+  },
+  // Hotmart (webhook 2.0): { id, event: "PURCHASE_APPROVED", data: { buyer, product, purchase } }.
+  // El "id" es único por aviso: la compra y su devolución comparten la
+  // transacción, así que la transacción NO sirve para deduplicar.
+  hotmart: {
+    idempotency_key: ['id', ...MAPEO_BASE.idempotency_key],
+    email: ['data.buyer.email', ...MAPEO_BASE.email],
+    nombre: ['data.buyer.name', ...MAPEO_BASE.nombre],
+    telefono: ['data.buyer.checkout_phone', ...MAPEO_BASE.telefono],
+    pais: ['data.buyer.address.country_iso', ...MAPEO_BASE.pais],
+    valor: ['data.purchase.price.value', 'data.purchase.full_price.value', ...MAPEO_BASE.valor],
+    moneda: ['data.purchase.price.currency_value', ...MAPEO_BASE.moneda],
+    titulo: ['data.product.name', ...MAPEO_BASE.titulo],
+    ocurrido_en: ['data.purchase.approved_date', 'creation_date', ...MAPEO_BASE.ocurrido_en],
   },
 };
+
+/**
+ * Fuentes de pago: si llega un evento con nombre que no conocemos (p. ej.
+ * "customer.created" de Stripe o "PURCHASE_BILLET_PRINTED" de Hotmart) NO se
+ * cuenta como venta: se guarda como "otro". Así una suscripción de más en la
+ * pasarela no infla la facturación.
+ */
+const FUENTES_ESTRICTAS = new Set(['stripe', 'hotmart']);
 
 /** Nombres de evento de terceros → tipos del CRM. */
 const ALIAS_EVENTO: Record<string, string> = {
@@ -74,6 +112,16 @@ const ALIAS_EVENTO: Record<string, string> = {
   purchase: 'venta', payment: 'venta', sale: 'venta', compra: 'venta', pago: 'venta',
   'order.paid': 'venta', 'checkout.session.completed': 'venta', 'payment_intent.succeeded': 'venta',
   refund: 'reembolso', 'charge.refunded': 'reembolso', devolucion: 'reembolso',
+  // Cal.com
+  booking_created: 'reunion_agendada', booking_rescheduled: 'reunion_agendada',
+  booking_cancelled: 'reunion_cancelada', booking_rejected: 'reunion_cancelada',
+  meeting_ended: 'reunion_realizada',
+  // Hotmart
+  purchase_approved: 'venta', purchase_complete: 'venta',
+  purchase_refunded: 'reembolso', purchase_chargeback: 'reembolso',
+  purchase_canceled: 'otro', purchase_billet_printed: 'otro', purchase_delayed: 'otro',
+  purchase_expired: 'otro', purchase_protest: 'otro', purchase_out_of_shopping_cart: 'otro',
+  subscription_cancellation: 'otro', switch_plan: 'otro',
 };
 
 const TIPOS_VALIDOS = new Set([
@@ -164,7 +212,14 @@ export function normalizarPayload(
   };
 
   return {
-    tipo: cfg.opciones?.evento_fijo ?? normalizarTipoEvento(v('evento'), endpoint.evento_defecto),
+    tipo: cfg.opciones?.evento_fijo ?? (() => {
+      const bruto = v('evento');
+      const tipo = normalizarTipoEvento(bruto, endpoint.evento_defecto);
+      // Evento con nombre desconocido en una pasarela de pago → "otro", no venta.
+      if (bruto && FUENTES_ESTRICTAS.has(endpoint.fuente) && tipo === endpoint.evento_defecto
+        && !TIPOS_VALIDOS.has(bruto.trim().toLowerCase()) && !ALIAS_EVENTO[bruto.trim().toLowerCase()]) return 'otro';
+      return tipo;
+    })(),
     identidad,
     senales,
     valor: valorBruto !== undefined ? valorBruto / divisor : undefined,

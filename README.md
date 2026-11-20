@@ -236,9 +236,10 @@ de uso, onboarding de clientes y permisos entre empresas.
 - **Webhooks de salida**: el CRM avisa a otras apps (Zapier, Make, n8n, Slack, tu
   backend) cuando pasa algo, con firma HMAC y reintentos. Se gestionan en
   **Conexiones → Webhooks de salida**.
-- **Servidor MCP** (`mcp/`): conecta tu propio Claude (Desktop o Code) al CRM con
-  una API key y trabaja sobre tus datos por lenguaje natural. Instrucciones en
-  `mcp/README.md`.
+- **Conector para Claude**: en Configuración → Tu Claude se crea una dirección
+  (`/mcp/<clave>`) que se pega en Claude → Conectores, sin instalar nada. También
+  existe el servidor MCP local (`mcp/`) para correrlo en tu máquina. Instrucciones
+  en `mcp/README.md`.
 
 ## Estructura
 

@@ -4,7 +4,8 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 
 ## Reglas de la casa
 - **Español rioplatense con voseo** ("tocá", "elegí", "guardá"). Cero jerga técnica en lo que ve el usuario.
-- **Nada de `window.prompt` / `window.confirm` / `alert`.** Para pedir datos usar `Dialogo` (en el celular es una hoja que sube desde abajo) o un formulario inline. Para confirmar algo destructivo usar `BotonConfirmar` (doble toque en el mismo botón).
+- **REGLA DEL DUEÑO, SIN EXCEPCIONES: cero ventanas emergentes del navegador.** Nada de `window.prompt`, `window.confirm`, `alert` ni `beforeunload`. Para pedir datos usar `Dialogo` (en el celular es una hoja que sube desde abajo) o un formulario inline. Para confirmar algo destructivo usar `BotonConfirmar` (doble toque en el mismo botón). Para no perder cambios, guardar un borrador (localStorage) y ofrecer recuperarlo.
+- **Estilo Kommo: compacto, simple, básico.** El dueño prefiere tarjetas chicas con la info justa (ver `paginas/Pipeline.tsx`: quién lo atiende + cuándo / @usuario en azul / etiquetas) antes que tarjetas grandes llenas de controles. Las acciones secundarias van en un menú "⋯", no a la vista en cada tarjeta.
 - **Feedback con `useAviso()`** (avisos flotantes) en vez de banners que empujan el contenido: `const aviso = useAviso(); aviso.exito('Guardado'); aviso.error(e.message)`. Se puede ofrecer deshacer: `aviso.exito('Borrado', { texto: 'Deshacer', onClick })`.
 - **Crear donde está la lista**: el "+" va al lado del título de lo que se crea (`TituloSeccion onMas`) o al lado del selector (`SelectorConMas`). En el celular la acción principal puede ir en `BotonFlotante`.
 - **Deslizar en el celular**: tarjetas en fila → `Carrusel` (con `soloMovil` si en escritorio deben ser grilla); filtros → `FilaChips` + `Chip`; pestañas → `Pestanas` + `ContenidoDeslizable` (se cambia de pestaña deslizando el dedo); listas con acciones → `FilaDeslizable`.
@@ -23,7 +24,7 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 | `Campo` + `Entrada` / `AreaTexto` / `Seleccion` | Formularios (etiqueta, ayuda, error). |
 | `Interruptor` | Activo / en pausa. |
 | `Buscador` | Búsqueda con lupa y ✕ para limpiar. |
-| `Dialogo` (`titulo`, `descripcion`, `pie`) | Formularios cortos y confirmaciones importantes. |
+| `Dialogo` (`titulo`, `descripcion`, `pie`, `ancho`, `autoFoco`) | Formularios cortos, guías y confirmaciones importantes. En guías largas `autoFoco={false}` (si no, en el celular abre el teclado). |
 | `Menu` + `ItemMenu` + `SeparadorMenu` | Menú "⋯ Más" y desplegables de acciones. En el celular sale desde abajo. |
 | `SelectorConMas` | Elegir "cuál" (pipeline, curso…) con lista desplegable + "+" para crear ahí mismo. |
 | `Desplegable`, `ListaDesplegable`, `Chevron` | Plegar/desplegar. |
@@ -37,6 +38,6 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 | `Insignia` (`tono`), `Chip`, `FilaChips` | Estados, etiquetas, filtros. |
 | `BotonFlotante` | Acción principal en el celular. |
 | `Copiar` | Copiar al portapapeles con "✓ Copiado". |
-| `PasosGuiados`, `Verificacion`, `TarjetaIntegracion` | Integraciones guiadas paso a paso con verificación en vivo. |
+| `PasosGuiados`, `Verificacion`, `TarjetaIntegracion` | Integraciones guiadas paso a paso con verificación en vivo. `TarjetaIntegracion` es fila compacta en el celular y tarjeta de grilla desde sm. Ver `componentes/integraciones/` (`PruebaEnVivo`: escucha 2 min y explica causas si no llega nada). |
 | `useAviso`, `ProveedorAvisos` | Avisos flotantes (ya está montado en App). |
 | `useEsMovil` | Saber si la pantalla es de celular (< 640 px). |

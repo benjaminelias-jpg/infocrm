@@ -8,7 +8,7 @@
  * datos de su CRM: "¿de qué ángulo vinieron más ventas este mes?",
  * "marca este lead como venta", "mueve a Ana a reunión agendada".
  *
- * Autenticación: una API key de InfoCRM (Conexiones → Claves de API en el
+ * Autenticación: una API key de InfoCRM (Configuración → Tu Claude en el
  * panel). Se pasa por la cabecera x-api-key a la propia API REST del CRM,
  * así el MCP respeta exactamente los permisos y el aislamiento por cuenta.
  *
@@ -24,7 +24,7 @@ const API_URL = (process.env.INFOCRM_API_URL ?? 'http://localhost:4000').replace
 const API_KEY = process.env.INFOCRM_API_KEY ?? '';
 
 if (!API_KEY) {
-  console.error('Falta INFOCRM_API_KEY. Genera una clave en el panel (Conexiones → Claves de API) ' +
+  console.error('Falta INFOCRM_API_KEY. Generá una clave en el panel (Configuración → Tu Claude → Crear mi conexión) ' +
     'y expórtala antes de arrancar el servidor MCP.');
   process.exit(1);
 }

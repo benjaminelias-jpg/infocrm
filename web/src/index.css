@@ -189,6 +189,9 @@ body {
   border-radius: 8px;
 }
 
+/* Hojas y diálogos: alto máximo que respeta la barra del navegador del celular */
+.ui-alto-hoja { max-height: 88vh; max-height: 88dvh; }
+
 /* Desplegables con altura animada */
 .ui-desplegable {
   display: grid;

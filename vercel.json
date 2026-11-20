@@ -33,6 +33,14 @@
       "destination": "/api/index"
     },
     {
+      "source": "/mcp",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/mcp/(.*)",
+      "destination": "/api/index"
+    },
+    {
       "source": "/((?!assets/).*)",
       "destination": "/index.html"
     }

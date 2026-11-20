@@ -1,674 +1,182 @@
-import { useEffect, useState } from 'react';
-import { api, fmtFecha, fmtNum, hace } from '../api';
-import { Cargando } from '../componentes/Graficas';
+import { useCallback, useEffect, useState } from 'react';
+import { api, fmtNum, hace } from '../api';
 import Cabecera from '../componentes/Cabecera';
+import { Dialogo, Desplegable, EsqueletoPantalla, TarjetaIntegracion, useAviso } from '../ui';
+import GuiaInstagram from '../componentes/integraciones/GuiaInstagram';
+import GuiaEntrada from '../componentes/integraciones/GuiaEntrada';
+import GuiaSalida from '../componentes/integraciones/GuiaSalida';
+import GuiaClaude from '../componentes/integraciones/GuiaClaude';
+import ParaTecnicos from '../componentes/integraciones/ParaTecnicos';
 
-const EJEMPLO_MANYCHAT = {
-  id: '{{user_id}}',
-  first_name: '{{first_name}}',
-  ig_username: '{{ig_username}}',
-  email: '{{email}}',
-  custom_fields: {
-    palabra_clave: 'SISTEMA',
-    ig_media_id: '{{last_commented_media_id}}',
-  },
+// Configuración = integraciones, en simple: una tarjeta por app con su estado
+// (conectada / sin conectar / revisar) y UN botón. Tocarla abre una guía paso
+// a paso que termina con una prueba en vivo. Lo técnico va plegado al final.
+
+type Clave = 'instagram' | 'manychat' | 'agenda' | 'pagos' | 'zapier' | 'claude';
+type EstadoTarjeta = 'conectado' | 'desconectado' | 'atencion';
+
+const DIALOGOS: Record<Clave, { titulo: string; descripcion: string }> = {
+  instagram: { titulo: 'Instagram', descripcion: 'Tus reels con métricas, y los DMs y comentarios en el Chat.' },
+  manychat: { titulo: 'ManyChat', descripcion: 'Cada lead de tus palabras clave entra solo, con el reel de donde vino.' },
+  agenda: { titulo: 'Agenda', descripcion: 'Cada llamada agendada mueve al lead sola en el pipeline.' },
+  pagos: { titulo: 'Pagos', descripcion: 'Cada venta (y devolución) se registra sola con su importe.' },
+  zapier: { titulo: 'Zapier / Make', descripcion: 'Conectá cualquier otra app, en las dos direcciones.' },
+  claude: { titulo: 'Tu Claude', descripcion: 'Preguntale a Claude por tus ventas y leads, y que actúe en el CRM.' },
 };
 
-function Copiable({ texto }: { texto: string }) {
-  const [copiado, setCopiado] = useState(false);
+const CLAVES = Object.keys(DIALOGOS) as Clave[];
+
+function IconoInstagram() {
   return (
-    <button
-      onClick={() => {
-        navigator.clipboard?.writeText(texto);
-        setCopiado(true);
-        setTimeout(() => setCopiado(false), 1600);
-      }}
-      className="shrink-0 rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]"
-    >
-      {copiado ? '✓ Copiado' : 'Copiar'}
-    </button>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="ig-grad" x1="0" y1="24" x2="24" y2="0">
+          <stop offset="0" stopColor="#fcb045" /><stop offset="0.5" stopColor="#fd1d1d" /><stop offset="1" stopColor="#833ab4" />
+        </linearGradient>
+      </defs>
+      <rect x="3" y="3" width="18" height="18" rx="5" stroke="url(#ig-grad)" strokeWidth="2" />
+      <circle cx="12" cy="12" r="4" stroke="url(#ig-grad)" strokeWidth="2" />
+      <circle cx="17.3" cy="6.7" r="1.2" fill="url(#ig-grad)" />
+    </svg>
   );
 }
 
 export default function Conexiones() {
-  const [endpoints, setEndpoints] = useState<any[]>([]);
-  const [integraciones, setIntegraciones] = useState<any[]>([]);
-  const [eventos, setEventos] = useState<any[]>([]);
-  const [salientes, setSalientes] = useState<any[]>([]);
-  const [entregas, setEntregas] = useState<any[]>([]);
+  const aviso = useAviso();
+  const [ig, setIg] = useState<any>(null);
+  const [res, setRes] = useState<any>(null);
+  const [integs, setIntegs] = useState<any[]>([]);
   const [cargando, setCargando] = useState(true);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [token, setToken] = useState('');
-  const [igUserId, setIgUserId] = useState('');
-  const [igEstado, setIgEstado] = useState<any>(null);
-  const [appForm, setAppForm] = useState({ app_id: '', app_secret: '', config_id: '', ig_user_id: '' });
-  const [conectando, setConectando] = useState(false);
-  const [filtroEstado, setFiltroEstado] = useState('');
-  const [nuevoSal, setNuevoSal] = useState({ nombre: '', url: '', eventos: ['*'] as string[] });
-  const [sincronizando, setSincronizando] = useState(false);
+  const [abierta, setAbierta] = useState<Clave | null>(() => {
+    const p = new URLSearchParams(window.location.search).get('abrir');
+    return CLAVES.includes(p as Clave) ? (p as Clave) : null;
+  });
 
-  async function sincronizar() {
-    setSincronizando(true);
+  const cargar = useCallback(async () => {
     try {
-      const r = await api<any>('/instagram/sincronizar', { method: 'POST' });
-      setAviso(r.ok === false
-        ? `No se pudo sincronizar: ${r.error ?? r.mensaje ?? 'error de Meta'}`
-        : `Listo: ${Number(r.creados ?? 0) + Number(r.actualizados ?? 0)} publicaciones sincronizadas con sus métricas.`);
-      await cargar();
-    } catch (err: any) { setAviso(err.message); } finally { setSincronizando(false); }
-  }
-
-  async function cargar() {
-    const p = new URLSearchParams({ limite: '60' });
-    if (filtroEstado) p.set('estado', filtroEstado);
-    const [e, i, w, s, es, ige] = await Promise.all([
-      api<any[]>('/webhooks/endpoints'),
-      api<any[]>('/integraciones'),
-      api<any[]>(`/webhooks/eventos?${p}`),
-      api<any[]>('/webhooks/salida'),
-      api<any[]>('/webhooks/salida/entregas?limite=40'),
-      api<any>('/instagram/estado').catch(() => null),
-    ]);
-    setEndpoints(e);
-    setIntegraciones(i);
-    setEventos(w);
-    setSalientes(s);
-    setEntregas(es);
-    setIgEstado(ige);
-    if (ige) setAppForm((f) => ({
-      ...f,
-      app_id: f.app_id || ige.app_id || '',
-      config_id: f.config_id || ige.config_id || '',
-      ig_user_id: f.ig_user_id || ige.ig_user_id || '',
-    }));
-    setCargando(false);
-  }
-
-  async function guardarApp(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      await api('/instagram/app', {
-        method: 'PUT',
-        json: {
-          app_id: appForm.app_id, app_secret: appForm.app_secret,
-          config_id: appForm.config_id || undefined,
-          ig_user_id: appForm.ig_user_id || undefined,
-        },
-      });
-      setAviso('App de Meta guardada. Ya puedes pulsar «Conectar Instagram».');
-      await cargar();
-    } catch (err: any) { setAviso(err.message); }
-  }
-
-  async function conectarInstagram() {
-    setConectando(true);
-    try {
-      const r = await api<{ url: string }>('/instagram/oauth/start');
-      window.location.href = r.url; // Meta nos devuelve a /instagram/callback
+      const [e, r, i] = await Promise.all([
+        api<any>('/instagram/estado').catch(() => null),
+        api<any>('/ux/integraciones/resumen'),
+        api<any[]>('/integraciones').catch(() => []),
+      ]);
+      setIg(e); setRes(r); setIntegs(i);
     } catch (err: any) {
-      setAviso(err.message);
-      setConectando(false);
-    }
-  }
+      aviso.error(err.message);
+    } finally { setCargando(false); }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function crearSalida(e: React.FormEvent) {
-    e.preventDefault();
-    if (!nuevoSal.nombre || !nuevoSal.url) return;
-    try {
-      await api('/webhooks/salida', { method: 'POST', json: nuevoSal });
-      setNuevoSal({ nombre: '', url: '', eventos: ['*'] });
-      setAviso('Webhook de salida creado. Pulsa "Probar" para comprobar la conexión.');
-      await cargar();
-    } catch (err: any) { setAviso(err.message); }
-  }
+  useEffect(() => { cargar(); }, [cargar]);
 
-  async function probarSalida(id: string) {
-    try {
-      const r = await api<any>(`/webhooks/salida/${id}/probar`, { method: 'POST' });
-      setAviso(r.estado === 'entregado'
-        ? `Prueba entregada correctamente (HTTP ${r.http_status}).`
-        : `La prueba falló: ${r.error ?? 'sin respuesta'}`);
-      await cargar();
-    } catch (err: any) { setAviso(err.message); }
-  }
-
-  async function toggleSalida(s: any) {
-    await api(`/webhooks/salida/${s.id}`, { method: 'PATCH', json: { activo: !s.activo } });
-    await cargar();
-  }
-
-  async function borrarSalida(id: string) {
-    await api(`/webhooks/salida/${id}`, { method: 'DELETE' });
-    await cargar();
-  }
-
-  useEffect(() => { cargar(); }, [filtroEstado]);
-
-  // Resultado de la vuelta de Instagram (/conexiones?instagram=ok&ig=usuario)
+  // Vuelta de Instagram (/conexiones?instagram=ok&ig=usuario): avisamos y
+  // abrimos la guía en el paso siguiente (permitir mensajes + probar).
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const r = p.get('instagram');
-    if (!r) return;
-    const ig = p.get('ig');
-    setAviso(
-      r === 'ok' ? `Instagram conectado${ig ? ` como @${ig}` : ''}.`
-      : r === 'denegado' ? 'Cancelaste la conexión con Instagram.'
-      : 'No se pudo conectar Instagram. Revisa la App de Meta y la redirect URI.');
+    if (!r && !p.get('abrir')) return;
+    if (r === 'ok') { aviso.exito(`Instagram conectado${p.get('ig') ? ` como @${p.get('ig')}` : ''}.`); setAbierta('instagram'); }
+    else if (r === 'denegado') aviso.info('Cancelaste la conexión con Instagram.');
+    else if (r) { aviso.error('No se pudo conectar Instagram. Revisá los datos de la app de Meta.'); setAbierta('instagram'); }
     window.history.replaceState({}, '', '/conexiones');
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function guardarInstagram(e: React.FormEvent) {
-    e.preventDefault();
-    try {
-      // Conexión directa con token a mano (SUAT) + IG id → facebook_directo.
-      const r = await api<any>('/instagram/conectar-token', {
-        method: 'POST', json: { access_token: token, ig_user_id: igUserId },
-      });
-      setAviso(r.mensaje ?? 'Instagram conectado.');
-      setToken('');
-      await cargar();
-    } catch (err: any) {
-      setAviso(err.message);
-    }
-  }
+  const cerrar = useCallback(() => { setAbierta(null); cargar(); }, [cargar]);
 
-  async function reprocesarTodos() {
-    const r = await api<any>('/webhooks/reprocesar-errores', { method: 'POST' });
-    setAviso(`Reintentados ${r.intentados}, recuperados ${r.recuperados}.`);
-    await cargar();
-  }
+  if (cargando) return <div className="px-4 py-5 lg:px-8"><EsqueletoPantalla tarjetas={6} filas={0} /></div>;
 
-  const ig = integraciones.find((i) => i.tipo === 'instagram');
-  const conErrores = eventos.filter((e) => e.estado === 'error').length;
-  // El App ID de Meta es numérico: avisamos si pegan un email o el usuario.
-  const appIdInvalido = appForm.app_id.length > 0 && !/^\d{6,}$/.test(appForm.app_id);
+  const endpoints: any[] = res?.endpoints ?? [];
+  const recibidos = (pred: (e: any) => boolean) => endpoints.filter(pred).reduce((s, e) => s + Number(e.total_recibidos ?? 0), 0);
+  const ultimo = (pred: (e: any) => boolean) => {
+    const fechas = endpoints.filter(pred).map((e) => e.ultimo_evento_en).filter(Boolean).sort();
+    return fechas[fechas.length - 1] as string | undefined;
+  };
+  const esPago = (e: any) => e.fuente === 'stripe' || e.fuente === 'hotmart' || e.evento_defecto === 'venta';
+  const esAgenda = (e: any) => e.fuente === 'calendly';
+  const esManychat = (e: any) => e.fuente === 'manychat';
+  const esZapier = (e: any) => e.slug === 'zapier-leads';
 
-  if (cargando) return <Cargando />;
+  const igIntegracion = integs.find((x) => x.tipo === 'instagram');
+  const dias = ig?.token_expira_en ? Math.ceil((new Date(ig.token_expira_en).getTime() - Date.now()) / 86_400_000) : null;
+  const dms = Number(res?.instagram?.dms_7d ?? 0);
+
+  const linea = (n: number, cosa: [string, string], cuando?: string) =>
+    `${fmtNum(n)} ${n === 1 ? cosa[0] : cosa[1]}${cuando ? ` · último ${hace(cuando)}` : ''}`;
+
+  const tarjetas: Array<{ clave: Clave; icono: React.ReactNode; estado: EstadoTarjeta; para: React.ReactNode; boton?: string }> = [
+    {
+      clave: 'instagram', icono: <IconoInstagram />,
+      estado: ig?.conectado ? (dias !== null && dias <= 10 ? 'atencion' : 'conectado') : ig?.ultimo_error ? 'atencion' : 'desconectado',
+      para: ig?.conectado
+        ? <>@{ig.username ?? '—'} · {dms ? `${fmtNum(dms)} DMs esta semana` : 'sin DMs esta semana'}{dias !== null && dias <= 10 ? ' · vence pronto' : ''}</>
+        : DIALOGOS.instagram.descripcion,
+      boton: ig?.conectado ? 'Ver / probar →' : 'Conectar →',
+    },
+    {
+      clave: 'manychat', icono: '💬',
+      estado: recibidos(esManychat) > 0 ? 'conectado' : 'desconectado',
+      para: recibidos(esManychat) > 0 ? linea(recibidos(esManychat), ['lead', 'leads'], ultimo(esManychat)) : DIALOGOS.manychat.descripcion,
+    },
+    {
+      clave: 'agenda', icono: '📅',
+      estado: recibidos(esAgenda) > 0 ? 'conectado' : 'desconectado',
+      para: recibidos(esAgenda) > 0 ? linea(recibidos(esAgenda), ['llamada', 'llamadas'], ultimo(esAgenda)) : `${DIALOGOS.agenda.descripcion} Calendly, Cal.com…`,
+    },
+    {
+      clave: 'pagos', icono: '💳',
+      estado: recibidos(esPago) > 0 ? 'conectado' : 'desconectado',
+      para: recibidos(esPago) > 0 ? linea(recibidos(esPago), ['pago', 'pagos'], ultimo(esPago)) : `${DIALOGOS.pagos.descripcion} Stripe, Hotmart…`,
+    },
+    {
+      clave: 'zapier', icono: '⚡',
+      estado: Number(res?.salientes?.activos ?? 0) > 0 || recibidos(esZapier) > 0 ? 'conectado' : 'desconectado',
+      para: Number(res?.salientes?.activos ?? 0) > 0
+        ? `Avisando a ${fmtNum(res.salientes.activos)} ${Number(res.salientes.activos) === 1 ? 'app' : 'apps'}${res.salientes.ultimo_envio_en ? ` · último ${hace(res.salientes.ultimo_envio_en)}` : ''}`
+        : DIALOGOS.zapier.descripcion,
+    },
+    {
+      clave: 'claude', icono: '✦',
+      estado: res?.claves?.ultimo_uso_en ? 'conectado' : 'desconectado',
+      para: res?.claves?.ultimo_uso_en ? `Usado ${hace(res.claves.ultimo_uso_en)}` : DIALOGOS.claude.descripcion,
+    },
+  ];
+  const conectadas = tarjetas.filter((t) => t.estado === 'conectado').length;
 
   return (
-    <div className="px-5 py-5 lg:px-8">
-      <Cabecera
-        titulo="Configuración"
-        subtitulo="Lo único imprescindible: tu Instagram conectado. Todo lo técnico está abajo, plegado."
-      />
+    <div className="px-4 py-5 lg:px-8">
+      <Cabecera titulo="Configuración" subtitulo="Conectá tus apps: tocá una tarjeta y seguí los pasos. Cada una termina con una prueba en vivo." />
 
-      {aviso && (
-        <div
-          className="mt-3 rounded-md px-3 py-2 text-[12px]"
-          style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}
-        >
-          {aviso}
-        </div>
+      <div className="mt-5 flex items-center justify-between gap-2">
+        <h2 className="text-[14px] font-semibold">Integraciones</h2>
+        <span className="text-[12px] text-[var(--text-muted)]"><span className="cifras">{conectadas}</span> de {tarjetas.length} conectadas</span>
+      </div>
+      <div className="mt-2 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {tarjetas.map((t) => (
+          <TarjetaIntegracion key={t.clave} icono={t.icono} nombre={DIALOGOS[t.clave].titulo} para={t.para}
+            estado={t.estado} textoBoton={t.boton} destacada={t.clave === 'instagram' && t.estado !== 'conectado'}
+            onClick={() => setAbierta(t.clave)} />
+        ))}
+      </div>
+
+      <Desplegable className="mt-8" clave="conexiones_tecnicos" icono="⚙"
+        titulo="Para técnicos" subtitulo="Direcciones secretas, historial de lo que llegó y avisos enviados">
+        <ParaTecnicos endpoints={endpoints} onCambio={cargar} />
+      </Desplegable>
+
+      {abierta && (
+        <Dialogo abierto onCerrar={cerrar} ancho={580} autoFoco={false}
+          titulo={DIALOGOS[abierta].titulo} descripcion={DIALOGOS[abierta].descripcion}>
+          {abierta === 'instagram' && <GuiaInstagram ig={ig} ultimoSync={igIntegracion?.ultimo_sync_en} onCambio={cargar} />}
+          {abierta === 'manychat' && <GuiaEntrada clase="manychat" onCambio={cargar} />}
+          {abierta === 'agenda' && <GuiaEntrada clase="agenda" onCambio={cargar} />}
+          {abierta === 'pagos' && (
+            <GuiaEntrada clase="pagos" onCambio={cargar}
+              preferido={endpoints.find((e) => esPago(e) && Number(e.total_recibidos) > 0)?.fuente === 'stripe' ? 'stripe'
+                : endpoints.find((e) => esPago(e) && Number(e.total_recibidos) > 0)?.fuente === 'hotmart' ? 'hotmart'
+                  : endpoints.some((e) => esPago(e) && e.fuente === 'generico' && Number(e.total_recibidos) > 0) ? 'otra' : undefined} />
+          )}
+          {abierta === 'zapier' && <GuiaSalida onCambio={cargar} />}
+          {abierta === 'claude' && <GuiaClaude apiUrl={res?.api_url ?? window.location.origin} onCambio={cargar} />}
+        </Dialogo>
       )}
-
-      {/* Instagram */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Tu Instagram</h2>
-        <div className="tarjeta p-3.5">
-          <div className="flex items-center gap-2 text-[13px]">
-            <span
-              className="inline-block h-2 w-2 rounded-full"
-              style={{
-                background:
-                  igEstado?.conectado ? 'var(--status-good)'
-                  : ig?.estado === 'error' ? 'var(--status-critical)'
-                  : 'var(--baseline)',
-              }}
-              aria-hidden
-            />
-            <span className="font-medium">
-              {igEstado?.conectado
-                ? `Conectado como @${igEstado.username ?? '—'}`
-                : igEstado?.ultimo_error
-                  ? 'No se pudo conectar'
-                  : 'Sin conectar'}
-            </span>
-          </div>
-          {igEstado?.conectado && (
-            <div className="mt-1 text-[12px] text-[var(--text-secondary)]">
-              {ig?.ultimo_sync_en ? `Contenido sincronizado ${hace(ig.ultimo_sync_en)}` : 'Contenido sin sincronizar todavía'}
-              {igEstado.token_expira_en && (() => {
-                const dias = Math.ceil((new Date(igEstado.token_expira_en).getTime() - Date.now()) / 86_400_000);
-                return (
-                  <span style={{ color: dias <= 10 ? 'var(--status-critical)' : undefined }}>
-                    {' '}· la conexión vence el {fmtFecha(igEstado.token_expira_en)}{dias <= 10 ? ` (en ${dias} días: reconectá)` : ''}
-                  </span>
-                );
-              })()}
-            </div>
-          )}
-          {!igEstado?.conectado && igEstado?.ultimo_error && (
-            <p className="mt-1 text-[12px]" style={{ color: 'var(--status-critical)' }}>{igEstado.ultimo_error}</p>
-          )}
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {igEstado?.conectado && (
-              <button onClick={sincronizar} disabled={sincronizando}
-                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-60" style={{ background: 'var(--series-1)' }}>
-                {sincronizando ? 'Sincronizando…' : '↻ Traer mis publicaciones y métricas'}
-              </button>
-            )}
-          </div>
-
-          <p className="mt-3 text-[12px] text-[var(--text-secondary)]">
-            Con Instagram conectado, el CRM trae tus reels con sus métricas y puede responder DMs y
-            comentarios con tus automensajes. Se configura una sola vez.
-          </p>
-
-          {/* Paso 1: App de Meta */}
-          <details className="mt-3 rounded-md border border-[var(--border-hairline)] p-3" open={!igEstado?.tiene_app}>
-            <summary className="cursor-pointer text-[12px] font-medium">
-              1. Tu App de Meta
-              {igEstado?.tiene_app && <span className="ml-2 text-[11px]" style={{ color: 'var(--status-good)' }}>✓ guardada</span>}
-            </summary>
-            <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              En <a href="https://developers.facebook.com/apps" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>{' '}
-              → tu app → <strong>Configuración → Básica</strong>: copia el <strong>Identificador
-              de la app</strong> (App ID) y la <strong>Clave secreta</strong>. Si tu app usa el
-              <strong> login unificado</strong> (lo verás en «Casos de uso → Administrar mensajes…
-              → API de Instagram»), copia también el <strong>Identificador de configuración</strong>.
-              Registra esta <strong>redirect URI</strong> en «URL de redireccionamiento»:
-            </p>
-            <div className="mt-1.5 flex items-center gap-2">
-              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>
-                {igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`}
-              </code>
-              <Copiable texto={igEstado?.redirect_uri ?? `${window.location.origin}/instagram/callback`} />
-            </div>
-            <form onSubmit={guardarApp} className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={appForm.app_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_id: e.target.value.trim() }))}
-                placeholder="Instagram app ID (solo números)"
-                inputMode="numeric"
-                className="w-[260px] rounded-md border bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-                style={{ borderColor: appIdInvalido ? 'var(--status-critical)' : 'var(--border-hairline)' }}
-              />
-              <input
-                value={appForm.app_secret}
-                onChange={(e) => setAppForm((f) => ({ ...f, app_secret: e.target.value.trim() }))}
-                type="password"
-                placeholder="App Secret (texto largo de letras y números)"
-                className="min-w-[200px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={appForm.config_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, config_id: e.target.value.trim() }))}
-                inputMode="numeric"
-                placeholder="Identificador de configuración (si usas login unificado)"
-                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={appForm.ig_user_id}
-                onChange={(e) => setAppForm((f) => ({ ...f, ig_user_id: e.target.value.trim() }))}
-                inputMode="numeric"
-                placeholder="ID de Instagram (en Business settings → Cuentas de Instagram → Identificador)"
-                className="w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <button type="submit" disabled={!appForm.app_id || !appForm.app_secret || appIdInvalido}
-                className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] font-medium disabled:opacity-50 hover:bg-[var(--page-plane)]">
-                Guardar App
-              </button>
-            </form>
-            {appIdInvalido && (
-              <p className="mt-1.5 text-[11px]" style={{ color: 'var(--status-critical)' }}>
-                ⚠ El Instagram app ID es un <strong>número</strong> que te da Meta (no tu email ni tu
-                usuario). Lo ves en developers.facebook.com → tu app → Instagram → «API setup with
-                Instagram login» → «Instagram app ID».
-              </p>
-            )}
-          </details>
-
-          {/* Paso 2: Conectar */}
-          <div className="mt-2.5 flex flex-wrap items-center gap-2">
-            <button
-              onClick={conectarInstagram}
-              disabled={!igEstado?.tiene_app || conectando}
-              className="rounded-md px-4 py-2 text-[13px] font-semibold text-white disabled:opacity-50"
-              style={{ background: 'linear-gradient(90deg,#833ab4,#fd1d1d,#fcb045)' }}
-            >
-              {conectando ? 'Abriendo Instagram…' : igEstado?.conectado ? '↻ Reconectar Instagram' : '2. Conectar Instagram'}
-            </button>
-            {!igEstado?.tiene_app && (
-              <span className="text-[11px] text-[var(--text-muted)]">Guarda primero tu App de Meta.</span>
-            )}
-          </div>
-
-          {/* Conexión con token a mano (SUAT) — el método fiable para login unificado */}
-          <details className="mt-3 rounded-md border border-[var(--border-hairline)] p-3">
-            <summary className="cursor-pointer text-[12px] font-medium">
-              Conectar pegando un token (si el botón falla)
-            </summary>
-            <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-              Genera un <strong>token de usuario del sistema</strong> en Meta (Business settings →
-              Usuarios → Usuarios del sistema → asigna tu cuenta de Instagram y genera un token con
-              los permisos <code>instagram_basic</code> e <code>instagram_manage_messages</code>).
-              Pega aquí ese token y el <strong>ID de tu Instagram</strong>. Si el token es de los que duran
-              poco (Explorador de la API), el CRM lo cambia solo por uno de ~60 días.
-            </p>
-            <form onSubmit={guardarInstagram} className="mt-2 flex flex-wrap gap-2">
-              <input
-                value={igUserId}
-                onChange={(e) => setIgUserId(e.target.value)}
-                inputMode="numeric"
-                placeholder="ID de Instagram (p. ej. 17841423317278715)"
-                className="w-[260px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <input
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                type="password"
-                placeholder="token de usuario del sistema (SUAT)"
-                className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-              />
-              <button type="submit" disabled={!token || !igUserId}
-                className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
-                style={{ background: 'var(--series-1)' }}>
-                Conectar con token
-              </button>
-            </form>
-          </details>
-        </div>
-      </section>
-
-      <details className="mt-8 rounded-lg border border-[var(--border-hairline)] p-4">
-        <summary className="cursor-pointer text-[14px] font-semibold">
-          ⚙ Opciones avanzadas <span className="text-[12px] font-normal text-[var(--text-muted)]">· webhooks de Meta, ManyChat, Zapier/Make e historial técnico</span>
-        </summary>
-
-        {/* Recibir DMs y comentarios en vivo */}
-        <section className="mt-5">
-          <h2 className="mb-1 text-[14px] font-semibold">Recibir DMs y comentarios en vivo (Meta)</h2>
-          <p className="mb-2 text-[12px] text-[var(--text-muted)]">
-            Para que los comentarios, DMs, respuestas a historias, menciones, reacciones y botones lleguen
-            al Chat y disparen tus automensajes: en developers.facebook.com → tu app → Webhooks →
-            Instagram, pegá esta URL y este token, y suscribí los campos <code>comments</code>,{' '}
-            <code>messages</code>, <code>messaging_postbacks</code>, <code>message_reactions</code>,{' '}
-            <code>messaging_referral</code> y <code>mentions</code>. Cada aviso de Meta se verifica con
-            la firma de tu App Secret.
-          </p>
-          <div className="tarjeta space-y-2 p-3.5">
-            <div className="flex items-center gap-2">
-              <span className="w-[110px] shrink-0 text-[11px] text-[var(--text-muted)]">URL de callback</span>
-              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>{igEstado?.webhook_url ?? '—'}</code>
-              {igEstado?.webhook_url && <Copiable texto={igEstado.webhook_url} />}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-[110px] shrink-0 text-[11px] text-[var(--text-muted)]">Token de verificación</span>
-              <code className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]" style={{ background: 'var(--page-plane)' }}>{igEstado?.webhook_verify_token ?? '—'}</code>
-              {igEstado?.webhook_verify_token && <Copiable texto={igEstado.webhook_verify_token} />}
-            </div>
-            <p className="text-[11px] text-[var(--text-muted)]">
-              Mientras Meta no apruebe tu app para mensajes, podés probar todo con «🧪 Probar» dentro del Chat.
-            </p>
-          </div>
-        </section>
-
-      {/* Webhooks */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Recibir leads de otras apps <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado (para técnicos)</span></h2>
-        <div className="space-y-2">
-          {endpoints.map((e) => (
-            <div key={e.id} className="tarjeta p-3.5">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <div className="text-[13px] font-medium">{e.nombre}</div>
-                  <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                    Fuente {e.fuente} · evento por defecto{' '}
-                    <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>
-                      {e.evento_defecto}
-                    </code>
-                  </div>
-                </div>
-                <div className="cifras text-right text-[11px] text-[var(--text-muted)]">
-                  <div>{fmtNum(e.total_recibidos)} recibidos</div>
-                  {Number(e.total_errores) > 0 && (
-                    <div style={{ color: 'var(--status-critical)' }}>
-                      {fmtNum(e.total_errores)} con error
-                    </div>
-                  )}
-                  {e.ultimo_evento_en && <div>último {hace(e.ultimo_evento_en)}</div>}
-                </div>
-              </div>
-
-              <div className="mt-2.5 flex items-center gap-2">
-                <code
-                  className="min-w-0 flex-1 truncate rounded px-2 py-1.5 text-[11px]"
-                  style={{ background: 'var(--page-plane)' }}
-                >
-                  {e.url}
-                </code>
-                <Copiable texto={e.url} />
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <details className="tarjeta mt-3 p-3.5">
-          <summary className="cursor-pointer text-[13px] font-medium">
-            Qué mandar desde ManyChat
-          </summary>
-          <p className="mt-2 text-[12px] text-[var(--text-secondary)]">
-            En ManyChat: acción «External Request», método POST, la URL de arriba, y en el body este
-            JSON. Lo importante es que vaya <strong>algo que identifique al lead</strong> (user_id,
-            ig_username o email) y <strong>algo que identifique el contenido</strong> (ig_media_id,
-            o la palabra clave).
-          </p>
-          <pre
-            className="mt-2 overflow-x-auto rounded p-3 text-[11px]"
-            style={{ background: 'var(--page-plane)' }}
-          >
-            {JSON.stringify(EJEMPLO_MANYCHAT, null, 2)}
-          </pre>
-          <p className="mt-2 text-[11px] text-[var(--text-muted)]">
-            El CRM también entiende payloads de Calendly, Stripe, Hotmart, Make y Zapier sin
-            configurar nada: busca los campos en todos los sitios habituales.
-          </p>
-        </details>
-      </section>
-
-      {/* Webhooks de salida */}
-      <section className="mt-6">
-        <h2 className="mb-2 text-[14px] font-semibold">Avisar a otras apps (Zapier/Make) <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado</span></h2>
-        <p className="mb-3 text-[12px] text-[var(--text-muted)]">
-          Que el CRM avise a otras apps (Zapier, Make, n8n, Slack, tu backend) cuando pasa algo. Cada
-          envío va firmado con HMAC en la cabecera <code className="rounded px-1" style={{ background: 'var(--gridline)' }}>x-infocrm-firma</code>.
-        </p>
-
-        <form onSubmit={crearSalida} className="tarjeta mb-3 p-3.5">
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={nuevoSal.nombre}
-              onChange={(e) => setNuevoSal((s) => ({ ...s, nombre: e.target.value }))}
-              placeholder="Nombre (p. ej. Zapier ventas)"
-              className="w-[200px] rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-            />
-            <input
-              value={nuevoSal.url}
-              onChange={(e) => setNuevoSal((s) => ({ ...s, url: e.target.value }))}
-              placeholder="https://hooks.zapier.com/..."
-              className="min-w-[220px] flex-1 rounded-md border border-[var(--border-hairline)] bg-transparent px-2.5 py-1.5 text-[12px] outline-none"
-            />
-            <button type="submit"
-              className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white"
-              style={{ background: 'var(--series-1)' }}>
-              Crear
-            </button>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[var(--text-secondary)]">
-            <span className="text-[var(--text-muted)]">Eventos:</span>
-            {['*', 'lead_creado', 'reunion_agendada', 'reunion_no_asistio', 'venta', 'reembolso'].map((ev) => {
-              const checked = nuevoSal.eventos.includes(ev);
-              return (
-                <label key={ev} className="flex cursor-pointer items-center gap-1">
-                  <input type="checkbox" checked={checked}
-                    onChange={() => setNuevoSal((s) => {
-                      if (ev === '*') return { ...s, eventos: ['*'] };
-                      const sin = s.eventos.filter((x) => x !== '*');
-                      return { ...s, eventos: checked ? sin.filter((x) => x !== ev) : [...sin, ev] };
-                    })} />
-                  {ev === '*' ? 'todos' : ev}
-                </label>
-              );
-            })}
-          </div>
-        </form>
-
-        {salientes.length > 0 && (
-          <div className="tarjeta mb-3 divide-y divide-[var(--border-hairline)]">
-            {salientes.map((s) => (
-              <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-[13px] font-medium">
-                    <span className="inline-block h-2 w-2 rounded-full"
-                      style={{ background: s.activo ? 'var(--status-good)' : 'var(--baseline)' }} aria-hidden />
-                    {s.nombre}
-                  </div>
-                  <div className="truncate text-[11px] text-[var(--text-muted)]">{s.url}</div>
-                  <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">
-                    {(s.eventos ?? []).join(', ')} · {s.total_enviados} enviados
-                    {Number(s.total_fallos) > 0 && <span style={{ color: 'var(--status-critical)' }}> · {s.total_fallos} fallos</span>}
-                  </div>
-                </div>
-                <div className="flex shrink-0 gap-1.5">
-                  <button onClick={() => probarSalida(s.id)}
-                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">Probar</button>
-                  <button onClick={() => toggleSalida(s)}
-                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]">
-                    {s.activo ? 'Pausar' : 'Activar'}</button>
-                  <button onClick={() => borrarSalida(s.id)}
-                    className="rounded border border-[var(--border-hairline)] px-2 py-1 text-[11px] hover:bg-[var(--page-plane)]"
-                    style={{ color: 'var(--status-critical)' }}>Borrar</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {entregas.length > 0 && (
-          <div className="tarjeta overflow-x-auto">
-            <table className="w-full min-w-[560px] text-[12px]">
-              <thead>
-                <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
-                  <th className="px-4 py-2 font-medium">Estado</th>
-                  <th className="px-3 py-2 font-medium">Evento</th>
-                  <th className="px-3 py-2 font-medium">Suscripción</th>
-                  <th className="px-3 py-2 font-medium">HTTP</th>
-                  <th className="px-3 py-2 text-right font-medium">Cuándo</th>
-                </tr>
-              </thead>
-              <tbody>
-                {entregas.map((e) => (
-                  <tr key={e.id} className="border-b border-[var(--border-hairline)] last:border-0">
-                    <td className="px-4 py-2">
-                      <span className="flex items-center gap-1.5">
-                        <span className="inline-block h-2 w-2 rounded-full"
-                          style={{ background: e.estado === 'entregado' ? 'var(--status-good)' : 'var(--status-critical)' }} aria-hidden />
-                        {e.estado}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">{e.tipo_evento}</td>
-                    <td className="px-3 py-2 text-[var(--text-secondary)]">{e.suscripcion}</td>
-                    <td className="px-3 py-2 cifras">{e.http_status ?? (e.error ? '—' : '')}</td>
-                    <td className="px-3 py-2 text-right text-[var(--text-muted)]">{fmtFecha(e.creado_en, true)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-
-      {/* Bandeja cruda */}
-      <section className="mt-6">
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-[14px] font-semibold">Historial técnico <span className="text-[11px] font-normal text-[var(--text-muted)]">· avanzado</span></h2>
-          <div className="flex items-center gap-2">
-            <select
-              value={filtroEstado}
-              onChange={(e) => setFiltroEstado(e.target.value)}
-              className="rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1 text-[12px] outline-none"
-            >
-              <option value="">Todos</option>
-              <option value="procesado">Procesados</option>
-              <option value="error">Con error</option>
-              <option value="duplicado">Duplicados</option>
-            </select>
-            {conErrores > 0 && (
-              <button
-                onClick={reprocesarTodos}
-                className="rounded-md border border-[var(--border-hairline)] px-3 py-1 text-[12px] hover:bg-[var(--surface-1)]"
-              >
-                Reintentar {conErrores} con error
-              </button>
-            )}
-          </div>
-        </div>
-
-        <p className="mb-2 text-[12px] text-[var(--text-muted)]">
-          El payload crudo se guarda antes de procesarlo. Si algo falla, el lead no se pierde: se
-          puede arreglar la configuración y reprocesar.
-        </p>
-
-        <div className="tarjeta overflow-x-auto">
-          <table className="w-full min-w-[720px] text-[12px]">
-            <thead>
-              <tr className="border-b border-[var(--border-hairline)] text-left text-[11px] uppercase tracking-wide text-[var(--text-muted)]">
-                <th className="px-4 py-2 font-medium">Estado</th>
-                <th className="px-3 py-2 font-medium">Origen</th>
-                <th className="px-3 py-2 font-medium">Lead</th>
-                <th className="px-3 py-2 font-medium">Detalle</th>
-                <th className="px-3 py-2 text-right font-medium">Recibido</th>
-              </tr>
-            </thead>
-            <tbody>
-              {eventos.map((ev) => (
-                <tr key={ev.id} className="border-b border-[var(--border-hairline)] last:border-0">
-                  <td className="px-4 py-2">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className="inline-block h-2 w-2 rounded-full"
-                        style={{
-                          background:
-                            ev.estado === 'procesado' ? 'var(--status-good)'
-                            : ev.estado === 'error' ? 'var(--status-critical)'
-                            : 'var(--baseline)',
-                        }}
-                        aria-hidden
-                      />
-                      {ev.estado}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 text-[var(--text-secondary)]">{ev.endpoint_nombre ?? ev.fuente}</td>
-                  <td className="px-3 py-2">
-                    {ev.ig_username ? `@${ev.ig_username}` : ev.lead_nombre ?? '—'}
-                  </td>
-                  <td className="max-w-[320px] px-3 py-2">
-                    {ev.error ? (
-                      <span style={{ color: 'var(--status-critical)' }}>{ev.error}</span>
-                    ) : (
-                      <code className="block truncate text-[11px] text-[var(--text-muted)]">
-                        {JSON.stringify(ev.payload)}
-                      </code>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right text-[var(--text-muted)]">
-                    {fmtFecha(ev.recibido_en, true)}
-                  </td>
-                </tr>
-              ))}
-              {eventos.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="py-8 text-center text-[var(--text-muted)]">
-                    Todavía no ha llegado ningún webhook.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-      </details>
     </div>
   );
 }

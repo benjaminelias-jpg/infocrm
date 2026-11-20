@@ -51,10 +51,12 @@ function bloquearScroll(activo: boolean) {
  * desde abajo (alcanzable con el pulgar). Escape o tocar afuera cierra.
  */
 export function Dialogo({
-  abierto, onCerrar, titulo, descripcion, children, pie, ancho = 460,
+  abierto, onCerrar, titulo, descripcion, children, pie, ancho = 460, autoFoco = true,
 }: {
   abierto: boolean; onCerrar: () => void; titulo?: React.ReactNode; descripcion?: React.ReactNode;
   children?: React.ReactNode; pie?: React.ReactNode; ancho?: number;
+  /** false en guías largas: no salta al primer campo (en el celular abriría el teclado). */
+  autoFoco?: boolean;
 }) {
   const movil = useEsMovil();
   const caja = useRef<HTMLDivElement>(null);
@@ -66,17 +68,17 @@ export function Dialogo({
     document.addEventListener('keydown', tecla);
     // Foco al primer campo (o al diálogo) para poder escribir de una.
     const t = window.setTimeout(() => {
-      const primero = caja.current?.querySelector<HTMLElement>('input,textarea,select,button[data-autofocus]');
-      (primero ?? caja.current)?.focus();
+      const primero = autoFoco ? caja.current?.querySelector<HTMLElement>('input,textarea,select,button[data-autofocus]') : null;
+      (primero ?? caja.current)?.focus({ preventScroll: true });
     }, 30);
     return () => { document.removeEventListener('keydown', tecla); window.clearTimeout(t); };
-  }, [abierto, onCerrar]);
+  }, [abierto, onCerrar, autoFoco]);
   if (!abierto) return null;
   return createPortal(
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4">
       <div className="ui-fundido absolute inset-0 bg-black/35" onClick={onCerrar} aria-hidden />
       <div ref={caja} role="dialog" aria-modal="true" aria-labelledby={titulo ? id : undefined} tabIndex={-1}
-        className={`${movil ? 'ui-subir w-full rounded-t-2xl pb-[max(16px,env(safe-area-inset-bottom))]' : 'ui-aparecer rounded-2xl'} relative max-h-[88vh] overflow-y-auto shadow-2xl outline-none`}
+        className={`${movil ? 'ui-subir w-full rounded-t-2xl pb-[max(16px,env(safe-area-inset-bottom))]' : 'ui-aparecer rounded-2xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
         style={{ background: 'var(--surface-1)', width: movil ? '100%' : ancho, border: '1px solid var(--border-hairline)' }}>
         {movil && <div className="mx-auto mt-2 h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} aria-hidden />}
         {(titulo || descripcion) && (

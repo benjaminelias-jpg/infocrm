@@ -30,6 +30,18 @@ import rutasFinanzas from './routes/finanzas.js';
 import rutasRecursos from './routes/recursos.js';
 import rutasChat from './routes/chat.js';
 import rutasPipelines from './routes/pipelines.js';
+import rutasMcp from './routes/mcp.js';
+
+/**
+ * Algunas URLs llevan un secreto (la URL del conector de Claude y las de
+ * webhooks que se pegan en ManyChat/Stripe). No deben quedar en los logs.
+ */
+export function urlParaLog(url: string): string {
+  return url
+    .replace(/^\/mcp\/[^/?#]+/, '/mcp/***')
+    .replace(/^\/webhooks\/(?!instagram(?:[/?#]|$)|cron\/)[^/?#]+/, '/webhooks/***')
+    .replace(/^\/webhooks\/instagram\/[^/?#]+/, '/webhooks/instagram/***');
+}
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -59,6 +71,9 @@ export async function construirApp(): Promise<FastifyInstance> {
       : {
           level: config.isProd ? 'info' : 'warn',
           transport: config.isProd ? undefined : { target: 'pino-pretty', options: { colorize: true } },
+          serializers: {
+            req: (req: any) => ({ method: req.method, url: urlParaLog(String(req.url ?? '')), remoteAddress: req.ip }),
+          },
         },
     bodyLimit: 4_400_000, // audios del founder (~3 MB) en base64; Vercel corta en 4,5 MB
     trustProxy: true,
@@ -130,6 +145,9 @@ export async function construirApp(): Promise<FastifyInstance> {
   await app.register(rutasChat, { prefix: '/api' });
   await app.register(rutasPipelines, { prefix: '/api' });
   await app.register(rutasWebhooks);
+  // Conector MCP remoto: Claude se conecta pegando una URL (público, se
+  // autentica con la clave de API que va en la URL o en una cabecera).
+  await app.register(rutasMcp);
   // Rutas de mejoras de UX, una por zona de la app.
   await app.register(rutasUx_chat, { prefix: '/api/ux/chat' });
   await app.register(rutasUx_leads, { prefix: '/api/ux/leads' });
