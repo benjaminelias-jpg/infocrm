@@ -12,30 +12,32 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 - **Mucho contenido → plegar**: `Desplegable` (con `clave` recuerda si quedó abierto) y `ListaDesplegable` (muestra N y "Ver todos").
 - **Tablas → `TablaResponsiva`** (tabla en escritorio, tarjetas en el celular). Marcar qué columna es `titulo`, `subtitulo`, `esquina` (monto) y cuáles `ocultar` en el celular.
 - **Cargando → `EsqueletoPantalla`** (o `Esqueleto`) con la forma del contenido; **vacío → `Vacio`** que explica qué hacer y trae un botón de acción.
-- Colores solo con variables CSS (`var(--series-1)` acción, `--status-good/warning/critical`, `--text-primary/secondary/muted`, `--surface-1`, `--page-plane`, `--border-hairline`). Tienen que verse bien en **modo oscuro**.
-- Tamaños táctiles: los controles del kit ya miden 40 px en el celular y 36 px en escritorio. No achicarlos.
+- **Estilo visual (el que eligió el dueño, del HTML de Kunfupay):** tipografía Plus Jakarta Sans (ya cargada), fondo gris frío (`--page-plane`), tarjetas blancas sin borde marcado (`.tarjeta`, `--surface-1`), grises sólidos para lo secundario (`--surface-2`, hover `--surface-3`), **violeta para la acción** (`--accion` en fondos de botones; `--series-1` en textos, líneas y gráficos), **«tinta» para lo activo** (`--ink` / `--on-ink`: ítem activo del menú, chip de filtro activo, avisos), lavanda para lo destacado (`--tint` con texto `--tint-texto`). Verde de texto: `--bien-texto` (el `--status-good` es para puntos y fondos). Sombras solo en lo flotante (`--sombra-flotante`); vidrio en lo que flota sobre el contenido (`.ui-vidrio`). Todo tiene su versión en **modo oscuro**: no uses colores fijos.
+- **NADA de «pastillas» 100 % redondeadas** (pedido explícito del dueño: «que sea más leve»): chips y botones 10–12 px de radio, insignias y contadores 6 px, tarjetas 18 px, diálogos 20 px (la escala de Tailwind ya está suavizada: `rounded-lg` 10, `rounded-xl` 14, `rounded-2xl` 20). `rounded-full` solo para círculos de verdad (avatares, puntos de color, interruptores, íconos redondos). El recorrido `scratchpad/e2e/recorrido.mjs` avisa si aparece una pastilla.
+- Colores solo con variables CSS (`--accion`, `--series-1`, `--status-good/warning/critical`, `--text-primary/secondary/muted`, `--surface-1/2/3`, `--page-plane`, `--ink`, `--tint`, `--border-hairline`).
+- Tamaños táctiles: los controles del kit ya miden 40 px en el celular y 32–36 px en escritorio. No achicarlos.
 
 ## Componentes
 | Componente | Para qué |
 |---|---|
-| `Boton` (`variante`: primario, secundario, peligro, fantasma, exito; `tamano`: xs, sm, md; `icono`, `cargando`) | Todo botón. Un solo primario por zona. |
+| `Boton` (`variante`: primario (violeta), secundario (gris sólido), tinta (negro), peligro, fantasma, exito; `tamano`: xs, sm, md; `icono`, `cargando`) | Todo botón. Un solo primario por zona. |
 | `BotonIcono` (`etiqueta` obligatoria) | Botones solo-ícono (✕, ⋯, flechas). |
 | `BotonConfirmar` | Borrar/quitar sin ventana emergente. |
 | `Campo` + `Entrada` / `AreaTexto` / `Seleccion` | Formularios (etiqueta, ayuda, error). |
 | `Interruptor` | Activo / en pausa. |
 | `Buscador` | Búsqueda con lupa y ✕ para limpiar. |
-| `Dialogo` (`titulo`, `descripcion`, `pie`, `ancho`, `autoFoco`) | Formularios cortos, guías y confirmaciones importantes. En guías largas `autoFoco={false}` (si no, en el celular abre el teclado). |
+| `Dialogo` (`titulo`, `descripcion`, `pie`, `ancho`, `autoFoco`) | Formularios cortos, guías y confirmaciones importantes. En guías largas `autoFoco={false}` (si no, en el celular abre el teclado). El encabezado y el `pie` quedan fijos (el botón principal siempre a la vista); en el celular la hoja se cierra arrastrándola hacia abajo; Escape cierra solo la capa de arriba. |
 | `Menu` + `ItemMenu` + `SeparadorMenu` | Menú "⋯ Más" y desplegables de acciones. En el celular sale desde abajo. |
-| `SelectorConMas` | Elegir "cuál" (pipeline, curso…) con lista desplegable + "+" para crear ahí mismo. |
+| `SelectorConMas` (`onCrear(nombre)` o `onNuevo()` para abrir tu propio diálogo) | Elegir "cuál" (pipeline, curso…) con lista desplegable + "+" para crear ahí mismo. |
 | `Desplegable`, `ListaDesplegable`, `Chevron` | Plegar/desplegar. |
 | `Pestanas`, `ContenidoDeslizable` | Pestañas deslizables + cambiar con el dedo. |
 | `Carrusel` (`soloMovil`, `columnas`, `anchoItem`) | Filas de tarjetas que se deslizan. |
-| `FilaDeslizable` (`acciones`) | Deslizar una fila para ver acciones (celular); hover en escritorio. |
+| `FilaDeslizable` (`acciones`, `accionesInicio`, `completo`, `compacto`, `fondo`) | Deslizar una fila para ver acciones (celular): a la izquierda `acciones`, a la derecha `accionesInicio` (p. ej. «Leído»); con `completo`, deslizar casi toda la fila ejecuta la primera acción. Abrir una cierra la anterior. En escritorio, al pasar el mouse (`compacto` = solo íconos). |
 | `useDeslizar` | Detectar el gesto de deslizar en cualquier elemento. |
-| `TablaResponsiva` | Tablas que en el celular son tarjetas. |
+| `TablaResponsiva` (`accionesFila`) | Tablas que en el celular son tarjetas. `accionesFila(f)`: botones de la fila (última columna / pie de la tarjeta) que no abren la fila. |
 | `TituloSeccion` (`onMas`) | Encabezado de sección con "+" al lado. |
 | `Vacio`, `Esqueleto`, `EsqueletoPantalla` | Estados vacíos y de carga. |
-| `Insignia` (`tono`), `Chip`, `FilaChips` | Estados, etiquetas, filtros. |
+| `Insignia` (`tono`), `Estado` (`tipo`, `valor`), `Chip`, `FilaChips` | Estados, etiquetas, filtros. `<Estado tipo="venta" valor={v.estado} />` dice el estado de la base en palabras y con su color (textos.ts). |
 | `BotonFlotante` | Acción principal en el celular. |
 | `Copiar` | Copiar al portapapeles con "✓ Copiado". |
 | `PasosGuiados`, `Verificacion`, `TarjetaIntegracion` | Integraciones guiadas paso a paso con verificación en vivo. `TarjetaIntegracion` es fila compacta en el celular y tarjeta de grilla desde sm. Ver `componentes/integraciones/` (`PruebaEnVivo`: escucha 2 min y explica causas si no llega nada). |
@@ -57,3 +59,7 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 - `componentes/Iconos.tsx`: íconos de línea (`mas`, `cerrar`, `volver`, `siguiente`, `puntos`, `buscar`, `sincronizar`, `sol`, `luna`, `monitor`, `salir`, `reglas` = engranaje, etc.). En controles, ícono SVG en vez de emoji o glifo de texto.
 - Pantallas de alto completo: clase `alto-app` (descuenta la barra inferior del celular). El marco agrega solo el espacio abajo en las demás.
 - `Cabecera`: en el celular el subtítulo pasa a un ⓘ al lado del título. Subtítulos cortos.
+- `componentes/TextoConVariables.tsx`: texto de un mensaje con «+ Nombre / + @usuario», contador y «Así le llega». Usalo para cualquier mensaje que se le manda a un lead.
+- `componentes/BuscadorGlobal.tsx`: «Buscar lead… ⌘K» desde cualquier pantalla (ya montado en el marco).
+- Pantallas por rol: el setter ve Chat, Pipeline, Leads y Contenidos; el closer, Pipeline, Chat y Leads; dueño y admins, todo (App.tsx `permitidos`).
+- Cada pantalla se descarga cuando se usa (React.lazy en App.tsx) y después se precargan las demás: no importes páginas entre sí.
