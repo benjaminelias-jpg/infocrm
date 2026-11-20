@@ -225,22 +225,45 @@ export function Carrusel({
 
 export interface AccionFila { etiqueta: string; icono?: React.ReactNode; color: string; onClick: () => void }
 
+/** Abrir una fila cierra la que estaba abierta (como en Mail o WhatsApp). */
+const EVENTO_FILA = 'infocrm:fila-abierta';
+
 /**
- * Fila de lista que, en el celular, al deslizarla hacia la izquierda deja
- * ver acciones (como en WhatsApp o Mail). En escritorio las acciones
- * aparecen al pasar el mouse.
+ * Fila de lista con acciones al deslizar (celular): hacia la izquierda deja
+ * ver `acciones` (a la derecha) y hacia la derecha `accionesInicio` (a la
+ * izquierda), p. ej. «Leído». Con `completo`, deslizar casi toda la fila
+ * ejecuta la primera acción de ese lado (con una vibración corta). En
+ * escritorio las acciones aparecen al pasar el mouse; con `compacto`, solo
+ * los íconos (para columnas angostas).
  */
-export function FilaDeslizable({ children, acciones, className = '' }: {
-  children: React.ReactNode; acciones: AccionFila[]; className?: string;
+export function FilaDeslizable({ children, acciones, accionesInicio = [], completo = false, compacto = false, fondo = 'var(--page-plane)', className = '' }: {
+  children: React.ReactNode; acciones: AccionFila[]; accionesInicio?: AccionFila[];
+  completo?: boolean; compacto?: boolean; fondo?: string; className?: string;
 }) {
-  const ancho = acciones.length * 76;
-  const [dx, setDx] = useState(0);
+  const anchoFin = acciones.length * 76;
+  const anchoIni = accionesInicio.length * 76;
+  const [dx, setDxEstado] = useState(0);
+  // El último desplazamiento también en una ref: al soltar se lee de acá (el
+  // estado puede no haberse redibujado todavía si los toques vienen rápido).
+  const dxRef = useRef(0);
+  const setDx = (v: number) => { dxRef.current = v; setDxEstado(v); };
   const [arrastrando, setArrastrando] = useState(false);
+  const caja = useRef<HTMLDivElement>(null);
+  const id = useRef(Math.random().toString(36).slice(2));
   const ini = useRef<{ x: number; y: number; base: number; eje: 'x' | 'y' | null }>({ x: 0, y: 0, base: 0, eje: null });
+
+  useEffect(() => {
+    const f = (e: Event) => { if ((e as CustomEvent).detail !== id.current && dxRef.current !== 0) { dxRef.current = 0; setDxEstado(0); } };
+    window.addEventListener(EVENTO_FILA, f);
+    return () => window.removeEventListener(EVENTO_FILA, f);
+  }, []);
+
+  const anchoFila = () => caja.current?.offsetWidth ?? 360;
+  const umbralCompleto = () => anchoFila() * 0.6;
 
   function empezar(e: React.TouchEvent) {
     const t = e.touches[0];
-    ini.current = { x: t.clientX, y: t.clientY, base: dx, eje: null };
+    ini.current = { x: t.clientX, y: t.clientY, base: dxRef.current, eje: null };
     setArrastrando(true);
   }
   function mover(e: React.TouchEvent) {
@@ -249,38 +272,64 @@ export function FilaDeslizable({ children, acciones, className = '' }: {
     if (!ini.current.eje) {
       if (Math.abs(mx) < 6 && Math.abs(my) < 6) return;
       ini.current.eje = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
+      if (ini.current.eje === 'x') window.dispatchEvent(new CustomEvent(EVENTO_FILA, { detail: id.current }));
     }
     if (ini.current.eje !== 'x') return;
-    setDx(Math.max(-ancho - 24, Math.min(0, ini.current.base + mx)));
+    const max = completo ? anchoFila() : 0;
+    const izq = -(completo && acciones.length ? max : anchoFin + 24);
+    const der = accionesInicio.length ? (completo ? max : anchoIni + 24) : 0;
+    setDx(Math.max(acciones.length ? izq : 0, Math.min(der, ini.current.base + mx)));
   }
   function soltar() {
     setArrastrando(false);
-    if (ini.current.eje === 'x') setDx((v) => (v < -ancho / 2 ? -ancho : 0));
+    if (ini.current.eje !== 'x') return;
+    const dx = dxRef.current;
+    if (completo && Math.abs(dx) > umbralCompleto()) {
+      const a = dx < 0 ? acciones[0] : accionesInicio[0];
+      if (a) {
+        try { navigator.vibrate?.(10); } catch { /* sin vibración */ }
+        a.onClick();
+      }
+      setDx(0);
+      return;
+    }
+    if (dx < 0) setDx(dx < -anchoFin / 2 ? -anchoFin : 0);
+    else setDx(dx > anchoIni / 2 ? anchoIni : 0);
   }
 
+  const lleno = completo && Math.abs(dx) > umbralCompleto();
+  const boton = (a: AccionFila, i: number, lado: 'ini' | 'fin') => (
+    <button key={a.etiqueta} type="button" tabIndex={dx === 0 ? -1 : 0}
+      onClick={() => { a.onClick(); setDx(0); }}
+      className="flex min-w-[76px] flex-col items-center justify-center gap-0.5 text-[11px] font-semibold text-white transition-[flex-grow] duration-150"
+      style={{ background: a.color, flexGrow: lleno && i === 0 && ((lado === 'fin' && dx < 0) || (lado === 'ini' && dx > 0)) ? 1 : 0 }}>
+      {a.icono && <span className="text-[16px]">{a.icono}</span>}
+      {a.etiqueta}
+    </button>
+  );
+
   return (
-    <div className={`group relative overflow-hidden ${className}`} data-no-deslizar>
-      <div className="absolute inset-y-0 right-0 flex" style={{ width: ancho }} aria-hidden={dx === 0}>
-        {acciones.map((a) => (
-          <button key={a.etiqueta} type="button" tabIndex={dx === 0 ? -1 : 0}
-            onClick={() => { a.onClick(); setDx(0); }}
-            className="flex w-[76px] flex-col items-center justify-center gap-0.5 text-[11px] font-medium text-white"
-            style={{ background: a.color }}>
-            {a.icono && <span className="text-[16px]">{a.icono}</span>}
-            {a.etiqueta}
-          </button>
-        ))}
-      </div>
+    <div ref={caja} className={`group relative overflow-hidden ${className}`} data-no-deslizar>
+      {accionesInicio.length > 0 && dx > 0 && (
+        <div className="absolute inset-y-0 left-0 flex" style={{ width: Math.max(anchoIni, dx) }} aria-hidden={dx === 0}>
+          {accionesInicio.map((a, i) => boton(a, i, 'ini'))}
+        </div>
+      )}
+      {acciones.length > 0 && dx < 0 && (
+        <div className={`absolute inset-y-0 right-0 flex ${completo ? 'flex-row-reverse' : ''}`} style={{ width: Math.max(anchoFin, -dx) }} aria-hidden={dx === 0}>
+          {acciones.map((a, i) => boton(a, i, 'fin'))}
+        </div>
+      )}
       <div onTouchStart={empezar} onTouchMove={mover} onTouchEnd={soltar}
         className="relative"
-        style={{ transform: `translateX(${dx}px)`, transition: arrastrando ? 'none' : 'transform .2s ease', background: 'var(--page-plane)' }}>
+        style={{ transform: `translateX(${dx}px)`, transition: arrastrando ? 'none' : 'transform .2s ease', background: fondo }}>
         {children}
         {/* Escritorio: acciones al pasar el mouse */}
         <div className="pointer-events-none absolute inset-y-0 right-2 hidden items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 md:flex">
-          {acciones.map((a) => (
+          {[...accionesInicio, ...acciones].map((a) => (
             <button key={a.etiqueta} type="button" onClick={(e) => { e.stopPropagation(); a.onClick(); }} title={a.etiqueta} aria-label={a.etiqueta}
-              className="ui-foco flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-medium text-white shadow" style={{ background: a.color }}>
-              {a.icono}<span className="hidden lg:inline">{a.etiqueta}</span>
+              className={`ui-foco flex h-7 items-center gap-1 rounded-[8px] text-[11px] font-semibold text-white shadow-sm ${compacto ? 'w-7 justify-center' : 'px-2'}`} style={{ background: a.color }}>
+              {a.icono}{!compacto && <span className="hidden lg:inline">{a.etiqueta}</span>}
             </button>
           ))}
         </div>
