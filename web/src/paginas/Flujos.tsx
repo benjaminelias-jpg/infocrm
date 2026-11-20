@@ -1,15 +1,28 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api, fmtNum, hace, plural } from '../api';
 import Cabecera from '../componentes/Cabecera';
-import Pizarra, { DISPAROS, NODOS, arbolAGrafo, conVariables, uid, type Ctx, type Paso } from '../componentes/Pizarra';
+import { DISPAROS, NODOS, arbolAGrafo, conVariables, uid, type Ctx, type Paso } from '../componentes/pizarra/modelo';
 import Automatizaciones from './Automatizaciones';
 import GuiaInstagram from '../componentes/integraciones/GuiaInstagram';
 import Icono from '../componentes/Iconos';
 import {
   Banner, Boton, BotonFlotante, Buscador, Carrusel, Chip, Desplegable, Dialogo, Entrada, ErrorCarga, EsqueletoPantalla,
-  FilaChips, Insignia, Interruptor, ItemMenu, Menu, Pestanas, SeparadorMenu, TituloSeccion, Vacio, useAviso, useEsMovil, useParamUrl,
+  FilaChips, Girando, Insignia, Interruptor, ItemMenu, Menu, Pestanas, SeparadorMenu, TituloSeccion, Vacio, useAviso, useEsMovil, useParamUrl,
 } from '../ui';
+
+// El lienzo (React Flow, lo más pesado de la app) se descarga recién al abrir
+// un automensaje: la lista abre rápido, sobre todo en el celular.
+const cargarPizarra = () => import('../componentes/Pizarra');
+const Pizarra = lazy(cargarPizarra);
+/** Con la lista ya a la vista, se baja la pizarra sin apuro (abrir un automensaje queda instantáneo). */
+function usePrecargarPizarra() {
+  useEffect(() => {
+    const w = window as any;
+    const id = typeof w.requestIdleCallback === 'function' ? w.requestIdleCallback(() => { cargarPizarra().catch(() => {}); }, { timeout: 5000 }) : w.setTimeout(() => { cargarPizarra().catch(() => {}); }, 3000);
+    return () => { if (typeof w.cancelIdleCallback === 'function') w.cancelIdleCallback(id); else w.clearTimeout(id); };
+  }, []);
+}
 
 // =====================================================================
 // Automensajes: tu ManyChat propio. Lista de automensajes + plantillas, y
@@ -131,6 +144,7 @@ function palabras(f: any): string[] {
 }
 
 export default function Flujos() {
+  usePrecargarPizarra();
   const { flujoId } = useParams();
   const [params] = useSearchParams();
   const navegar = useNavigate();
@@ -704,8 +718,10 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
       )}
 
       <div className="min-h-0 flex-1">
-        <Pizarra form={form} setForm={setForm} ctx={ctx} marcados={marcados} advertidos={advertidos} notas={notas}
-          recorrido={recorrido} enfocar={enfocar} />
+        <Suspense fallback={<div className="flex h-full items-center justify-center gap-2 text-[13px] text-[var(--text-muted)]" aria-busy="true"><Girando /> Abriendo la pizarra…</div>}>
+          <Pizarra form={form} setForm={setForm} ctx={ctx} marcados={marcados} advertidos={advertidos} notas={notas}
+            recorrido={recorrido} enfocar={enfocar} />
+        </Suspense>
       </div>
 
       {movil && (
