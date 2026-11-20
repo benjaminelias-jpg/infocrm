@@ -287,6 +287,36 @@ async function marcarError(cuentaId: string, mensaje: string) {
 function err(mensaje: string): Resultado { return { ok: false, mensaje }; }
 
 /**
+ * Canjea un token de usuario de Facebook por uno de larga duración y
+ * averigua cuándo vence (null = no vence, p. ej. usuario del sistema).
+ * Best-effort: si algo falla, se queda el token original.
+ */
+async function tokenLargo(cuentaId: string, token: string): Promise<{ token: string; expiraEn: string | null }> {
+  const { appId, appSecret } = await appDe(cuentaId);
+  if (!appId || !appSecret) return { token, expiraEn: null };
+  let final = token;
+  try {
+    const r = await fetch(
+      `${FB_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
+      `&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(15_000) });
+    const d: any = await r.json().catch(() => ({}));
+    if (r.ok && d.access_token) final = d.access_token;
+  } catch { /* nos quedamos con el original */ }
+  let expiraEn: string | null = null;
+  try {
+    const r = await fetch(
+      `${FB_GRAPH}/debug_token?input_token=${encodeURIComponent(final)}` +
+      `&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`,
+      { signal: AbortSignal.timeout(15_000) });
+    const d: any = await r.json().catch(() => ({}));
+    const exp = d?.data?.expires_at;
+    if (typeof exp === 'number' && exp > 0) expiraEn = new Date(exp * 1000).toISOString();
+  } catch { /* sin fecha */ }
+  return { token: final, expiraEn };
+}
+
+/**
  * Conexión directa con un token puesto a mano (p. ej. un token de usuario del
  * sistema / SUAT generado en el dashboard) + el IG user id. Valida que el token
  * puede leer la cuenta de Instagram y la guarda como facebook_directo (DMs por
@@ -302,9 +332,13 @@ export async function conectarConToken(cuentaId: string, token: string, igId: st
     if (!r.ok || d.error) {
       return { ok: false, mensaje: `Meta rechazó el token o el ID: ${d?.error?.message ?? `HTTP ${r.status}`}` };
     }
+    // Un token del Explorador dura ~1 hora: si tenemos la App, lo canjeamos
+    // por uno de larga duración (~60 días) para que no haya que reconectar.
+    const largo = await tokenLargo(cuentaId, token);
     await guardarConexion(cuentaId, {
-      tipo_login: 'facebook_directo', user_token: token,
+      tipo_login: 'facebook_directo', user_token: largo.token,
       ig_user_id: String(igId), username: d.username ?? null,
+      token_expira_en: largo.expiraEn,
     });
     // Sincroniza el contenido con sus métricas nada más conectar.
     const sync = await sincronizarInstagram(cuentaId, { limite: 15 }).catch(() => null);

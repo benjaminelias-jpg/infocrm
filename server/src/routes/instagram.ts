@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { query, queryOne } from '../db/pool.js';
@@ -6,19 +7,49 @@ import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import {
   guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri, conectarConToken,
 } from '../modules/instagram_oauth.js';
-import { ejecutarFlujo, procesarComentarioInstagram } from '../modules/instagram_dm.js';
+import {
+  ejecutarFlujo, normalizarPasos, validarFlujo, procesarEsperasVencidas,
+} from '../modules/instagram_dm.js';
+import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
 import { integracionInstagram } from '../modules/instagram.js';
 
+const DISPAROS = ['comentario', 'dm', 'historia', 'mencion', 'reaccion', 'boton', 'anuncio'] as const;
 const PASO = z.object({ tipo: z.string() }).passthrough();
 const esquemaFlujo = z.object({
   nombre: z.string().min(1),
   descripcion: z.string().optional(),
-  disparo: z.enum(['comentario', 'dm', 'historia', 'mencion']).default('comentario'),
+  disparo: z.enum(DISPAROS).default('comentario'),
   palabra_clave: z.string().nullable().optional(),
   contenido_id: z.string().uuid().nullable().optional(),
   pasos: z.array(PASO).default([]),
   activo: z.boolean().optional(),
 });
+
+/** Token que se pega en Meta al suscribir el webhook (estable por instalación). */
+export function verifyTokenMeta(): string {
+  return process.env.META_VERIFY_TOKEN
+    || createHash('sha256').update(`${config.jwtSecret}:ig-verify`).digest('hex').slice(0, 24);
+}
+
+/** Verifica X-Hub-Signature-256 (HMAC-SHA256 del cuerpo con el App Secret). */
+function firmaValida(crudo: string, firma: string, secreto: string): boolean {
+  if (!firma.startsWith('sha256=')) return false;
+  const esperada = Buffer.from(`sha256=${createHmac('sha256', secreto).update(crudo, 'utf8').digest('hex')}`);
+  const recibida = Buffer.from(firma);
+  return esperada.length === recibida.length && timingSafeEqual(esperada, recibida);
+}
+
+/**
+ * Normaliza el árbol y lo revisa. Si algo falta, el flujo se guarda igual
+ * (no se pierde trabajo) pero EN PAUSA, para que nunca corra roto.
+ */
+function prepararFlujo<T extends { pasos?: any[]; activo?: boolean }>(d: T) {
+  if (!d.pasos) return { datos: d, avisos: [] as string[] };
+  const pasos = normalizarPasos(d.pasos);
+  const avisos = validarFlujo(pasos);
+  const datos = { ...d, pasos, ...(avisos.length && d.activo !== false ? { activo: false } : {}) };
+  return { datos, avisos };
+}
 
 export default async function rutasInstagram(app: FastifyInstance) {
   // ---------------- OAuth: conectar Instagram ----------------
@@ -50,6 +81,10 @@ export default async function rutasInstagram(app: FastifyInstance) {
       flujo: cfg.config_id ? 'facebook' : 'instagram',
       conectado,
       username: cred.username ?? null,
+      token_expira_en: cred.token_expira_en ?? null,
+      // Para recibir DMs/comentarios en vivo: se pegan en Meta → Webhooks.
+      webhook_url: `${config.apiUrl}/webhooks/instagram`,
+      webhook_verify_token: verifyTokenMeta(),
       redirect_uri: redirectUri(),
       ultimo_error: integ?.ultimo_error ?? null,
     };
@@ -109,18 +144,27 @@ export default async function rutasInstagram(app: FastifyInstance) {
         WHERE f.cuenta_id=$1 ORDER BY f.creado_en DESC`, [req.sesion.cuentaId]));
 
   app.post('/api/flujos', async (req, reply) => {
-    const d = esquemaFlujo.parse(req.body);
+    const { datos: d, avisos } = prepararFlujo(esquemaFlujo.parse(req.body));
     const fila = await queryOne(
       `INSERT INTO flujos (cuenta_id, nombre, descripcion, disparo, palabra_clave, contenido_id, pasos, activo)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
       [req.sesion.cuentaId, d.nombre, d.descripcion ?? null, d.disparo, d.palabra_clave ?? null,
        d.contenido_id ?? null, JSON.stringify(d.pasos), d.activo ?? true]);
-    return reply.code(201).send(fila);
+    return reply.code(201).send({ ...fila, avisos });
   });
 
   app.patch('/api/flujos/:id', async (req) => {
     const { id } = req.params as { id: string };
-    const d = esquemaFlujo.partial().parse(req.body);
+    let d: any = esquemaFlujo.partial().parse(req.body);
+    let avisos: string[] = [];
+    if (d.pasos) {
+      ({ datos: d, avisos } = prepararFlujo(d));
+    } else if (d.activo === true) {
+      // Activar un flujo guardado con problemas: se revisa antes.
+      const actual = await queryOne(`SELECT pasos FROM flujos WHERE cuenta_id=$1 AND id=$2`, [req.sesion.cuentaId, id]);
+      avisos = validarFlujo(normalizarPasos(actual?.pasos ?? []));
+      if (avisos.length) d = { ...d, activo: false };
+    }
     const campos = Object.keys(d);
     if (campos.length === 0) throw peticionInvalida('Nada que actualizar');
     const params: any[] = [req.sesion.cuentaId, id];
@@ -132,7 +176,18 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const fila = await queryOne(
       `UPDATE flujos SET ${sets.join(', ')} WHERE cuenta_id=$1 AND id=$2 RETURNING *`, params);
     if (!fila) throw noEncontrado('Flujo');
-    return fila;
+    return { ...fila, avisos };
+  });
+
+  /** Duplicar un flujo (queda en pausa para editarlo tranquilo). */
+  app.post('/api/flujos/:id/duplicar', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const fila = await queryOne(
+      `INSERT INTO flujos (cuenta_id, nombre, descripcion, disparo, palabra_clave, contenido_id, pasos, activo)
+       SELECT cuenta_id, nombre || ' (copia)', descripcion, disparo, palabra_clave, contenido_id, pasos, false
+         FROM flujos WHERE cuenta_id=$1 AND id=$2 RETURNING *`, [req.sesion.cuentaId, id]);
+    if (!fila) throw noEncontrado('Flujo');
+    return reply.code(201).send(fila);
   });
 
   app.delete('/api/flujos/:id', async (req, reply) => {
@@ -142,11 +197,41 @@ export default async function rutasInstagram(app: FastifyInstance) {
     return reply.code(204).send();
   });
 
-  /** Probar el flujo en modo simulación (sin enviar DMs reales). */
+  /**
+   * Prueba en seco: recorre el flujo entero sin mandar nada ni tocar la
+   * base. `respuestas` elige la rama de cada pregunta/condición.
+   */
   app.post('/api/flujos/:id/simular', async (req) => {
     const { id } = req.params as { id: string };
-    const r = await ejecutarFlujo(req.sesion.cuentaId, id, { simular: true });
+    const d = z.object({
+      respuestas: z.record(z.string()).optional(),
+      texto: z.string().optional(),
+    }).parse(req.body ?? {});
+    const r = await ejecutarFlujo(req.sesion.cuentaId, id, {
+      simular: true, respuestas: d.respuestas, texto: d.texto,
+    });
     if (!r) throw noEncontrado('Flujo');
+    return r;
+  });
+
+  /**
+   * Prueba EN VIVO con un lead: simula que el lead comenta / escribe / toca
+   * un botón. Todo pasa de verdad en el CRM (Chat, etiquetas, pausas y
+   * reanudaciones) pero no se llama a Instagram.
+   */
+  app.post('/api/instagram/simular-evento', async (req) => {
+    const d = z.object({
+      lead_id: z.string().uuid(),
+      tipo: z.enum(['comentario', 'dm', 'historia', 'mencion', 'reaccion', 'boton', 'anuncio']).default('dm'),
+      texto: z.string().max(1000).optional(),
+      payload: z.string().optional(),
+    }).parse(req.body);
+    const r = await procesarEventoInstagram(req.sesion.cuentaId, {
+      tipo: d.tipo, leadId: d.lead_id, texto: d.texto, payload: d.payload,
+      emoji: d.tipo === 'reaccion' ? (d.texto || '❤️') : undefined,
+      sinInstagram: true,
+    });
+    if (!r) throw noEncontrado('Lead');
     return r;
   });
 
@@ -178,23 +263,76 @@ export default async function rutasInstagram(app: FastifyInstance) {
       [(req.params as any).token]);
     if (!ep) return reply.code(404).send({ error: 'desconocido' });
 
-    // Estructura típica de Meta: entry[].changes[] (comentarios) o entry[].messaging[]
-    const body: any = req.body ?? {};
-    const procesados: any[] = [];
-    for (const entry of body.entry ?? []) {
-      for (const change of entry.changes ?? []) {
-        if (change.field === 'comments') {
-          const v = change.value ?? {};
-          const r = await procesarComentarioInstagram(ep.cuenta_id, {
-            palabra: v.text,
-            igUserId: v.from?.id,
-            username: v.from?.username,
-            mediaId: v.media?.id,
-          }).catch(() => null);
-          if (r) procesados.push(r);
-        }
-      }
+    // Comentarios, DMs, respuestas a historias, menciones, reacciones,
+    // botones, anuncios y los mensajes que la cuenta manda desde el celular.
+    const eventos = parsearWebhookInstagram(req.body ?? {});
+    let procesados = 0;
+    for (const ev of eventos) {
+      const r = await procesarEventoInstagram(ep.cuenta_id, ev).catch((err) => {
+        req.log.error({ err }, 'evento de Instagram');
+        return null;
+      });
+      if (r) procesados++;
     }
-    return reply.send({ ok: true, procesados: procesados.length });
+    // Aprovecha la visita para reanudar las esperas por tiempo vencidas.
+    await procesarEsperasVencidas(ep.cuenta_id, 5).catch(() => 0);
+    return reply.send({ ok: true, eventos: eventos.length, procesados });
+  });
+
+  // ---------------- Webhook ÚNICO de la app de Meta ----------------
+  // Meta configura UNA url por app para todas las cuentas. Se enruta a la
+  // cuenta del CRM por el id de la cuenta de Instagram (entry.id) y se
+  // verifica la firma X-Hub-Signature-256 con el App Secret.
+
+  app.get('/webhooks/instagram', async (req, reply) => {
+    const q = req.query as Record<string, string>;
+    if (q['hub.mode'] === 'subscribe' && q['hub.challenge'] && q['hub.verify_token'] === verifyTokenMeta()) {
+      return reply.type('text/plain').send(q['hub.challenge']);
+    }
+    return reply.code(403).send({ error: 'verify_token incorrecto' });
+  });
+
+  app.post('/webhooks/instagram', async (req, reply) => {
+    const body: any = req.body ?? {};
+    const firma = String(req.headers['x-hub-signature-256'] ?? '');
+    const crudo: string = (req as any).rawBody ?? JSON.stringify(body);
+    let procesados = 0;
+    for (const entry of body.entry ?? []) {
+      const igId = entry?.id ? String(entry.id) : '';
+      if (!igId) continue;
+      const integ = await queryOne(
+        `SELECT cuenta_id, config FROM integraciones
+          WHERE tipo = 'instagram' AND activo
+            AND (credenciales->>'ig_user_id' = $1 OR config->>'ig_user_id' = $1
+                 OR credenciales->>'ig_account_id' = $1)
+          ORDER BY creado_en ASC LIMIT 1`, [igId]);
+      if (!integ) continue; // cuenta de Instagram que no está en el CRM
+      const secreto = integ.config?.app_secret || process.env.META_APP_SECRET;
+      if (secreto && !firmaValida(crudo, firma, secreto)) {
+        req.log.warn({ igId }, 'webhook de Instagram con firma inválida: ignorado');
+        continue;
+      }
+      for (const ev of parsearWebhookInstagram({ entry: [entry] })) {
+        const r = await procesarEventoInstagram(integ.cuenta_id, ev).catch((err) => {
+          req.log.error({ err }, 'evento de Instagram');
+          return null;
+        });
+        if (r) procesados++;
+      }
+      await procesarEsperasVencidas(integ.cuenta_id, 5).catch(() => 0);
+    }
+    // Siempre 200: si no, Meta reintenta y termina desactivando el webhook.
+    return reply.send({ ok: true, procesados });
+  });
+
+  // Reloj de los flujos: reanuda las esperas por tiempo vencidas de todas
+  // las cuentas. Lo llama el cron de Vercel (y se puede llamar a mano).
+  app.get('/webhooks/cron/flujos', async (req, reply) => {
+    const secreto = process.env.CRON_SECRET;
+    if (secreto && req.headers.authorization !== `Bearer ${secreto}`) {
+      return reply.code(401).send({ error: 'no_autorizado' });
+    }
+    const reanudadas = await procesarEsperasVencidas(undefined, 50);
+    return { ok: true, reanudadas };
   });
 }

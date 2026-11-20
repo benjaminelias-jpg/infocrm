@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   resumen, rendimientoPorContenido, embudo, serieTemporal,
-  rendimientoClosers, calidadAtribucion, type Filtros,
+  rendimientoClosers, calidadAtribucion, leadsEstancados, type Filtros,
 } from '../modules/analitica.js';
 import {
   rendimientoPorAngulo, mezclaContenido, clasificarRoles, metasProgreso,
@@ -68,6 +68,32 @@ export default async function rutasAnalitica(app: FastifyInstance) {
     ]);
     const contenidos = clasificarRoles(contenidosRaw as any);
 
-    return { kpis, contenidos, embudo: pasos, serie, closers, calidad, angulos, mezcla, metas };
+    // "Un número nunca va solo": el mismo periodo, inmediatamente anterior.
+    let anterior = null;
+    if (f.desde) {
+      const desde = new Date(f.desde).getTime();
+      const hasta = f.hasta ? new Date(f.hasta).getTime() : Date.now();
+      anterior = await resumen(req.sesion.cuentaId, {
+        ...f, desde: new Date(desde - (hasta - desde)).toISOString(), hasta: new Date(desde).toISOString(),
+      });
+    }
+
+    // Contenido mudo: publicado en el periodo (hace más de 3 días, para darle
+    // tiempo) que no trajo ni un lead.
+    const limiteMudo = Date.now() - 3 * 86_400_000;
+    const desdeMudo = f.desde ? new Date(f.desde).getTime() : Date.now() - 90 * 86_400_000;
+    const mudos = (contenidosRaw as any[])
+      .filter((c) => c.id && Number(c.leads) === 0 && c.publicado_en
+        && new Date(c.publicado_en).getTime() >= desdeMudo && new Date(c.publicado_en).getTime() <= limiteMudo)
+      .sort((a, b) => new Date(b.publicado_en).getTime() - new Date(a.publicado_en).getTime())
+      .slice(0, 8)
+      .map((c) => ({
+        id: c.id, titulo: c.titulo, tipo: c.tipo, publicado_en: c.publicado_en, permalink: c.permalink,
+        alcance: c.ig_alcance, reproducciones: c.ig_reproducciones,
+      }));
+
+    const estancados = await leadsEstancados(req.sesion.cuentaId, 7, 8);
+
+    return { kpis, anterior, contenidos, embudo: pasos, serie, closers, calidad, angulos, mezcla, metas, mudos, estancados };
   });
 }

@@ -52,11 +52,21 @@ export async function construirApp(): Promise<FastifyInstance> {
           level: config.isProd ? 'info' : 'warn',
           transport: config.isProd ? undefined : { target: 'pino-pretty', options: { colorize: true } },
         },
-    bodyLimit: 2 * 1024 * 1024,
+    bodyLimit: 4_400_000, // audios del founder (~3 MB) en base64; Vercel corta en 4,5 MB
     trustProxy: true,
   });
 
   await app.register(cors, { origin: true, credentials: true });
+
+  // JSON guardando también el cuerpo original: hace falta para verificar la
+  // firma de Meta (X-Hub-Signature-256) en el webhook de Instagram. Mantiene
+  // la protección de Fastify contra prototype poisoning.
+  const parserJson = app.getDefaultJsonParser('error', 'ignore');
+  app.addContentTypeParser('application/json', { parseAs: 'string' }, (req, body, done) => {
+    (req as any).rawBody = body;
+    if (typeof body === 'string' && body.trim() === '') return done(null, {});
+    parserJson(req, body as string, done);
+  });
 
   app.decorateRequest('sesion', null as unknown as Sesion);
 

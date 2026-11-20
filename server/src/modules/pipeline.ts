@@ -1,5 +1,8 @@
 import { pool } from '../db/pool.js';
 import type { Ejecutor, ResultadoAtribucion } from './atribucion.js';
+import {
+  enviarMensajeIG, registrarSaliente, mensajeDeRecurso, ejecutarFlujo,
+} from './instagram_dm.js';
 
 /** Devuelve la oportunidad abierta del lead, o abre una nueva. */
 export async function oportunidadAbierta(
@@ -59,7 +62,7 @@ export async function moverEtapa(
   etapaDestinoId: string,
   db: Ejecutor = pool,
   opts: { origen?: string; usuarioId?: string | null; reglaId?: string | null; cuando?: Date } = {},
-): Promise<{ desde: string | null; hasta: string } | null> {
+): Promise<MovimientoEtapa | null> {
   const { rows: oppRows } = await db.query(
     `SELECT o.*, e.orden AS etapa_orden FROM oportunidades o
        JOIN etapas e ON e.id = o.etapa_id
@@ -92,36 +95,146 @@ export async function moverEtapa(
      opts.usuarioId ?? null, opts.reglaId ?? null, cuando],
   );
 
-  // Acciones automáticas de la etapa de destino (etiqueta, webhook, nota).
+  // Acciones automáticas de la etapa de destino. Se ESPERAN (en serverless lo
+  // que queda corriendo tras responder puede no ejecutarse nunca). Dentro de
+  // una transacción no: las ejecuta quien la abrió, después del commit.
   if (Array.isArray(destino.acciones) && destino.acciones.length && opp.lead_id) {
-    ejecutarAccionesEtapa(cuentaId, opp.lead_id, destino, db).catch(() => {});
+    if (db === pool) {
+      await ejecutarAccionesEtapa(cuentaId, opp.lead_id, destino).catch(() => {});
+    } else {
+      return { desde: opp.etapa_id, hasta: etapaDestinoId, pendiente: { leadId: opp.lead_id, etapa: destino } };
+    }
   }
 
   return { desde: opp.etapa_id, hasta: etapaDestinoId };
 }
 
+export interface MovimientoEtapa {
+  desde: string | null;
+  hasta: string;
+  /** Acciones de etapa por ejecutar tras el commit (solo dentro de transacciones). */
+  pendiente?: { leadId: string; etapa: any };
+}
+
+function rellenar(texto: string, lead: any) {
+  const nombre = (lead?.nombre ? String(lead.nombre).split(' ')[0] : '') || lead?.ig_username || '';
+  return String(texto ?? '').replace(/\{\{\s*nombre\s*\}\}/gi, nombre)
+    .replace(/\{\{\s*usuario\s*\}\}/gi, lead?.ig_username ? `@${lead.ig_username}` : '');
+}
+
+async function postJson(url: string, cuerpo: unknown): Promise<boolean> {
+  return fetch(url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(cuerpo), signal: AbortSignal.timeout(10_000),
+  }).then((r) => r.ok).catch(() => false);
+}
+
+async function notaAuto(cuentaId: string, leadId: string, texto: string) {
+  await pool.query(`INSERT INTO notas (cuenta_id, lead_id, cuerpo) VALUES ($1,$2,$3)`,
+    [cuentaId, leadId, `🤖 ${texto}`]);
+}
+
 /**
- * Ejecuta las acciones configuradas en una etapa cuando un lead entra en ella.
- * No bloquea el movimiento: los fallos (p. ej. un webhook caído) se tragan.
+ * Ejecuta las acciones configuradas en una etapa cuando un lead entra en ella:
+ * etiquetar, nota, avisar a otra app (webhook), mandar un DM o un audio por
+ * Instagram, arrancar un automensaje, sumar a una secuencia de email,
+ * asignar al equipo. Una acción que falla no frena las demás y deja nota.
  */
-export async function ejecutarAccionesEtapa(cuentaId: string, leadId: string, etapa: any, db: Ejecutor = pool) {
+export async function ejecutarAccionesEtapa(cuentaId: string, leadId: string, etapa: any) {
+  const lead = (await pool.query(
+    `SELECT id, nombre, apellido, ig_username, ig_user_id, email, telefono, etiquetas
+       FROM leads WHERE id = $1 AND cuenta_id = $2`, [leadId, cuentaId])).rows[0];
+  if (!lead) return;
+  const datosLead = {
+    id: lead.id, nombre: lead.nombre, apellido: lead.apellido, ig_username: lead.ig_username,
+    email: lead.email, telefono: lead.telefono, etiquetas: lead.etiquetas,
+  };
   for (const a of etapa.acciones ?? []) {
     try {
-      if (a.tipo === 'etiquetar' && a.etiqueta) {
-        await db.query(
-          `UPDATE leads SET etiquetas = (SELECT array_agg(DISTINCT x) FROM unnest(etiquetas || ARRAY[$2]) x)
-             WHERE id = $1 AND cuenta_id = $3`, [leadId, a.etiqueta, cuentaId]);
-      } else if (a.tipo === 'nota' && a.texto) {
-        await db.query(
-          `INSERT INTO notas (cuenta_id, lead_id, cuerpo, autor) VALUES ($1,$2,$3,'automática')`,
-          [cuentaId, leadId, a.texto]).catch(() => {});
-      } else if (a.tipo === 'webhook' && a.url) {
-        const lead = (await db.query(`SELECT id, nombre, ig_username, email, telefono, etiquetas FROM leads WHERE id=$1`, [leadId])).rows[0];
-        await fetch(a.url, {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ evento: 'lead_movido_a_etapa', etapa: etapa.nombre, etapa_slug: etapa.slug, lead }),
-          signal: AbortSignal.timeout(10_000),
-        }).catch(() => {});
+      switch (a.tipo) {
+        case 'etiquetar':
+          if (a.etiqueta) {
+            await pool.query(
+              `UPDATE leads SET etiquetas = (SELECT array_agg(DISTINCT x) FROM unnest(etiquetas || ARRAY[$2]) x)
+                 WHERE id = $1 AND cuenta_id = $3`, [leadId, a.etiqueta, cuentaId]);
+          }
+          break;
+        case 'quitar_etiqueta':
+          if (a.etiqueta) {
+            await pool.query(`UPDATE leads SET etiquetas = array_remove(etiquetas, $2) WHERE id = $1 AND cuenta_id = $3`,
+              [leadId, a.etiqueta, cuentaId]);
+          }
+          break;
+        case 'nota':
+          if (a.texto) await notaAuto(cuentaId, leadId, rellenar(a.texto, lead));
+          break;
+        case 'webhook':
+          if (a.url) {
+            const ok = await postJson(a.url, {
+              evento: 'lead_movido_a_etapa', etapa: etapa.nombre, etapa_slug: etapa.slug, lead: datosLead,
+            });
+            if (!ok) await notaAuto(cuentaId, leadId, `No se pudo avisar a ${a.url} al pasar a «${etapa.nombre}».`);
+          }
+          break;
+        case 'email': {
+          // Suma el lead a una secuencia del proveedor de email (ActiveCampaign,
+          // Mailchimp, Brevo… o vía Zapier/Make) llamando a su webhook.
+          if (!a.url) break;
+          if (!lead.email) {
+            await notaAuto(cuentaId, leadId, `No entró a la secuencia «${a.secuencia ?? ''}»: el lead todavía no tiene email.`);
+            break;
+          }
+          const ok = await postJson(a.url, {
+            evento: 'agregar_a_secuencia', secuencia: a.secuencia ?? null, etapa: etapa.nombre,
+            email: lead.email, nombre: lead.nombre, telefono: lead.telefono,
+            ig_username: lead.ig_username, etiquetas: lead.etiquetas,
+          });
+          await notaAuto(cuentaId, leadId, ok
+            ? `Agregado a la secuencia de email «${a.secuencia ?? ''}».`
+            : `El proveedor de email no respondió bien al sumar a «${a.secuencia ?? ''}».`);
+          break;
+        }
+        case 'dm': {
+          // Mensaje por Instagram (API de Meta).
+          const texto = rellenar(String(a.texto ?? ''), lead).trim();
+          if (!texto) break;
+          const r = lead.ig_user_id
+            ? await enviarMensajeIG(cuentaId, { igId: lead.ig_user_id }, { text: texto })
+            : { ok: false, error: 'El lead no tiene Instagram vinculado' };
+          await registrarSaliente(cuentaId, leadId, texto, null, r);
+          break;
+        }
+        case 'recurso': {
+          if (!a.recurso_id) break;
+          const rec = (await pool.query(
+            `SELECT id, nombre, tipo, texto, url, token, (datos IS NOT NULL) AS tiene_archivo
+               FROM recursos WHERE cuenta_id = $1 AND id = $2`, [cuentaId, a.recurso_id])).rows[0];
+          if (!rec) break;
+          const { mensaje, cuerpo } = mensajeDeRecurso(rec);
+          const r = lead.ig_user_id
+            ? await enviarMensajeIG(cuentaId, { igId: lead.ig_user_id }, mensaje)
+            : { ok: false, error: 'El lead no tiene Instagram vinculado' };
+          await registrarSaliente(cuentaId, leadId, cuerpo, rec.id, r);
+          break;
+        }
+        case 'flujo':
+          if (a.flujo_id) {
+            await ejecutarFlujo(cuentaId, a.flujo_id, { leadId, destinatarioIgId: lead.ig_user_id ?? undefined });
+          }
+          break;
+        case 'asignar': {
+          const roles = a.rol === 'closer' ? ['closer'] : a.rol === 'setter' ? ['setter'] : ['setter', 'closer'];
+          const u = (await pool.query(
+            `SELECT u.id FROM usuarios u LEFT JOIN leads l ON l.propietario_id = u.id
+              WHERE u.cuenta_id = $1 AND u.activo AND u.rol = ANY($2)
+              GROUP BY u.id ORDER BY COUNT(l.id) ASC, u.creado_en ASC LIMIT 1`, [cuentaId, roles])).rows[0];
+          if (u) {
+            await pool.query(`UPDATE leads SET propietario_id = $2 WHERE id = $1`, [leadId, u.id]);
+            await pool.query(`UPDATE oportunidades SET propietario_id = $2 WHERE lead_id = $1 AND estado = 'abierta'`,
+              [leadId, u.id]);
+          }
+          break;
+        }
       }
     } catch { /* una acción fallida no frena las demás */ }
   }

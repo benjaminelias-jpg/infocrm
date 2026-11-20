@@ -6,7 +6,7 @@ import {
   resolverAtribucion, registrarToque,
   type SenalesAtribucion, type ResultadoAtribucion, type Ejecutor,
 } from './atribucion.js';
-import { oportunidadAbierta, moverEtapa, etapaParaEvento } from './pipeline.js';
+import { oportunidadAbierta, moverEtapa, etapaParaEvento, ejecutarAccionesEtapa } from './pipeline.js';
 import { ejecutarReglas } from './reglas.js';
 import { recomputarScore } from './infoproduccion.js';
 import { despacharEvento } from './webhooks_salida.js';
@@ -320,6 +320,17 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
       eventoCompleto: evento,
     };
   });
+
+  // 8b. Acciones automáticas de la etapa a la que se movió, tras el commit.
+  const pendiente = (resultado as any).etapaMovida?.pendiente;
+  if (pendiente) {
+    delete (resultado as any).etapaMovida.pendiente;
+    if (!entrada.sinReglas) {
+      await ejecutarAccionesEtapa(entrada.cuentaId, pendiente.leadId, pendiente.etapa).catch((err) => {
+        console.error('[etapa] error en acciones de etapa:', err?.message);
+      });
+    }
+  }
 
   // 9. Reglas, ya fuera de la transacción (pueden llamar a webhooks externos)
   if (!entrada.sinReglas && !resultado.duplicado && resultado.eventoCompleto) {

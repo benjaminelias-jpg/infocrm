@@ -44,11 +44,15 @@ export async function rendimientoPorContenido(cuentaId: string, f: Filtros = {})
         GROUP BY b.contenido_id
      ),
      vts AS (
+       -- Las devoluciones revierten de verdad: restan la venta y el dinero.
        SELECT b.contenido_id,
-              COUNT(e.id)                  AS ventas,
-              COALESCE(SUM(e.valor), 0)    AS ingresos
+              GREATEST(COUNT(e.id) FILTER (WHERE e.tipo = 'venta')
+                       - COUNT(e.id) FILTER (WHERE e.tipo = 'reembolso'), 0)          AS ventas,
+              COALESCE(SUM(e.valor) FILTER (WHERE e.tipo = 'venta'), 0)
+                - COALESCE(SUM(ABS(e.valor)) FILTER (WHERE e.tipo = 'reembolso'), 0)  AS ingresos,
+              COUNT(e.id) FILTER (WHERE e.tipo = 'reembolso')                         AS reembolsos
          FROM base b
-         JOIN eventos e ON e.lead_id = b.lead_id AND e.tipo = 'venta'
+         JOIN eventos e ON e.lead_id = b.lead_id AND e.tipo IN ('venta', 'reembolso')
         GROUP BY b.contenido_id
      ),
      conf AS (
@@ -88,10 +92,11 @@ export async function rendimientoPorContenido(cuentaId: string, f: Filtros = {})
               WHERE o.reunion_agendada_en IS NOT NULL) AS reuniones_agendadas,
             (SELECT COUNT(DISTINCT o.id) FROM oportunidades o JOIN base b ON b.lead_id = o.lead_id
               WHERE o.reunion_realizada_en IS NOT NULL) AS reuniones_realizadas,
-            (SELECT COUNT(*) FROM eventos e JOIN base b ON b.lead_id = e.lead_id
-              WHERE e.tipo = 'venta') AS ventas,
-            (SELECT COALESCE(SUM(e.valor),0) FROM eventos e JOIN base b ON b.lead_id = e.lead_id
-              WHERE e.tipo = 'venta') AS ingresos`,
+            GREATEST((SELECT COUNT(*) FROM eventos e JOIN base b ON b.lead_id = e.lead_id WHERE e.tipo = 'venta')
+              - (SELECT COUNT(*) FROM eventos e JOIN base b ON b.lead_id = e.lead_id WHERE e.tipo = 'reembolso'), 0) AS ventas,
+            (SELECT COALESCE(SUM(e.valor),0) FROM eventos e JOIN base b ON b.lead_id = e.lead_id WHERE e.tipo = 'venta')
+              - (SELECT COALESCE(SUM(ABS(e.valor)),0) FROM eventos e JOIN base b ON b.lead_id = e.lead_id
+                  WHERE e.tipo = 'reembolso') AS ingresos`,
     params,
   );
 
@@ -148,9 +153,13 @@ export async function resumen(cuentaId: string, f: Filtros = {}) {
        (SELECT COUNT(DISTINCT o.id) FROM oportunidades o JOIN base b ON b.id=o.lead_id
          WHERE o.reunion_no_asistio)                                            AS no_shows,
        (SELECT COUNT(*) FROM eventos e JOIN base b ON b.id=e.lead_id
-         WHERE e.tipo='venta')                                                  AS ventas,
+         WHERE e.tipo='venta')                                                  AS ventas_brutas,
        (SELECT COALESCE(SUM(e.valor),0) FROM eventos e JOIN base b ON b.id=e.lead_id
-         WHERE e.tipo='venta')                                                  AS ingresos,
+         WHERE e.tipo='venta')                                                  AS ingresos_brutos,
+       (SELECT COUNT(*) FROM eventos e JOIN base b ON b.id=e.lead_id
+         WHERE e.tipo='reembolso')                                              AS reembolsos,
+       (SELECT COALESCE(SUM(ABS(e.valor)),0) FROM eventos e JOIN base b ON b.id=e.lead_id
+         WHERE e.tipo='reembolso')                                              AS reembolsado,
        (SELECT COUNT(*) FROM leads l WHERE l.cuenta_id=$1 AND l.id IN (SELECT id FROM base)
          AND l.primer_contenido_id IS NOT NULL)                                 AS leads_atribuidos,
        (SELECT COALESCE(AVG(EXTRACT(EPOCH FROM (o.cerrada_en - o.abierta_en))/86400),0)
@@ -160,8 +169,11 @@ export async function resumen(cuentaId: string, f: Filtros = {}) {
   );
 
   const leads = Number(r?.leads ?? 0);
-  const ventas = Number(r?.ventas ?? 0);
-  const ingresos = Number(r?.ingresos ?? 0);
+  // Netas: una devolución revierte la venta y el dinero.
+  const reembolsos = Number(r?.reembolsos ?? 0);
+  const reembolsado = Number(r?.reembolsado ?? 0);
+  const ventas = Math.max(Number(r?.ventas_brutas ?? 0) - reembolsos, 0);
+  const ingresos = Number(r?.ingresos_brutos ?? 0) - reembolsado;
   const agendadas = Number(r?.reuniones_agendadas ?? 0);
   const realizadas = Number(r?.reuniones_realizadas ?? 0);
 
@@ -172,6 +184,8 @@ export async function resumen(cuentaId: string, f: Filtros = {}) {
     no_shows: Number(r?.no_shows ?? 0),
     ventas,
     ingresos,
+    reembolsos,
+    reembolsado,
     leads_atribuidos: Number(r?.leads_atribuidos ?? 0),
     cobertura_atribucion: pct(Number(r?.leads_atribuidos ?? 0), leads),
     tasa_lead_reunion: pct(agendadas, leads),
@@ -332,4 +346,33 @@ export async function calidadAtribucion(cuentaId: string) {
     palabras_ambiguas: palabrasAmbiguas,
     automatizaciones_sin_contenido: sinEnlazar,
   };
+}
+
+/**
+ * Leads estancados: oportunidades abiertas sin movimiento (ni de etapa ni de
+ * mensajes) en los últimos `dias`. Los más olvidados primero.
+ */
+export async function leadsEstancados(cuentaId: string, dias = 7, limite = 10) {
+  const filas = await query(
+    `WITH ult AS (
+       SELECT o.id AS oportunidad_id, l.id AS lead_id, l.nombre, l.ig_username,
+              e.nombre AS etapa, u.nombre AS responsable,
+              GREATEST(o.abierta_en,
+                       COALESCE((SELECT max(h.cambiado_en) FROM etapa_historial h WHERE h.oportunidad_id = o.id), o.abierta_en),
+                       COALESCE(l.ultimo_mensaje_en, o.abierta_en)) AS ultimo_movimiento
+         FROM oportunidades o
+         JOIN leads l ON l.id = o.lead_id
+         JOIN etapas e ON e.id = o.etapa_id
+         LEFT JOIN usuarios u ON u.id = COALESCE(o.propietario_id, l.propietario_id)
+        WHERE o.cuenta_id = $1 AND o.estado = 'abierta' AND e.tipo = 'abierta'
+     )
+     SELECT *, COUNT(*) OVER () AS total,
+            EXTRACT(DAY FROM now() - ultimo_movimiento)::int AS dias_quieto
+       FROM ult
+      WHERE ultimo_movimiento < now() - make_interval(days => $2)
+      ORDER BY ultimo_movimiento ASC
+      LIMIT $3`,
+    [cuentaId, dias, limite],
+  );
+  return { total: Number(filas[0]?.total ?? 0), dias, leads: filas };
 }

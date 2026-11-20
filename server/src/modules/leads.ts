@@ -210,7 +210,7 @@ export async function kanban(cuentaId: string, pipelineId?: string, limitePorEta
        FROM oportunidades o
        JOIN leads l ON l.id = o.lead_id
        LEFT JOIN contenidos c ON c.id = o.contenido_id
-       LEFT JOIN usuarios u ON u.id = o.propietario_id
+       LEFT JOIN usuarios u ON u.id = COALESCE(o.propietario_id, l.propietario_id)
       WHERE o.cuenta_id = $1 AND ($2::uuid IS NULL OR o.pipeline_id = $2::uuid)`,
     [cuentaId, pipelineId ?? null],
   );
