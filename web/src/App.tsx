@@ -1,24 +1,41 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useState, type ComponentType } from 'react';
 import {
   BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation, useSearchParams,
 } from 'react-router-dom';
 import { api, cerrarSesion, guardarSesion, leerSesion, token, EVENTO_SESION_VENCIDA } from './api';
-import Panel from './paginas/Panel';
-import Contenidos from './paginas/Contenidos';
-import Pipeline from './paginas/Pipeline';
-import Leads from './paginas/Leads';
-import Conexiones from './paginas/Conexiones';
-import Flujos from './paginas/Flujos';
-import Finanzas from './paginas/Finanzas';
-import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
-import FichaLead from './componentes/FichaLead';
 import { useFicha } from './componentes/useFicha';
 import BuscadorGlobal, { useAtajoBuscar } from './componentes/BuscadorGlobal';
 import ErrorPantalla from './componentes/ErrorPantalla';
 import {
-  ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Entrada, useTema, type Tema,
+  ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Entrada, EsqueletoPantalla, useTema, type Tema,
 } from './ui';
+
+// Cada pantalla se descarga recién cuando se usa (la app abre mucho más
+// rápido en el celular) y después se precargan las demás en segundo plano.
+// Si después de un deploy falta un archivo viejo, se recarga una vez sola.
+function pantalla<T extends ComponentType<any>>(cargar: () => Promise<{ default: T }>) {
+  const Componente = lazy(() => cargar().then((m) => {
+    try { sessionStorage.removeItem('infocrm_recargado'); } catch { /* sin almacenamiento */ }
+    return m;
+  }).catch((err) => {
+    let ya = false;
+    try { ya = sessionStorage.getItem('infocrm_recargado') === '1'; sessionStorage.setItem('infocrm_recargado', '1'); } catch { ya = true; }
+    if (!ya) { window.location.reload(); return new Promise<{ default: T }>(() => {}); }
+    throw err;
+  }));
+  return Object.assign(Componente, { precargar: () => { cargar().catch(() => {}); } });
+}
+const Panel = pantalla(() => import('./paginas/Panel'));
+const Contenidos = pantalla(() => import('./paginas/Contenidos'));
+const Pipeline = pantalla(() => import('./paginas/Pipeline'));
+const Leads = pantalla(() => import('./paginas/Leads'));
+const Conexiones = pantalla(() => import('./paginas/Conexiones'));
+const Flujos = pantalla(() => import('./paginas/Flujos'));
+const Finanzas = pantalla(() => import('./paginas/Finanzas'));
+const Chat = pantalla(() => import('./paginas/Chat'));
+const FichaLead = pantalla(() => import('./componentes/FichaLead'));
+const PANTALLAS = [Panel, Chat, Pipeline, Leads, FichaLead, Contenidos, Flujos, Finanzas, Conexiones];
 
 // Ocho destinos, nada más. Recursos vive dentro del Chat, las reglas dentro
 // del Pipeline y las palabras de ManyChat dentro de Automensajes.
@@ -228,6 +245,13 @@ function Marco({ children }: { children: React.ReactNode }) {
     document.title = d ? `${d.etiqueta} · InfoCRM` : 'InfoCRM';
   }, [ruta]);
 
+  // Con la pantalla ya abierta, se bajan las demás sin apuro (navegar después es instantáneo).
+  useEffect(() => {
+    const w = window as any;
+    const ocioso = (f: () => void) => (typeof w.requestIdleCallback === 'function' ? w.requestIdleCallback(f, { timeout: 4000 }) : w.setTimeout(f, 2500));
+    ocioso(() => PANTALLAS.forEach((p) => p.precargar()));
+  }, []);
+
   const nombre = sesion?.usuario?.nombre ?? '';
   // Una pantalla que este rol no usa: a la primera que sí.
   if (prohibida) return <Navigate to={visibles[0].a} replace />;
@@ -291,12 +315,14 @@ function Marco({ children }: { children: React.ReactNode }) {
             Sin conexión: lo que hagas puede no guardarse hasta que vuelva internet.
           </div>
         )}
-        <ErrorPantalla key={ruta}>{children}</ErrorPantalla>
+        <ErrorPantalla key={ruta}>
+          <Suspense fallback={<div aria-busy="true" aria-label="Cargando"><EsqueletoPantalla /></div>}>{children}</Suspense>
+        </ErrorPantalla>
       </main>
       <BuscadorGlobal abierto={buscar} onCerrar={() => setBuscar(false)} />
 
       {/* Ficha del lead global (?ficha=<id>): se abre desde cualquier pantalla y Atrás la cierra. */}
-      {ficha.abierta && <FichaLead key={ficha.abierta} leadId={ficha.abierta} alCerrar={ficha.cerrar} />}
+      {ficha.abierta && <Suspense fallback={null}><FichaLead key={ficha.abierta} leadId={ficha.abierta} alCerrar={ficha.cerrar} /></Suspense>}
 
       {/* Barra inferior (celular): lo del día a día a un toque; el resto en "Más". */}
       {conBarra && (
