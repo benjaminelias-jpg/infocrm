@@ -8,7 +8,7 @@ import { useFicha } from './componentes/useFicha';
 import BuscadorGlobal, { useAtajoBuscar } from './componentes/BuscadorGlobal';
 import ErrorPantalla from './componentes/ErrorPantalla';
 import {
-  ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Entrada, EsqueletoPantalla, useTema, type Tema,
+  ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Dialogo, Entrada, EsqueletoPantalla, useTema, type Tema,
 } from './ui';
 
 // Cada pantalla se descarga recién cuando se usa (la app abre mucho más
@@ -112,6 +112,7 @@ function Login() {
   const [ver, setVer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
+  const [olvido, setOlvido] = useState(false);
   const motivo = params.get('motivo');
   const volver = params.get('volver');
 
@@ -160,7 +161,17 @@ function Login() {
         </Campo>
         {error && <p role="alert" className="text-[12px]" style={{ color: 'var(--status-critical)' }}>{error}</p>}
         <Boton type="submit" variante="primario" cargando={cargando} className="w-full">Entrar</Boton>
+        <button type="button" onClick={() => setOlvido(true)} className="ui-foco mx-auto block rounded-md px-2 py-1 text-[12px] font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+          ¿Olvidaste tu contraseña?
+        </button>
       </form>
+      <Dialogo abierto={olvido} onCerrar={() => setOlvido(false)} titulo="¿Olvidaste tu contraseña?"
+        pie={<Boton variante="primario" onClick={() => setOlvido(false)}>Entendido</Boton>}>
+        <div className="space-y-2 text-[13px] text-[var(--text-secondary)]">
+          <p><b className="text-[var(--text-primary)]">Si sos parte de un equipo:</b> pedile al dueño de la cuenta que te ponga una contraseña nueva y entrá con esa.</p>
+          <p><b className="text-[var(--text-primary)]">Si sos el dueño:</b> escribinos y la recuperamos con vos.</p>
+        </div>
+      </Dialogo>
     </div>
   );
 }
@@ -230,6 +241,9 @@ function Marco({ children }: { children: React.ReactNode }) {
   const enLinea = useEnLinea();
   const [buscar, setBuscar] = useState(false);
   useAtajoBuscar(useCallback(() => setBuscar(true), []));
+  // Menú lateral angosto (solo íconos), como el riel de la referencia: más lugar para el tablero.
+  const [compacto, setCompacto] = useState(() => { try { return localStorage.getItem('infocrm_menu_compacto') === '1'; } catch { return false; } });
+  const alternarCompacto = () => setCompacto((v) => { try { localStorage.setItem('infocrm_menu_compacto', v ? '0' : '1'); } catch { /* sin almacenamiento */ } return !v; });
   const visibles = permitidos(sesion?.usuario?.rol);
   const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((d) => visibles.includes(d)) })).filter((g) => g.items.length);
   const BARRA = visibles.slice(0, 4);
@@ -270,53 +284,67 @@ function Marco({ children }: { children: React.ReactNode }) {
   return (
     <div className={`flex min-h-screen flex-col md:flex-row ${conBarra ? 'con-barra-inf' : ''}`}>
       {/* Menú lateral (escritorio) */}
-      <aside className="sticky top-3 m-3 mr-0 hidden h-[calc(100vh-24px)] w-[212px] shrink-0 flex-col rounded-[24px] px-3 py-4 md:flex"
+      <aside className={`sticky top-3 m-3 mr-0 hidden h-[calc(100vh-24px)] shrink-0 flex-col rounded-[24px] py-4 transition-[width] duration-200 md:flex ${compacto ? 'w-[76px] px-2.5' : 'w-[212px] px-3'}`}
         style={{ background: 'var(--surface-1)' }}>
-        <div className="mb-3 flex items-center gap-2.5 px-1.5">
+        <div className={`mb-3 flex items-center gap-2.5 ${compacto ? 'justify-center' : 'px-1.5'}`}>
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] text-[13px] font-extrabold tracking-tight text-white" style={{ background: 'var(--accion)' }} aria-hidden>iC</span>
-          <span className="min-w-0">
-            <span className="block text-[15px] font-bold tracking-tight">InfoCRM</span>
-            <span className="block truncate text-[11px] text-[var(--text-muted)]">{sesion?.cuenta?.nombre ?? ''}</span>
-          </span>
+          {!compacto && (
+            <span className="min-w-0">
+              <span className="block text-[15px] font-bold tracking-tight">InfoCRM</span>
+              <span className="block truncate text-[11px] text-[var(--text-muted)]">{sesion?.cuenta?.nombre ?? ''}</span>
+            </span>
+          )}
         </div>
-        <button type="button" onClick={() => setBuscar(true)}
-          className="ui-foco mb-3 flex h-9 items-center gap-2 rounded-[12px] px-2.5 text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-secondary)]"
+        <button type="button" onClick={() => setBuscar(true)} aria-label="Buscar lead (⌘K)" title={compacto ? 'Buscar lead (⌘K)' : undefined}
+          className={`ui-foco mb-3 flex h-9 items-center gap-2 rounded-[12px] text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] ${compacto ? 'justify-center' : 'px-2.5'}`}
           style={{ background: 'var(--surface-2)' }}>
           <Icono nombre="buscar" tam={15} />
-          <span className="flex-1">Buscar lead…</span>
-          <kbd className="rounded-[5px] px-1 font-sans text-[10px] font-semibold" style={{ background: 'var(--surface-1)' }}>⌘K</kbd>
+          {!compacto && <span className="flex-1">Buscar lead…</span>}
+          {!compacto && <kbd className="rounded-[5px] px-1 font-sans text-[10px] font-semibold" style={{ background: 'var(--surface-1)' }}>⌘K</kbd>}
         </button>
 
-        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto" aria-label="Principal">
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden" aria-label="Principal">
           {grupos.map((g, i) => (
             <div key={i} className={i ? 'mt-3' : ''}>
-              {g.rotulo && <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{g.rotulo}</div>}
+              {g.rotulo && (compacto
+                ? (i > 0 && <div className="mx-auto mb-2 h-px w-6" style={{ background: 'var(--border-hairline)' }} aria-hidden />)
+                : <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{g.rotulo}</div>)}
               {g.items.map((n) => (
-                <NavLink key={n.a} to={n.a} end={n.a === '/'}
-                  className={({ isActive }) => `ui-foco flex items-center gap-3 rounded-[12px] px-3 py-2 text-[13px] transition-colors ${isActive || activo(n, ruta)
+                <NavLink key={n.a} to={n.a} end={n.a === '/'} aria-label={compacto ? n.etiqueta : undefined} title={compacto ? n.etiqueta : undefined}
+                  className={({ isActive }) => `ui-foco relative flex items-center gap-3 rounded-[12px] py-2 text-[13px] transition-colors ${compacto ? 'justify-center px-0' : 'px-3'} ${isActive || activo(n, ruta)
                     ? 'bg-[var(--ink)] font-semibold text-[var(--on-ink)]'
                     : 'font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'}`}>
                   <span className="shrink-0 opacity-80"><Icono nombre={n.icono} tam={19} /></span>
-                  <span className="flex-1">{n.etiqueta}</span>
-                  {n === CHAT && <Globito n={noLeidos} />}
+                  {!compacto && <span className="flex-1">{n.etiqueta}</span>}
+                  {n === CHAT && (compacto
+                    ? (noLeidos > 0 && <span className="absolute right-1.5 top-1"><Globito n={noLeidos} chico /></span>)
+                    : <Globito n={noLeidos} />)}
                 </NavLink>
               ))}
             </div>
           ))}
         </nav>
 
-        <div className="mt-3 border-t border-[var(--border-hairline)] pt-2.5">
+        <button type="button" onClick={alternarCompacto} aria-label={compacto ? 'Agrandar el menú' : 'Achicar el menú'} title={compacto ? 'Agrandar el menú' : 'Achicar el menú'}
+          className={`ui-foco mt-2 flex h-8 items-center gap-2 rounded-[10px] text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] ${compacto ? 'justify-center' : 'px-3'}`}>
+          <Icono nombre={compacto ? 'siguiente' : 'volver'} tam={16} />
+          {!compacto && <span>Achicar el menú</span>}
+        </button>
+
+        <div className="mt-2 border-t border-[var(--border-hairline)] pt-2.5">
           <Menu alinear="izquierda" ancho={220} disparador={({ alternar, abierto }) => (
-            <button type="button" onClick={alternar} aria-expanded={abierto} aria-haspopup="menu"
-              className="ui-foco flex w-full items-center gap-2.5 rounded-[12px] px-2 py-2 text-left hover:bg-[var(--surface-2)]">
+            <button type="button" onClick={alternar} aria-expanded={abierto} aria-haspopup="menu" aria-label={compacto ? `${nombre || 'Mi cuenta'}: tema y salir` : undefined}
+              className={`ui-foco flex w-full items-center gap-2.5 rounded-[12px] py-2 text-left hover:bg-[var(--surface-2)] ${compacto ? 'justify-center' : 'px-2'}`}>
               <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white" style={{ background: 'var(--accion)' }} aria-hidden>
                 {iniciales(nombre)}
               </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] font-medium">{nombre || 'Mi cuenta'}</span>
-                <span className="block truncate text-[11px] text-[var(--text-muted)]">Tema y salir</span>
-              </span>
-              <span className="text-[var(--text-muted)]" aria-hidden><Icono nombre="puntos" tam={16} /></span>
+              {!compacto && (
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] font-medium">{nombre || 'Mi cuenta'}</span>
+                  <span className="block truncate text-[11px] text-[var(--text-muted)]">Tema y salir</span>
+                </span>
+              )}
+              {!compacto && <span className="text-[var(--text-muted)]" aria-hidden><Icono nombre="puntos" tam={16} /></span>}
             </button>
           )}>
             <OpcionesCuenta tema={tema} cambiarTema={cambiar} />
