@@ -252,3 +252,14 @@ describe('migración 013', () => {
     void cuentaId;
   });
 });
+
+describe('equipo', () => {
+  it('la lista de usuarios para asignar no trae a quien se dio de baja (salvo ?todos=1)', async () => {
+    await query(`INSERT INTO usuarios (cuenta_id, email, nombre, password_hash, rol, activo)
+                 VALUES ($1, $2, 'Ex setter', 'x', 'setter', false)`, [cuentaId, `ex-${Date.now()}@test.local`]);
+    const activos = (await pedir('GET', '/api/usuarios')).json();
+    expect(activos.some((u: any) => u.nombre === 'Ex setter')).toBe(false);
+    const todos = (await pedir('GET', '/api/usuarios?todos=1')).json();
+    expect(todos.some((u: any) => u.nombre === 'Ex setter')).toBe(true);
+  });
+});

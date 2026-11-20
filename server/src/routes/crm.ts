@@ -230,10 +230,14 @@ export default async function rutasCrm(app: FastifyInstance) {
     );
   });
 
-  app.get('/usuarios', async (req) =>
-    query(
+  // Por defecto, solo quienes siguen en el equipo (para asignar leads); con
+  // ?todos=1 también los dados de baja (para ver el historial).
+  app.get('/usuarios', async (req) => {
+    const todos = (req.query as Record<string, string>)?.todos === '1';
+    return query(
       `SELECT id, nombre, email, rol, activo, ultimo_acceso_en FROM usuarios
-        WHERE cuenta_id = $1 ORDER BY creado_en ASC`,
+        WHERE cuenta_id = $1 ${todos ? '' : 'AND activo'} ORDER BY creado_en ASC`,
       [req.sesion.cuentaId],
-    ));
+    );
+  });
 }
