@@ -16,6 +16,14 @@ import rutasCrm from './routes/crm.js';
 import rutasContenidos from './routes/contenidos.js';
 import rutasAnalitica from './routes/analitica.js';
 import rutasWebhooks from './routes/webhooks.js';
+import rutasUx_chat from './routes/ux_chat.js';
+import rutasUx_leads from './routes/ux_leads.js';
+import rutasUx_pipeline from './routes/ux_pipeline.js';
+import rutasUx_integraciones from './routes/ux_integraciones.js';
+import rutasUx_panel from './routes/ux_panel.js';
+import rutasUx_finanzas from './routes/ux_finanzas.js';
+import rutasUx_automensajes from './routes/ux_automensajes.js';
+import rutasUx_global from './routes/ux_global.js';
 import rutasConfig from './routes/configuracion.js';
 import rutasInstagram from './routes/instagram.js';
 import rutasFinanzas from './routes/finanzas.js';
@@ -122,6 +130,15 @@ export async function construirApp(): Promise<FastifyInstance> {
   await app.register(rutasChat, { prefix: '/api' });
   await app.register(rutasPipelines, { prefix: '/api' });
   await app.register(rutasWebhooks);
+  // Rutas de mejoras de UX, una por zona de la app.
+  await app.register(rutasUx_chat, { prefix: '/api/ux/chat' });
+  await app.register(rutasUx_leads, { prefix: '/api/ux/leads' });
+  await app.register(rutasUx_pipeline, { prefix: '/api/ux/pipeline' });
+  await app.register(rutasUx_integraciones, { prefix: '/api/ux/integraciones' });
+  await app.register(rutasUx_panel, { prefix: '/api/ux/panel' });
+  await app.register(rutasUx_finanzas, { prefix: '/api/ux/finanzas' });
+  await app.register(rutasUx_automensajes, { prefix: '/api/ux/automensajes' });
+  await app.register(rutasUx_global, { prefix: '/api/ux/global' });
 
   // En producción, el mismo servicio sirve el panel ya compilado (web/dist).
   // Así el despliegue es UN solo contenedor + Postgres, en vez de dos servicios.

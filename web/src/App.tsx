@@ -12,6 +12,7 @@ import Flujos from './paginas/Flujos';
 import Finanzas from './paginas/Finanzas';
 import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
+import { ProveedorAvisos } from './ui';
 
 // Ocho destinos, nada más. Recursos vive dentro del Chat, las reglas dentro
 // del Pipeline y las palabras de ManyChat dentro de Automensajes.
@@ -185,6 +186,7 @@ export default function App() {
   }, []);
 
   return (
+    <ProveedorAvisos>
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -203,5 +205,6 @@ export default function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </ProveedorAvisos>
   );
 }

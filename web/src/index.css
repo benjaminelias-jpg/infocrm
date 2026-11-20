@@ -128,3 +128,81 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------------------------------------------------------------------
+   Kit de UI: utilidades compartidas
+   --------------------------------------------------------------------- */
+
+/* Filas que se deslizan con el dedo sin barra visible */
+.sin-barra {
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.sin-barra::-webkit-scrollbar {
+  display: none;
+}
+
+/* Controles de formulario: borde y anillo de foco consistentes */
+.ui-control {
+  background: var(--surface-1);
+  border: 1px solid var(--border-hairline);
+  color: var(--text-primary);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.ui-control:focus {
+  outline: none;
+  border-color: var(--series-1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--series-1) 22%, transparent);
+}
+.ui-control::placeholder {
+  color: var(--text-muted);
+}
+
+.ui-foco:focus-visible {
+  outline: 2px solid var(--series-1);
+  outline-offset: 2px;
+}
+
+@keyframes ui-aparecer {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes ui-subir {
+  from { transform: translateY(100%); }
+  to { transform: none; }
+}
+@keyframes ui-fundido {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes ui-brillo {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.ui-aparecer { animation: ui-aparecer 0.16s ease-out; }
+.ui-subir { animation: ui-subir 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+.ui-fundido { animation: ui-fundido 0.15s ease-out; }
+.ui-esqueleto {
+  background: linear-gradient(90deg, var(--gridline) 25%, var(--surface-1) 50%, var(--gridline) 75%);
+  background-size: 200% 100%;
+  animation: ui-brillo 1.4s ease-in-out infinite;
+  border-radius: 8px;
+}
+
+/* Desplegables con altura animada */
+.ui-desplegable {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.ui-desplegable[data-abierto='true'] {
+  grid-template-rows: 1fr;
+}
+.ui-desplegable > div {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-aparecer, .ui-subir, .ui-fundido, .ui-esqueleto { animation: none; }
+  .ui-desplegable { transition: none; }
+}
