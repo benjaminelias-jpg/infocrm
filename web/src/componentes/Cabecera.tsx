@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Ayuda } from '../ui';
 
 export type Rango = '7' | '30' | '90' | 'todo';
 
@@ -55,15 +56,23 @@ export function RangoFechas({
   );
 }
 
+/**
+ * Encabezado de pantalla. En el celular el título es más compacto y el
+ * subtítulo (que suele ser una explicación larga) pasa a un ⓘ al lado del
+ * título, para que el contenido empiece arriba.
+ */
 export default function Cabecera({
   titulo, subtitulo, derecha,
-}: { titulo: string; subtitulo?: string; derecha?: React.ReactNode }) {
+}: { titulo: string; subtitulo?: React.ReactNode; derecha?: React.ReactNode }) {
   return (
-    <header className="flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="text-[20px] font-semibold tracking-tight">{titulo}</h1>
+    <header className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+      <div className="min-w-0">
+        <h1 className="flex items-center gap-1.5 text-[18px] font-semibold tracking-tight sm:text-[20px]">
+          {titulo}
+          {subtitulo && <span className="sm:hidden"><Ayuda titulo={titulo}>{subtitulo}</Ayuda></span>}
+        </h1>
         {subtitulo && (
-          <p className="mt-0.5 text-[13px] text-[var(--text-muted)]">{subtitulo}</p>
+          <p className="mt-0.5 hidden text-[13px] text-[var(--text-muted)] sm:block">{subtitulo}</p>
         )}
       </div>
       {derecha}

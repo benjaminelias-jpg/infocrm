@@ -41,3 +41,19 @@ Importar siempre desde el barril: `import { Boton, Dialogo, ... } from '../ui';`
 | `PasosGuiados`, `Verificacion`, `TarjetaIntegracion` | Integraciones guiadas paso a paso con verificación en vivo. `TarjetaIntegracion` es fila compacta en el celular y tarjeta de grilla desde sm. Ver `componentes/integraciones/` (`PruebaEnVivo`: escucha 2 min y explica causas si no llega nada). |
 | `useAviso`, `ProveedorAvisos` | Avisos flotantes (ya está montado en App). |
 | `useEsMovil` | Saber si la pantalla es de celular (< 640 px). |
+| `useCarga(fn, deps)` → `{ datos, setDatos, cargando, error, recargar }` + `ErrorCarga` | Cargar datos de una pantalla sin "Cargando…" eterno ni pantalla en blanco: si falla, `<ErrorCarga error={error} onReintentar={recargar} />`. Descarta respuestas viejas. |
+| `IdentidadLead` (`id`, `nombre`, `usuario`, `foto`, `pais`, `tam` sm/md, `onClick`, `derecha`) y `Avatar` | Un lead se ve IGUAL en toda la app: avatar (foto o iniciales con color fijo), nombre y @usuario. Respaldo: nombre → @usuario → "Lead sin nombre" (`nombreVisible`). |
+| `Ayuda` (`titulo`) | ⓘ que explica un KPI, columna o campo. Reemplaza a `title=` (que en el celular no se ve): globito en escritorio, hoja en el celular. |
+| `BarraProgreso` (`valor`, `meta`, `ritmo` 0..1) | Avance hacia una meta con la marca de "dónde deberías estar hoy" y color según el ritmo. |
+| `Banner` (`tono` info/aviso/error/exito, `accion`, `onCerrar`) | Aviso FIJO de una pantalla (no se va solo): "Instagram no está conectado · Conectar". Para lo pasajero, `useAviso`. |
+| `useParamUrl(clave, porDefecto, { apilar })` | Pestaña, filtro o subvista guardados en la URL (`?tab=cobros`): sobreviven a recargar y Atrás funciona. Por defecto reemplaza (no llena el historial). |
+| `useTema` | Tema claro / oscuro / automático (ya está en el menú de cuenta). |
+
+## Piezas de la app (fuera del kit)
+- `api.ts`: `api()` ya traduce los errores ("No hay conexión…", errores del servidor) y maneja la sesión vencida (vuelve al login y después a la misma pantalla). Formato: `fmtNum` (5.988), `fmtDinero` (moneda de la cuenta), `fmtPct` (2,9 %), `fmtDecimal` (8,4), `plural(n, 'lead')`, `fmtFecha` ("18 nov", con hora "18 nov, 14:05"), `hace` ("hace 3 días"). Nunca imprimir números crudos ni `toFixed` (usa punto).
+- `textos.ts`: `textoDe('venta', 'en_cuotas')` → "En cuotas" y `tonoDe(...)` para la `Insignia`. NUNCA mostrar valores de la base tal cual ("closer_setter", "lead_creado").
+- `componentes/useFicha.ts`: la ficha del lead la dibuja el marco de la app con `?ficha=<id>`. Abrila con `useFicha().abrir(id)`; Atrás la cierra. No renderizar `FichaLead` a mano en las páginas.
+- Subpantallas con URL propia: `/chat/:leadId` (conversación abierta) y `/flujos/:flujoId` (pizarra). En el celular esas rutas ocultan la barra inferior: la pantalla tiene que traer su propio botón "volver".
+- `componentes/Iconos.tsx`: íconos de línea (`mas`, `cerrar`, `volver`, `siguiente`, `puntos`, `buscar`, `sincronizar`, `sol`, `luna`, `monitor`, `salir`, `reglas` = engranaje, etc.). En controles, ícono SVG en vez de emoji o glifo de texto.
+- Pantallas de alto completo: clase `alto-app` (descuenta la barra inferior del celular). El marco agrega solo el espacio abajo en las demás.
+- `Cabecera`: en el celular el subtítulo pasa a un ⓘ al lado del título. Subtítulos cortos.

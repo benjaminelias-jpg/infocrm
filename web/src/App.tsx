@@ -12,6 +12,8 @@ import Flujos from './paginas/Flujos';
 import Finanzas from './paginas/Finanzas';
 import Chat from './paginas/Chat';
 import Icono from './componentes/Iconos';
+import FichaLead from './componentes/FichaLead';
+import { useFicha } from './componentes/useFicha';
 import {
   ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Entrada, useTema, type Tema,
 } from './ui';
@@ -170,6 +172,7 @@ function Marco({ children }: { children: React.ReactNode }) {
   const navegar = useNavigate();
   const { tema, cambiar } = useTema();
   const noLeidos = useNoLeidos();
+  const ficha = useFicha();
   const ruta = ubicacion.pathname;
   const conBarra = !SUBPANTALLA.test(ruta);
   const enMas = EN_MAS.some((d) => activo(d, ruta));
@@ -241,6 +244,9 @@ function Marco({ children }: { children: React.ReactNode }) {
       </aside>
 
       <main className={`min-w-0 flex-1 ${conBarra ? 'pb-[var(--alto-barra-inf)] md:pb-0' : ''}`}>{children}</main>
+
+      {/* Ficha del lead global (?ficha=<id>): se abre desde cualquier pantalla y Atrás la cierra. */}
+      {ficha.abierta && <FichaLead key={ficha.abierta} leadId={ficha.abierta} alCerrar={ficha.cerrar} />}
 
       {/* Barra inferior (celular): lo del día a día a un toque; el resto en "Más". */}
       {conBarra && (
