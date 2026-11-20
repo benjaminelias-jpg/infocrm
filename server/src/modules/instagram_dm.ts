@@ -416,6 +416,61 @@ export function validarFlujo(nodos: Paso[]): string[] {
   return validarFlujoDetallado(nodos).map((p) => p.texto);
 }
 
+const MANDAN_MENSAJE = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+
+/**
+ * Avisos (no errores: no frenan el guardado ni la activación) sobre cosas que
+ * van a fallar en la práctica. Hoy: la ventana de 24 h de Instagram. Si un
+ * "Esperar" de 23 h o más termina en un mensaje sin que el lead escriba en el
+ * medio, ese mensaje no va a llegar (Instagram solo deja escribir 24 h desde
+ * su último mensaje).
+ */
+export function advertenciasFlujo(nodos: Paso[]): Array<{ nodo: string | null; texto: string }> {
+  const mapa = new Map(nodos.map((n) => [n.id, n]));
+  const out: Array<{ nodo: string | null; texto: string }> = [];
+  for (const p of nodos) {
+    const min = Number(p.minutos) || 0;
+    if (p.tipo !== 'esperar' || min < 23 * 60) continue;
+    const pila: Array<string | null | undefined> = [p.siguiente];
+    const vistos = new Set<string>();
+    let manda = false;
+    while (pila.length && !manda) {
+      const id = pila.pop();
+      if (!id || vistos.has(id)) continue;
+      vistos.add(id);
+      const n = mapa.get(id);
+      if (!n) continue;
+      if (MANDAN_MENSAJE.has(n.tipo)) { manda = true; break; }
+      if (n.tipo === 'esperar_respuesta') continue; // si el lead escribe, la ventana se reabre
+      pila.push(...salidas(n));
+    }
+    if (manda) {
+      out.push({
+        nodo: p.id,
+        texto: `Esperar ${fmtMin(min)}: Instagram no deja escribirle pasadas 24 h desde su último mensaje, así que el mensaje que sigue no va a llegar. Usá hasta 23 horas, o hacé que te responda antes (con una pregunta con botón).`,
+      });
+    }
+  }
+  return out;
+}
+
+/**
+ * Prueba de lo que se ve en la pizarra, SIN guardar: recorre los pasos en
+ * memoria (no crea ni activa el automensaje, no manda nada, no toca leads).
+ */
+export async function simularPasos(cuentaId: string, pasos: any[], ctx: Omit<ContextoFlujo, 'simular'> = {}, nombre = 'Prueba') {
+  const nodos = normalizarFlujo(pasos ?? []);
+  const c: Corrida = {
+    cuentaId, flujo: { id: null, nombre }, grafo: new Map(nodos.map((n) => [n.id, n])), ejecucionId: null,
+    ctx: { ...ctx, simular: true },
+    resultados: [], fallos: 0, envios: 0, pasosCorridos: 0, nodoActual: null,
+  };
+  const inicio = nodos.find((n) => n.tipo === 'inicio');
+  c.nodoActual = inicio?.id ?? null;
+  await correr(c, inicio?.siguiente);
+  return { resultados: c.resultados, estado: 'simulado' as const };
+}
+
 // ---------------------------------------------------------------------
 // Utilidades de texto
 // ---------------------------------------------------------------------
@@ -562,7 +617,8 @@ async function enviar(
   cuerpo: string, recursoId: string | null = null,
 ): Promise<boolean> {
   if (c.ctx.simular) {
-    anotar(c, 'enviar', `${descripcion} (prueba: no se manda)`);
+    // `cuerpo`: el texto tal cual le llegaría (para mostrar la prueba como un chat).
+    anotar(c, 'enviar', `${descripcion} (prueba: no se manda)`, { cuerpo });
     return true;
   }
   // Instagram solo deja escribir a quien comentó con UNA respuesta privada

@@ -8,7 +8,7 @@ import {
   guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri, conectarConToken,
 } from '../modules/instagram_oauth.js';
 import {
-  ejecutarFlujo, normalizarPasos, validarFlujo, validarFlujoDetallado, procesarEsperasVencidas,
+  ejecutarFlujo, normalizarPasos, validarFlujo, validarFlujoDetallado, procesarEsperasVencidas, advertenciasFlujo,
 } from '../modules/instagram_dm.js';
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
 import { integracionInstagram } from '../modules/instagram.js';
@@ -43,14 +43,53 @@ function firmaValida(crudo: string, firma: string, secreto: string): boolean {
  * Normaliza el árbol y lo revisa. Si algo falta, el flujo se guarda igual
  * (no se pierde trabajo) pero EN PAUSA, para que nunca corra roto.
  */
-function prepararFlujo<T extends { pasos?: any[]; activo?: boolean }>(d: T) {
-  if (!d.pasos) return { datos: d, avisos: [] as string[], marcados: [] as string[] };
+function prepararFlujo<T extends { pasos?: any[]; activo?: boolean }>(d: T, extra: Array<{ nodo: string | null; texto: string }> = []) {
+  if (!d.pasos) return { datos: d, avisos: [] as string[], marcados: [] as string[], advertencias: [] as Array<{ nodo: string | null; texto: string }> };
   const pasos = normalizarPasos(d.pasos);
-  const problemas = validarFlujoDetallado(pasos);
+  const problemas = [...validarFlujoDetallado(pasos), ...extra];
   const avisos = problemas.map((p) => p.texto);
   const marcados = [...new Set(problemas.map((p) => p.nodo).filter((x): x is string => !!x))];
   const datos = { ...d, pasos, ...(avisos.length && d.activo !== false ? { activo: false } : {}) };
-  return { datos, avisos, marcados };
+  // Avisos que no frenan (p. ej. la ventana de 24 h de Instagram).
+  const advertencias = advertenciasFlujo(pasos);
+  return { datos, avisos, marcados, advertencias };
+}
+
+/**
+ * Pasos que apuntan a cosas que ya no existen (una etapa borrada, un audio
+ * borrado): el automensaje haría otra cosa de la que se ve. Se marcan como
+ * problema (se guarda en pausa) con un texto claro.
+ */
+async function revisarReferencias(cuentaId: string, pasos: any[] | undefined) {
+  const out: Array<{ nodo: string | null; texto: string }> = [];
+  if (!pasos?.length) return out;
+  const nodos = normalizarPasos(pasos);
+  const slugs = [...new Set(nodos.filter((p) => p.tipo === 'mover_etapa' && p.etapa_slug).map((p) => String(p.etapa_slug)))];
+  const recursos = [...new Set(nodos.filter((p) => p.tipo === 'enviar_recurso' && p.recurso_id).map((p) => String(p.recurso_id)))];
+  if (slugs.length) {
+    const filas = await query(`SELECT DISTINCT e.slug FROM etapas e JOIN pipelines p ON p.id = e.pipeline_id
+                                WHERE e.cuenta_id = $1 AND p.activo AND e.slug = ANY($2::text[])`, [cuentaId, slugs]);
+    const existen = new Set(filas.map((f: any) => f.slug));
+    for (const p of nodos) {
+      if (p.tipo === 'mover_etapa' && p.etapa_slug && !existen.has(String(p.etapa_slug))) {
+        out.push({ nodo: p.id, texto: 'Mover de etapa: esa etapa ya no existe. Elegí otra.' });
+      }
+    }
+  }
+  if (recursos.length) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validos = recursos.filter((r) => uuid.test(r));
+    const filas = validos.length
+      ? await query(`SELECT id FROM recursos WHERE cuenta_id = $1 AND id = ANY($2::uuid[])`, [cuentaId, validos])
+      : [];
+    const existen = new Set(filas.map((f: any) => String(f.id)));
+    for (const p of nodos) {
+      if (p.tipo === 'enviar_recurso' && p.recurso_id && !existen.has(String(p.recurso_id))) {
+        out.push({ nodo: p.id, texto: 'Mandar audio o recurso: ese recurso ya no existe. Elegí otro.' });
+      }
+    }
+  }
+  return out;
 }
 
 export default async function rutasInstagram(app: FastifyInstance) {
@@ -142,20 +181,25 @@ export default async function rutasInstagram(app: FastifyInstance) {
   app.get('/api/flujos', async (req) => {
     const filas = await query(
       `SELECT f.*, c.titulo AS contenido_titulo,
-              (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado <> 'simulado')::int AS ejecuciones
+              (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado <> 'simulado')::int AS ejecuciones,
+              (SELECT max(e.ejecutado_en) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado <> 'simulado') AS ultima_ejecucion,
+              (SELECT COUNT(*) FROM flujo_ejecuciones e WHERE e.flujo_id=f.id AND e.estado IN ('error','pendiente_envio')
+                  AND e.ejecutado_en > now() - interval '7 days')::int AS errores_7d
          FROM flujos f LEFT JOIN contenidos c ON c.id=f.contenido_id
         WHERE f.cuenta_id=$1 ORDER BY f.creado_en DESC`, [req.sesion.cuentaId]);
     return filas.map((f: any) => ({ ...f, pasos: normalizarPasos(f.pasos ?? []) }));
   });
 
   app.post('/api/flujos', async (req, reply) => {
-    const { datos: d, avisos, marcados } = prepararFlujo(esquemaFlujo.parse(req.body));
+    const entrada = esquemaFlujo.parse(req.body);
+    const refs = await revisarReferencias(req.sesion.cuentaId, entrada.pasos);
+    const { datos: d, avisos, marcados, advertencias } = prepararFlujo(entrada, refs);
     const fila = await queryOne(
       `INSERT INTO flujos (cuenta_id, nombre, descripcion, disparo, palabra_clave, contenido_id, pasos, activo)
        VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8) RETURNING *`,
       [req.sesion.cuentaId, d.nombre, d.descripcion ?? null, d.disparo, d.palabra_clave ?? null,
        d.contenido_id ?? null, JSON.stringify(d.pasos), d.activo ?? true]);
-    return reply.code(201).send({ ...fila, avisos, marcados });
+    return reply.code(201).send({ ...fila, avisos, marcados, advertencias });
   });
 
   app.patch('/api/flujos/:id', async (req) => {
@@ -163,8 +207,10 @@ export default async function rutasInstagram(app: FastifyInstance) {
     let d: any = esquemaFlujo.partial().parse(req.body);
     let avisos: string[] = [];
     let marcados: string[] = [];
+    let advertencias: Array<{ nodo: string | null; texto: string }> = [];
     if (d.pasos) {
-      ({ datos: d, avisos, marcados } = prepararFlujo(d));
+      const refs = await revisarReferencias(req.sesion.cuentaId, d.pasos);
+      ({ datos: d, avisos, marcados, advertencias } = prepararFlujo(d, refs));
     } else if (d.activo === true) {
       // Activar un flujo guardado con problemas: se revisa antes.
       const actual = await queryOne(`SELECT pasos FROM flujos WHERE cuenta_id=$1 AND id=$2`, [req.sesion.cuentaId, id]);
@@ -182,7 +228,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const fila = await queryOne(
       `UPDATE flujos SET ${sets.join(', ')} WHERE cuenta_id=$1 AND id=$2 RETURNING *`, params);
     if (!fila) throw noEncontrado('Flujo');
-    return { ...fila, avisos, marcados };
+    return { ...fila, avisos, marcados, advertencias };
   });
 
   /** Duplicar un flujo (queda en pausa para editarlo tranquilo). */

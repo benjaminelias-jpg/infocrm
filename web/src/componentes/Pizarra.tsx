@@ -1,10 +1,11 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow, ReactFlowProvider, Background, BackgroundVariant, Controls, MiniMap, Panel,
-  Handle, Position, MarkerType, BaseEdge, EdgeLabelRenderer, getBezierPath, applyNodeChanges, useReactFlow,
+  Handle, Position, MarkerType, BaseEdge, EdgeLabelRenderer, getBezierPath, applyNodeChanges, useReactFlow, useNodesInitialized,
   type Node, type Edge, type NodeChange, type EdgeChange, type Connection, type NodeProps, type EdgeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { AreaTexto, BotonConfirmar, Campo, Chip, Entrada, FilaChips, Seleccion, useAviso, useEsMovil } from '../ui';
 
 // =====================================================================
 // Pizarra libre de automensajes, estilo n8n: lienzo infinito punteado,
@@ -82,6 +83,20 @@ function quitarNodo(nodos: Paso[], id: string): Paso[] {
     ...(n.tipo === 'condicion' ? { siguiente_si: limpiar(n.siguiente_si), siguiente_no: limpiar(n.siguiente_no) } : {}),
     ...(n.tipo === 'pregunta' ? { opciones: (n.opciones ?? []).map((o: any) => ({ ...o, siguiente: limpiar(o.siguiente) })) } : {}),
   }));
+}
+
+/** Borra un paso y, si tenía una sola entrada y una sola salida, une lo de antes con lo de después (como n8n). */
+function quitarYUnir(nodos: Paso[], id: string): Paso[] {
+  const borrado = nodos.find((n) => n.id === id);
+  if (!borrado || borrado.tipo === 'inicio') return nodos;
+  const sale = salidas(borrado).map(([, d]) => d).filter((d): d is string => !!d && d !== id);
+  const entradas: Array<[string, string]> = [];
+  for (const n of nodos) for (const [salida, destino] of salidas(n)) if (destino === id && n.id !== id) entradas.push([n.id, salida]);
+  let r = quitarNodo(nodos, id);
+  if (entradas.length === 1 && sale.length === 1 && borrado.tipo !== 'pregunta' && borrado.tipo !== 'condicion') {
+    r = conectar(r, entradas[0][0], entradas[0][1], sale[0]);
+  }
+  return r;
 }
 
 function alcanzables(nodos: Paso[]): Set<string> {
@@ -192,13 +207,18 @@ function describirCondicion(p: Paso) {
   }
 }
 
+/** {{nombre}} → [Nombre] para leerlo como persona (en la pizarra y la prueba). */
+export function conVariables(t: string) {
+  return t.replace(/\{\{\s*nombre\s*\}\}/gi, '[Nombre]').replace(/\{\{\s*usuario\s*\}\}/gi, '[@usuario]');
+}
+
 function resumen(p: Paso, ctx: Ctx): string {
   switch (p.tipo) {
-    case 'enviar_dm': case 'entregar_recurso': return String(p.texto ?? p.recurso ?? '') || 'Escribí el mensaje…';
-    case 'responder_comentario': case 'notificar': return String(p.texto ?? '') || 'Escribí el texto…';
-    case 'enviar_recurso': return ctx.recursos.find((r) => r.id === p.recurso_id)?.nombre ?? 'Elegí qué mandar…';
+    case 'enviar_dm': case 'entregar_recurso': return conVariables(String(p.texto ?? p.recurso ?? '')) || 'Escribí el mensaje…';
+    case 'responder_comentario': case 'notificar': return conVariables(String(p.texto ?? '')) || 'Escribí el texto…';
+    case 'enviar_recurso': return p.recurso_id ? (ctx.recursos.find((r) => r.id === p.recurso_id)?.nombre ?? '⚠ Ese recurso ya no existe') : 'Falta elegir qué mandar…';
     case 'etiquetar': case 'quitar_etiqueta': return p.etiqueta ? `«${p.etiqueta}»` : 'Escribí la etiqueta…';
-    case 'mover_etapa': return ctx.etapas.find((e) => e.slug === p.etapa_slug)?.nombre ?? (p.etapa_slug || 'Elegí la etapa…');
+    case 'mover_etapa': return p.etapa_slug ? (ctx.etapas.find((e) => e.slug === p.etapa_slug)?.nombre ?? '⚠ Esa etapa ya no existe') : 'Elegí la etapa…';
     case 'asignar': return p.rol === 'closer' ? 'A un closer' : p.rol === 'setter' ? 'A un setter' : 'A quien tenga menos leads';
     case 'webhook': return p.url ? String(p.url).replace(/^https?:\/\//, '').slice(0, 40) : 'Pegá la URL…';
     case 'esperar': return fmtMin(Number(p.minutos) || 0);
@@ -213,7 +233,7 @@ function resumen(p: Paso, ctx: Ctx): string {
 
 type DatosNodo = {
   paso: Paso; ctx: Ctx; disparo?: string;
-  marcado: boolean; enRecorrido: boolean; suelto: boolean;
+  marcado: boolean; advertido: boolean; enRecorrido: boolean; suelto: boolean;
   conectadas: string[]; onMas: (salida: string) => void;
 };
 
@@ -233,13 +253,14 @@ function Caja({ d, selected, color, ancho = 260, children }: { d: DatosNodo; sel
   return (
     <div className="text-[12px]" style={{
       width: ancho, background: 'var(--surface-1)', borderRadius: 12,
-      border: `1.5px solid ${d.marcado ? 'var(--status-critical)' : selected ? 'var(--series-1)' : 'var(--border-hairline)'}`,
+      border: `1.5px ${d.suelto ? 'dashed' : 'solid'} ${d.marcado ? 'var(--status-critical)' : d.advertido ? 'var(--status-warning)' : selected ? 'var(--series-1)' : 'var(--border-hairline)'}`,
       borderLeft: `5px solid ${color}`,
       boxShadow: d.enRecorrido ? '0 0 0 4px rgba(12,163,12,.30)' : selected ? '0 0 0 4px rgba(42,120,214,.18)' : '0 1px 3px rgba(0,0,0,.08)',
       opacity: d.suelto ? 0.55 : 1,
     }}>
       {children}
-      {d.suelto && <div className="px-3 pb-1.5 text-[10px] text-[var(--text-muted)]">Suelto: ninguna flecha llega acá, no se ejecuta</div>}
+      {d.suelto && <div className="px-3 pb-1.5 text-[10px] text-[var(--text-muted)]">Sin conectar: ninguna flecha llega acá, no se ejecuta</div>}
+      {d.advertido && !d.marcado && <div className="px-3 pb-1.5 text-[10px]" style={{ color: 'var(--status-warning)' }}>⚠ Revisá este paso (tocalo para ver por qué)</div>}
     </div>
   );
 }
@@ -272,7 +293,7 @@ const NodoPaso = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
       <Handle type="target" position={Position.Left} id="in" style={estiloPunto('var(--baseline)')} />
       <Caja d={d} selected={selected} color={m.color}>
         <Titulo p={d.paso} />
-        <div className="line-clamp-3 whitespace-pre-wrap px-3 pb-2.5 pt-1 text-[11px] text-[var(--text-secondary)]">{resumen(d.paso, d.ctx)}</div>
+        <div className="px-3 pb-2.5 pt-1"><div className="line-clamp-3 whitespace-pre-wrap text-[11px] text-[var(--text-secondary)]">{resumen(d.paso, d.ctx)}</div></div>
       </Caja>
       <Handle type="source" position={Position.Right} id="out" style={estiloPunto(m.color)} />
       {!d.conectadas.includes('out') && <BotonMas onClick={() => d.onMas('out')} />}
@@ -298,7 +319,7 @@ const NodoPregunta = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
       <Handle type="target" position={Position.Left} id="in" style={estiloPunto('var(--baseline)')} />
       <Caja d={d} selected={selected} color={NODOS.pregunta.color}>
         <Titulo p={p} />
-        <div className="line-clamp-3 whitespace-pre-wrap px-3 pb-2 pt-1 text-[11px] text-[var(--text-secondary)]">{p.texto || 'Escribí la pregunta…'}</div>
+        <div className="px-3 pb-2 pt-1"><div className="line-clamp-3 whitespace-pre-wrap text-[11px] text-[var(--text-secondary)]">{conVariables(p.texto || '') || 'Escribí la pregunta…'}</div></div>
         {(p.opciones ?? []).map((o: any, j: number) => (
           <FilaSalida key={o.id} d={d} id={`op:${o.id}`} color={NODOS.pregunta.color}>
             👉 {o.titulo || `Botón ${j + 1}`}
@@ -354,6 +375,12 @@ export interface PropsPizarra {
   ctx: Ctx;
   marcados: string[];
   recorrido: string[];
+  /** Pasos con un aviso (no error): borde amarillo. */
+  advertidos?: string[];
+  /** Textos de los problemas y avisos por paso (se muestran al tocarlo). */
+  notas?: Record<string, string[]>;
+  /** Pedido de afuera para seleccionar y centrar un paso (n cambia en cada pedido). */
+  enfocar?: { id: string; n: number } | null;
 }
 
 export default function Pizarra(props: PropsPizarra) {
@@ -365,8 +392,11 @@ function modoColor(): 'light' | 'dark' | 'system' {
   return t === 'dark' ? 'dark' : t === 'light' ? 'light' : 'system';
 }
 
-function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
+function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], notas = {}, enfocar }: PropsPizarra) {
   const rf = useReactFlow();
+  const aviso = useAviso();
+  const movil = useEsMovil(768);
+  const listos = useNodesInitialized();
   const caja = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [selFlecha, setSelFlecha] = useState<string | null>(null);
@@ -386,6 +416,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
     return s;
   }, [recorrido]);
   const marcadosSet = useMemo(() => new Set(marcados), [marcados]);
+  const advertidosSet = useMemo(() => new Set(advertidos), [advertidos]);
 
   const desconectar = useCallback((origen: string, salida: string) => setNodos((ns) => conectar(ns, origen, salida, null)), [setNodos]);
 
@@ -417,11 +448,12 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
 
   const datos = useCallback((n: Paso): DatosNodo => ({
     paso: n, ctx, disparo: textoDisparo,
-    marcado: marcadosSet.has(n.id), enRecorrido: enRecorrido.has(n.id) || (n.tipo === 'inicio' && recorrido.length > 0),
+    marcado: marcadosSet.has(n.id), advertido: advertidosSet.has(n.id),
+    enRecorrido: enRecorrido.has(n.id) || (n.tipo === 'inicio' && recorrido.length > 0),
     suelto: n.tipo !== 'inicio' && !vivos.has(n.id),
     conectadas: conectadasDe.get(n.id) ?? [],
     onMas: (salida: string) => { setPaleta({ desde: { nodo: n.id, salida } }); setSel(null); },
-  }), [ctx, textoDisparo, marcadosSet, enRecorrido, recorrido.length, vivos, conectadasDe]);
+  }), [ctx, textoDisparo, marcadosSet, advertidosSet, enRecorrido, recorrido.length, vivos, conectadasDe]);
 
   // Estado propio de React Flow (medidas, arrastre, selección) sincronizado
   // con los pasos del flujo, que son la fuente de verdad.
@@ -447,15 +479,45 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
   /** Encuadra el comienzo del flujo en un zoom legible (como n8n): el
    *  disparador y las primeras columnas; el resto se recorre arrastrando. */
   const encuadrar = useCallback((duracion = 0) => {
+    const angosta = (caja.current?.clientWidth ?? 1000) < 700;
+    const minimo = angosta ? 0.6 : 0.7;
+    // Si entra todo con un zoom legible, se ve todo; si no, el comienzo
+    // (disparador y primeras columnas) sin cortar ninguna caja.
+    const ancho = caja.current?.clientWidth ?? 1000;
     const xs = nodosRef.current.map((n) => n.x ?? 0);
     const minX = xs.length ? Math.min(...xs) : 0;
-    const primeros = nodosRef.current.filter((n) => (n.x ?? 0) <= minX + 700).map((n) => ({ id: n.id }));
-    const angosta = (caja.current?.clientWidth ?? 1000) < 700;
-    rf.fitView({ nodes: primeros.length ? primeros : undefined, padding: 0.25, maxZoom: 1, minZoom: angosta ? 0.55 : 0.85, duration: duracion });
+    const maxX = xs.length ? Math.max(...xs) : 0;
+    const entraTodo = ((maxX - minX) + 300) * minimo <= ancho * 0.92;
+    const primeros = nodosRef.current
+      .filter((n) => entraTodo || (n.x ?? 0) <= minX + (ancho / minimo) - 340)
+      .map((n) => ({ id: n.id }));
+    rf.fitView({ nodes: primeros.length ? primeros : undefined, padding: 0.2, maxZoom: 1, minZoom: minimo, duration: duracion });
   }, [rf]);
-  useEffect(() => { const t = setTimeout(() => encuadrar(), 120); return () => clearTimeout(t); }, [encuadrar]);
+  const encuadrado = useRef(false);
+  useEffect(() => {
+    if (!listos || encuadrado.current) return;
+    encuadrado.current = true;
+    encuadrar();
+  }, [listos, encuadrar]);
+
+  // El paso elegido queda a la vista: en escritorio a la izquierda del panel,
+  // en el celular arriba de la hoja.
+  const centrarEn = useCallback((id: string) => {
+    const n = nodosRef.current.find((x) => x.id === id);
+    if (!n) return;
+    const z = Math.max(rf.getZoom(), movil ? 0.7 : 0.85);
+    const corrX = movil ? 0 : 160 / z;
+    const corrY = movil ? (window.innerHeight * 0.22) / z : 0;
+    rf.setCenter((n.x ?? 0) + 130 + corrX, (n.y ?? 0) + 50 + corrY, { zoom: z, duration: 250 });
+  }, [rf, movil]);
+  useEffect(() => {
+    if (!enfocar) return;
+    setSel(enfocar.id); setPaleta(null);
+    setTimeout(() => centrarEn(enfocar.id), 30);
+  }, [enfocar, centrarEn]);
 
   const onNodesChange = useCallback((cambios: NodeChange[]) => {
+    if (cambios.some((c) => c.type === 'remove')) fotoAntesDeBorrar.current = nodosRef.current;
     setRfNodos((nds) => applyNodeChanges(cambios.filter((c) => !(c.type === 'remove' && c.id === 'inicio')), nds));
     const fin = cambios.filter((c): c is Extract<NodeChange, { type: 'position' }> => c.type === 'position' && !!c.position && c.dragging === false);
     const borrar = cambios.filter((c) => c.type === 'remove' && c.id !== 'inicio').map((c: any) => c.id as string);
@@ -465,12 +527,26 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
           const c = fin.find((x) => x.id === n.id);
           return c ? { ...n, x: Math.round(c.position!.x), y: Math.round(c.position!.y) } : n;
         });
-        for (const id of borrar) r = quitarNodo(r, id);
+        for (const id of borrar) r = quitarYUnir(r, id);
         return r;
       });
+      if (borrar.length) avisarBorrado();
       if (borrar.includes(sel ?? '')) setSel(null);
     }
-  }, [setNodos, sel]);
+  }, [setNodos, sel]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Antes de borrar se guarda una foto para "Deshacer".
+  const fotoAntesDeBorrar = useRef<Paso[] | null>(null);
+  function avisarBorrado() {
+    const foto = fotoAntesDeBorrar.current;
+    aviso.exito('Paso eliminado', foto ? { texto: 'Deshacer', onClick: () => setNodos(() => foto) } : undefined);
+  }
+  function eliminarPaso(id: string) {
+    fotoAntesDeBorrar.current = nodos;
+    setNodos((ns) => quitarYUnir(ns, id));
+    setSel(null);
+    avisarBorrado();
+  }
 
   const onEdgesChange = useCallback((cambios: EdgeChange[]) => {
     for (const c of cambios) {
@@ -551,17 +627,19 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
         <ReactFlow
           nodes={rfNodos} edges={flechas} nodeTypes={TIPOS_NODO} edgeTypes={TIPOS_FLECHA}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
-          onNodeClick={(_, n) => { setSel(n.id); setPaleta(null); setSelFlecha(null); }}
+          onNodeClick={(_, n) => { setSel(n.id); setPaleta(null); setSelFlecha(null); centrarEn(n.id); }}
           onPaneClick={() => { setSel(null); setPaleta(null); setSelFlecha(null); }}
           isValidConnection={(c) => c.target !== 'inicio' && c.source !== c.target}
           deleteKeyCode={['Backspace', 'Delete']} snapToGrid snapGrid={[20, 20]}
           minZoom={0.15} maxZoom={1.8} colorMode={modoColor()}
-          defaultEdgeOptions={{ type: 'borrable' }} connectionRadius={36}
+          defaultEdgeOptions={{ type: 'borrable' }} connectionRadius={36} proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1.6} />
           <Controls showInteractive={false} position="bottom-left" />
-          <MiniMap pannable zoomable position="bottom-right" className="!hidden md:!block"
-            nodeColor={(n) => (n.id === 'inicio' ? '#0ca30c' : NODOS[(n.data as any)?.paso?.tipo]?.color ?? '#999')} />
+          {nodos.length > 8 && (
+            <MiniMap pannable zoomable position="bottom-right" className="!hidden md:!block" style={{ width: 140, height: 90 }}
+              nodeColor={(n) => (n.id === 'inicio' ? '#0ca30c' : NODOS[(n.data as any)?.paso?.tipo]?.color ?? '#999')} />
+          )}
           <Panel position="top-left">
             <div className="flex flex-wrap gap-1.5">
               <button onClick={() => { setPaleta({}); setSel(null); }} className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white shadow" style={{ background: 'var(--series-1)' }}>+ Paso</button>
@@ -590,21 +668,31 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido }: PropsPizarra) {
               <div className="text-[13px] font-semibold">
                 {seleccionado.tipo === 'inicio' ? '⚡ Cuando… (disparador)' : `${NODOS[seleccionado.tipo]?.icono ?? ''} ${NODOS[seleccionado.tipo]?.etiqueta ?? seleccionado.tipo}`}
               </div>
-              <button onClick={() => setSel(null)} className="rounded px-2 py-1 text-[12px] hover:bg-[var(--surface-1)]" aria-label="Cerrar">✕</button>
+              <button onClick={() => setSel(null)} className="ui-foco flex h-8 w-8 items-center justify-center rounded-full text-[13px] hover:bg-[var(--surface-1)]" aria-label="Cerrar">✕</button>
             </div>
+            {(notas[seleccionado.id] ?? []).length > 0 && (
+              <div className="mb-3 space-y-1 rounded-lg p-2.5 text-[12px]" role="alert"
+                style={{ background: `color-mix(in srgb, ${marcadosSet.has(seleccionado.id) ? 'var(--status-critical)' : 'var(--status-warning)'} 12%, var(--surface-1))` }}>
+                {(notas[seleccionado.id] ?? []).map((t, i) => <div key={i}>⚠ {t}</div>)}
+              </div>
+            )}
             {seleccionado.tipo === 'inicio'
               ? <CamposDisparador form={form} setForm={setForm} ctx={ctx} />
               : <CamposPaso p={seleccionado} onChange={actualizar} ctx={ctx} />}
+            <SiguientePaso p={seleccionado} nodos={nodos} ctx={ctx}
+              onConectar={(salida, destino) => setNodos((ns) => conectar(ns, seleccionado.id, salida, destino))}
+              onNuevo={(salida) => { setPaleta({ desde: { nodo: seleccionado.id, salida } }); setSel(null); }} />
             {seleccionado.tipo !== 'inicio' && (
-              <div className="mt-4 flex gap-2 border-t border-[var(--border-hairline)] pt-3">
-                <button onClick={() => duplicar(seleccionado.id)} className="rounded-md border border-[var(--border-hairline)] px-3 py-1.5 text-[12px] hover:bg-[var(--surface-1)]">⧉ Duplicar</button>
-                <button onClick={() => { setNodos((ns) => quitarNodo(ns, seleccionado.id)); setSel(null); }}
-                  className="rounded-md px-3 py-1.5 text-[12px] font-medium text-white" style={{ background: 'var(--status-critical)' }}>Eliminar paso</button>
+              <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border-hairline)] pt-3">
+                <button onClick={() => duplicar(seleccionado.id)} className="ui-foco h-9 rounded-lg border border-[var(--border-hairline)] px-3 text-[12px] hover:bg-[var(--surface-1)]">⧉ Duplicar</button>
+                <BotonConfirmar tamano="sm" onConfirmar={() => eliminarPaso(seleccionado.id)} confirmar="¿Eliminar? Tocá de nuevo">Eliminar paso</BotonConfirmar>
               </div>
             )}
-            <p className="mt-3 text-[11px] text-[var(--text-muted)]">
-              Para conectar: arrastrá desde el punto ● de la derecha de un paso hasta otro paso. Para quitar una flecha, tocala y apretá ✕.
-            </p>
+            {!movil && (
+              <p className="mt-3 text-[11px] text-[var(--text-muted)]">
+                También podés unir arrastrando desde el punto ● de la derecha de un paso hasta otro. Para quitar una flecha, tocala y apretá ✕.
+              </p>
+            )}
           </div>
         )}
       </aside>
@@ -642,29 +730,85 @@ function Paleta({ titulo, alElegir, alCerrar }: { titulo: string; alElegir: (t: 
   );
 }
 
-const inp = 'w-full rounded-md border border-[var(--border-hairline)] bg-transparent px-2 py-1.5 text-[12px] outline-none';
-const sel = 'w-full rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-2 py-1.5 text-[12px] outline-none';
+// ---------------------------------------------------------------------
+// Campos del panel (kit: 16 px en el celular → sin zoom en iPhone)
+// ---------------------------------------------------------------------
+
+/** Texto con atajos "+ Nombre" / "+ @usuario" que se insertan donde está el cursor, y contador. */
+function TextoConVariables({ valor, onCambio, filas = 4, placeholder, max = MAX_TEXTO, linea = false, autoFoco }: {
+  valor: string; onCambio: (v: string) => void; filas?: number; placeholder?: string; max?: number; linea?: boolean; autoFoco?: boolean;
+}) {
+  const ref = useRef<HTMLTextAreaElement & HTMLInputElement>(null);
+  function insertar(variable: string) {
+    const el = ref.current;
+    const ini = el?.selectionStart ?? valor.length;
+    const fin = el?.selectionEnd ?? valor.length;
+    const nuevo = `${valor.slice(0, ini)}${variable}${valor.slice(fin)}`;
+    onCambio(nuevo);
+    requestAnimationFrame(() => { el?.focus(); const pos = ini + variable.length; el?.setSelectionRange(pos, pos); });
+  }
+  const largo = valor.length;
+  return (
+    <div>
+      {linea
+        ? <Entrada ref={ref as any} value={valor} onChange={(e) => onCambio(e.target.value)} placeholder={placeholder} autoFocus={autoFoco} />
+        : <AreaTexto ref={ref as any} value={valor} onChange={(e) => onCambio(e.target.value)} rows={filas} placeholder={placeholder} autoFocus={autoFoco} className="resize-y" />}
+      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
+        <button type="button" onClick={() => insertar('{{nombre}}')} className="ui-foco rounded-full border border-[var(--border-hairline)] px-2 py-0.5 hover:bg-[var(--surface-1)]">+ Nombre</button>
+        <button type="button" onClick={() => insertar('{{usuario}}')} className="ui-foco rounded-full border border-[var(--border-hairline)] px-2 py-0.5 hover:bg-[var(--surface-1)]">+ @usuario</button>
+        <span className="ml-auto cifras" style={{ color: largo > max ? 'var(--status-critical)' : undefined }}>{largo}/{max}</span>
+      </div>
+      {/\{\{\s*(nombre|usuario)\s*\}\}/i.test(valor) && (
+        <div className="mt-1 text-[11px] text-[var(--text-muted)]">Así le llega: «{conVariables(valor).replace('[Nombre]', 'Sofía').replace('[@usuario]', '@sofi.coach').slice(0, 90)}»</div>
+      )}
+    </div>
+  );
+}
 
 function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: any) => any) => void; ctx: Ctx }) {
   const disp = DISPAROS.find((d) => d.v === form.disparo) ?? DISPAROS[0];
+  const conPublicacion = (form.disparo === 'comentario' || form.disparo === 'historia') && ctx.contenidos.some((c: any) => c.ig_media_id);
+  const palabra = String(form.palabra_clave ?? '').trim();
   return (
-    <div className="space-y-2">
-      <select value={form.disparo} onChange={(e) => setForm((f) => ({ ...f, disparo: e.target.value }))} className={sel}>
-        {DISPAROS.map((d) => <option key={d.v} value={d.v}>{d.icono}  {d.t}</option>)}
-      </select>
+    <div className="space-y-3">
+      <div>
+        <div className="mb-1.5 text-[12px] font-medium text-[var(--text-secondary)]">¿Cuándo arranca?</div>
+        <div className="grid grid-cols-2 gap-1.5">
+          {DISPAROS.map((d) => {
+            const activo = d.v === form.disparo;
+            return (
+              <button key={d.v} type="button" onClick={() => setForm((f) => ({ ...f, disparo: d.v }))} aria-pressed={activo}
+                className="ui-foco flex min-h-[44px] items-center gap-2 rounded-lg border px-2 py-1.5 text-left text-[12px] leading-tight"
+                style={{ borderColor: activo ? 'var(--series-1)' : 'var(--border-hairline)', background: activo ? 'color-mix(in srgb, var(--series-1) 8%, var(--surface-1))' : 'var(--surface-1)' }}>
+                <span className="w-5 shrink-0 text-center text-[15px]">{d.icono}</span>
+                <span className={activo ? 'font-medium' : ''}>{d.t}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
       {disp.palabra && (
-        <input value={form.palabra_clave ?? ''} onChange={(e) => setForm((f) => ({ ...f, palabra_clave: e.target.value }))}
-          placeholder={`palabra clave (${disp.ph})`} className={inp} />
+        <Campo etiqueta={form.disparo === 'boton' ? 'Texto o código del botón' : form.disparo === 'anuncio' ? 'Referencia del anuncio (opcional)' : '¿Qué tiene que escribir? (palabra clave)'}
+          ayuda={disp.ayuda.replace('Vacío = ', 'Si lo dejás vacío: ')}>
+          <Entrada value={form.palabra_clave ?? ''} onChange={(e) => setForm((f) => ({ ...f, palabra_clave: e.target.value }))} placeholder={disp.ph} />
+        </Campo>
       )}
-      {(form.disparo === 'comentario' || form.disparo === 'historia') && ctx.contenidos.length > 0 && (
-        <select value={form.contenido_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, contenido_id: e.target.value }))} className={sel}>
-          <option value="">en cualquier publicación</option>
-          {ctx.contenidos.filter((c: any) => c.ig_media_id).map((c: any) => <option key={c.id} value={c.id}>solo en: {String(c.titulo).slice(0, 50)}</option>)}
-        </select>
+      {disp.palabra && !palabra && form.disparo === 'comentario' && (
+        <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--surface-1))' }}>
+          ⚠ Sin palabra clave responde a <b>todos</b> los comentarios{form.contenido_id ? ' de esa publicación' : ' de todas tus publicaciones'}.
+        </div>
       )}
-      <div className="text-[11px] text-[var(--text-muted)]">{disp.ayuda}</div>
+      {conPublicacion && (
+        <Campo etiqueta="¿En qué publicación?">
+          <Seleccion value={form.contenido_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, contenido_id: e.target.value }))}>
+            <option value="">En cualquiera</option>
+            {ctx.contenidos.filter((c: any) => c.ig_media_id).map((c: any) => <option key={c.id} value={c.id}>Solo en: {String(c.titulo).slice(0, 60)}</option>)}
+          </Seleccion>
+        </Campo>
+      )}
+      {!disp.palabra && <div className="text-[12px] text-[var(--text-muted)]">{disp.ayuda}</div>}
       {form.disparo === 'comentario' && (
-        <div className="rounded-md px-2 py-1.5 text-[11px]" style={{ background: 'var(--surface-1)' }}>
+        <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'var(--surface-1)' }}>
           💡 Instagram deja mandarle <b>un solo mensaje</b> a quien comenta hasta que te responda. Conviene que el primer DM sea una <b>pregunta con botón</b>: cuando lo toca, ya podés mandarle todo lo demás.
         </div>
       )}
@@ -672,132 +816,235 @@ function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: 
   );
 }
 
+const ICONO_RECURSO: Record<string, string> = { audio: '🎙️', pdf: '📄', imagen: '🖼️', video: '🎬', link: '🔗' };
+
 function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void; ctx: Ctx }) {
+  const movil = useEsMovil(768);
+  const foco = !movil; // en el celular el teclado se abre recién cuando tocás el campo
   const set = (k: string, v: any) => onChange({ ...p, [k]: v });
   switch (p.tipo) {
     case 'enviar_dm':
     case 'entregar_recurso':
       return (
-        <div>
-          <textarea autoFocus value={p.texto ?? p.recurso ?? ''} onChange={(e) => onChange({ ...p, tipo: 'enviar_dm', texto: e.target.value })}
-            rows={5} placeholder="Hola {{nombre}} 👋 …" className={`${inp} resize-y`} />
-          <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--text-muted)]">
-            <button onClick={() => set('texto', `${p.texto ?? ''}{{nombre}}`)} className="underline">+ nombre del lead</button>
-            <span style={{ color: String(p.texto ?? '').length > MAX_TEXTO ? 'var(--status-critical)' : undefined }}>{String(p.texto ?? '').length}/{MAX_TEXTO}</span>
-          </div>
-        </div>
+        <Campo etiqueta="Mensaje">
+          <TextoConVariables valor={String(p.texto ?? p.recurso ?? '')} onCambio={(v) => onChange({ ...p, tipo: 'enviar_dm', texto: v })}
+            filas={5} placeholder="Hola {{nombre}} 👋 …" autoFoco={foco} />
+        </Campo>
       );
     case 'responder_comentario':
+      return (
+        <Campo etiqueta="Respuesta pública al comentario">
+          <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="¡Te lo mandé por DM! 📩" autoFoco={foco} max={300} />
+        </Campo>
+      );
     case 'notificar':
-      return <input autoFocus value={p.texto ?? ''} onChange={(e) => set('texto', e.target.value)} className={inp}
-        placeholder={p.tipo === 'notificar' ? 'Qué tiene que saber el equipo' : '¡Te lo mandé por DM! 📩'} />;
+      return (
+        <Campo etiqueta="¿Qué tiene que saber el equipo?" ayuda="Aparece marcado en el Chat para que lo atiendan.">
+          <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Quiere agendar llamada" autoFoco={foco} max={300} />
+        </Campo>
+      );
     case 'enviar_recurso': {
       const lista = ctx.recursos.filter((r) => r.tipo !== 'texto');
+      const elegido = lista.find((r) => r.id === p.recurso_id);
       return (
-        <div>
-          <select value={p.recurso_id ?? ''} onChange={(e) => set('recurso_id', e.target.value)} className={sel}>
-            <option value="">Elegí qué mandar…</option>
-            {lista.map((r) => <option key={r.id} value={r.id}>{r.tipo === 'audio' ? '🎙️' : r.tipo === 'pdf' ? '📄' : r.tipo === 'imagen' ? '🖼️' : r.tipo === 'video' ? '🎬' : '🔗'} {r.nombre}</option>)}
-          </select>
-          {lista.length === 0 && <div className="mt-1 text-[11px] text-[var(--text-muted)]">No tenés recursos todavía: grabalos en Chat → 🎙️ Recursos.</div>}
+        <div className="space-y-2">
+          <Campo etiqueta="¿Qué le mandás?">
+            <Seleccion value={p.recurso_id ?? ''} onChange={(e) => set('recurso_id', e.target.value)}>
+              <option value="">Elegí qué mandar…</option>
+              {lista.map((r) => <option key={r.id} value={r.id}>{ICONO_RECURSO[r.tipo] ?? '📎'} {r.nombre}</option>)}
+            </Seleccion>
+          </Campo>
+          {elegido?.tipo === 'audio' && elegido.url && <audio controls src={elegido.url} className="h-9 w-full" />}
+          {!p.recurso_id && (
+            <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--surface-1))' }}>
+              {lista.length ? 'Falta elegir el audio o recurso.' : 'Todavía no tenés audios ni archivos.'}{' '}
+              <a href="/chat?recursos=1" className="underline">Grabalos o subilos en Chat → Recursos</a> (tu pizarra queda guardada como borrador).
+            </div>
+          )}
         </div>
       );
     }
     case 'etiquetar':
     case 'quitar_etiqueta':
-      return <input autoFocus value={p.etiqueta ?? ''} onChange={(e) => set('etiqueta', e.target.value)} list="etiquetas-existentes" placeholder="ej. pidió-guía" className={inp} />;
-    case 'mover_etapa':
       return (
-        <select value={p.etapa_slug ?? ''} onChange={(e) => set('etapa_slug', e.target.value)} className={sel}>
-          <option value="">Elegí la etapa…</option>
-          {ctx.etapas.map((e) => <option key={e.slug} value={e.slug}>{e.nombre}</option>)}
-        </select>
+        <Campo etiqueta={p.tipo === 'etiquetar' ? 'Etiqueta que le ponés' : 'Etiqueta que le sacás'}>
+          <Entrada value={p.etiqueta ?? ''} onChange={(e) => set('etiqueta', e.target.value)} list="etiquetas-existentes" placeholder="ej. pidió-guía" autoFocus={foco} />
+        </Campo>
       );
+    case 'mover_etapa': {
+      const pipes = [...new Set(ctx.etapas.map((e) => e.pipeline))];
+      const sinEsa = p.etapa_slug ? pipes.filter((pn) => !ctx.etapas.some((e) => e.pipeline === pn && e.slug === p.etapa_slug)) : [];
+      const existe = !p.etapa_slug || ctx.etapas.some((e) => e.slug === p.etapa_slug);
+      return (
+        <div className="space-y-2">
+          <Campo etiqueta="¿A qué etapa?" ayuda="Se mueve dentro del pipeline en el que ya está el lead.">
+            <Seleccion value={existe ? (p.etapa_slug ?? '') : ''} onChange={(e) => set('etapa_slug', e.target.value)}>
+              <option value="">Elegí la etapa…</option>
+              {pipes.map((pn) => (
+                <optgroup key={pn} label={pn}>
+                  {ctx.etapas.filter((e) => e.pipeline === pn).map((e) => <option key={`${pn}-${e.slug}`} value={e.slug}>{e.nombre}</option>)}
+                </optgroup>
+              ))}
+            </Seleccion>
+          </Campo>
+          {!existe && <div className="text-[12px]" style={{ color: 'var(--status-critical)' }}>⚠ La etapa que tenía ya no existe. Elegí otra.</div>}
+          {existe && sinEsa.length > 0 && pipes.length > 1 && (
+            <div className="text-[12px] text-[var(--text-muted)]">En {sinEsa.map((x) => `«${x}»`).join(', ')} no hay esa etapa: esos leads no se van a mover.</div>
+          )}
+        </div>
+      );
+    }
     case 'asignar':
       return (
-        <select value={p.rol ?? ''} onChange={(e) => set('rol', e.target.value)} className={sel}>
-          <option value="">A quien tenga menos leads</option>
-          <option value="setter">A un setter</option>
-          <option value="closer">A un closer</option>
-        </select>
+        <Campo etiqueta="¿A quién?">
+          <Seleccion value={p.rol ?? ''} onChange={(e) => set('rol', e.target.value)}>
+            <option value="">A quien tenga menos leads</option>
+            <option value="setter">A un setter</option>
+            <option value="closer">A un closer</option>
+          </Seleccion>
+        </Campo>
       );
     case 'webhook':
-      return <input autoFocus value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://hook.make.com/…" className={inp} />;
+      return (
+        <Campo etiqueta="Dirección de la otra app" ayuda="La que te da Zapier, Make o tu proveedor (empieza con https://).">
+          <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://hook.make.com/…" inputMode="url" autoFocus={foco} />
+        </Campo>
+      );
     case 'esperar': {
       const min = Number(p.minutos) || 0;
       const unidad = min && min % 1440 === 0 ? 1440 : min && min % 60 === 0 ? 60 : 1;
       return (
-        <div className="flex gap-2">
-          <input type="number" min={1} value={min ? min / unidad : ''} onChange={(e) => set('minutos', Math.max(0, Number(e.target.value)) * unidad)} className={`${inp} w-24`} placeholder="1" />
-          <select value={unidad} onChange={(e) => set('minutos', (min ? min / unidad : 1) * Number(e.target.value))} className={sel}>
-            <option value={1}>minutos</option><option value={60}>horas</option><option value={1440}>días</option>
-          </select>
+        <div className="space-y-2">
+          <div className="mb-0.5 text-[12px] font-medium text-[var(--text-secondary)]">¿Cuánto espera?</div>
+          <FilaChips>
+            {[[60, '1 h'], [180, '3 h'], [720, '12 h'], [1320, '22 h']].map(([m, t]) => (
+              <Chip key={m} activo={min === m} onClick={() => set('minutos', m)}>{t}</Chip>
+            ))}
+          </FilaChips>
+          <div className="flex gap-2">
+            <Entrada type="number" min={1} value={min ? min / unidad : ''} onChange={(e) => set('minutos', Math.max(0, Number(e.target.value)) * unidad)} className="!w-24" placeholder="1" aria-label="Cantidad" />
+            <Seleccion value={unidad} onChange={(e) => set('minutos', (min ? min / unidad : 1) * Number(e.target.value))} aria-label="Unidad">
+              <option value={1}>minutos</option><option value={60}>horas</option><option value={1440}>días</option>
+            </Seleccion>
+          </div>
+          {min >= 23 * 60 && (
+            <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--surface-1))' }}>
+              ⚠ Instagram no deja escribirle pasadas <b>24 h</b> desde su último mensaje: si después de esta espera le mandás algo, no le va a llegar. Usá hasta 22-23 horas.
+            </div>
+          )}
         </div>
       );
     }
     case 'esperar_respuesta':
       return (
-        <div>
-          <select value={p.guardar_en ?? ''} onChange={(e) => set('guardar_en', e.target.value)} className={sel}>
+        <Campo etiqueta="¿Qué hacés con lo que escribe?" ayuda="El automensaje se pausa acá hasta que el lead escriba, aunque pasen horas.">
+          <Seleccion value={p.guardar_en ?? ''} onChange={(e) => set('guardar_en', e.target.value)}>
             <option value="">Solo esperar (no guardar nada)</option>
-            <option value="email">Guardar lo que escribe como su EMAIL</option>
-            <option value="telefono">Guardar como su TELÉFONO</option>
-            <option value="nombre">Guardar como su NOMBRE</option>
+            <option value="email">Guardarlo como su email</option>
+            <option value="telefono">Guardarlo como su teléfono</option>
+            <option value="nombre">Guardarlo como su nombre</option>
             <option value="nota">Guardarlo como nota en su ficha</option>
-          </select>
-          <div className="mt-1 text-[11px] text-[var(--text-muted)]">El automensaje se pausa acá hasta que el lead escriba, aunque pasen horas.</div>
-        </div>
+          </Seleccion>
+        </Campo>
       );
     case 'pregunta': {
       const opciones = p.opciones ?? [];
       return (
-        <div className="space-y-1.5">
-          <textarea autoFocus value={p.texto ?? ''} onChange={(e) => set('texto', e.target.value)} rows={3} placeholder="¿Te paso la guía?" className={`${inp} resize-y`} />
-          <div className="text-[11px] font-medium text-[var(--text-secondary)]">Botones (cada uno sale por su propia flecha)</div>
+        <div className="space-y-2">
+          <Campo etiqueta="Pregunta">
+            <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} filas={3} placeholder="¿Te paso la guía?" autoFoco={foco} />
+          </Campo>
+          <div className="text-[12px] font-medium text-[var(--text-secondary)]">Botones (cada uno lleva a su propio camino)</div>
           {opciones.map((o: any, j: number) => (
             <div key={o.id} className="flex items-center gap-1.5">
-              <span className="text-[11px] text-[var(--text-muted)]">{j + 1}.</span>
-              <input value={o.titulo} maxLength={MAX_TITULO} placeholder={`Botón ${j + 1}`}
+              <Entrada value={o.titulo} maxLength={MAX_TITULO} placeholder={`Botón ${j + 1}`} aria-label={`Botón ${j + 1}`}
                 onChange={(e) => onChange({ ...p, opciones: opciones.map((x: any) => (x.id === o.id ? { ...x, titulo: e.target.value } : x)) })}
-                className={`${inp} flex-1`} />
-              <span className="w-9 text-right text-[10px] text-[var(--text-muted)]">{o.titulo.length}/{MAX_TITULO}</span>
+                className="flex-1" />
+              <span className="cifras w-10 text-right text-[11px] text-[var(--text-muted)]">{o.titulo.length}/{MAX_TITULO}</span>
               {opciones.length > 1 && (
-                <button onClick={() => onChange({ ...p, opciones: opciones.filter((x: any) => x.id !== o.id) })}
-                  className="rounded px-1 text-[11px]" style={{ color: 'var(--status-critical)' }} aria-label="Quitar botón">✕</button>
+                <button type="button" onClick={() => onChange({ ...p, opciones: opciones.filter((x: any) => x.id !== o.id) })}
+                  className="ui-foco flex h-8 w-8 items-center justify-center rounded-full text-[12px]" style={{ color: 'var(--status-critical)' }} aria-label={`Quitar botón ${j + 1}`}>✕</button>
               )}
             </div>
           ))}
           {opciones.length < MAX_BOTONES && (
-            <button onClick={() => onChange({ ...p, opciones: [...opciones, { id: uid(), titulo: '', siguiente: null }] })}
-              className="text-[11px] underline text-[var(--text-secondary)]">+ otro botón ({opciones.length}/{MAX_BOTONES})</button>
+            <button type="button" onClick={() => onChange({ ...p, opciones: [...opciones, { id: uid(), titulo: '', siguiente: null }] })}
+              className="ui-foco text-[12px] underline text-[var(--text-secondary)]">+ otro botón ({opciones.length}/{MAX_BOTONES})</button>
           )}
-          <div className="text-[10px] text-[var(--text-muted)]">Si escribe en vez de tocar, igual se entiende si coincide con un botón.</div>
+          <div className="text-[11px] text-[var(--text-muted)]">Si escribe en vez de tocar, igual se entiende si coincide con un botón.</div>
         </div>
       );
     }
     case 'condicion':
       return (
-        <div className="space-y-1.5">
-          <select value={p.campo ?? 'etiqueta'} onChange={(e) => onChange({ ...p, campo: e.target.value, valor: '' })} className={sel}>
-            <option value="etiqueta">¿Tiene la etiqueta…?</option>
-            <option value="etapa">¿Está en la etapa…?</option>
-            <option value="texto">¿Su mensaje dice…?</option>
-            <option value="email">¿Ya tenemos su email?</option>
-            <option value="telefono">¿Ya tenemos su teléfono?</option>
-          </select>
+        <div className="space-y-2">
+          <Campo etiqueta="¿Qué revisa?">
+            <Seleccion value={p.campo ?? 'etiqueta'} onChange={(e) => onChange({ ...p, campo: e.target.value, valor: '' })}>
+              <option value="etiqueta">¿Tiene la etiqueta…?</option>
+              <option value="etapa">¿Está en la etapa…?</option>
+              <option value="texto">¿Su mensaje dice…?</option>
+              <option value="email">¿Ya tenemos su email?</option>
+              <option value="telefono">¿Ya tenemos su teléfono?</option>
+            </Seleccion>
+          </Campo>
           {p.campo === 'etapa' ? (
-            <select value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} className={sel}>
+            <Seleccion value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} aria-label="Etapa">
               <option value="">Elegí la etapa…</option>
-              {ctx.etapas.map((e) => <option key={e.slug} value={e.slug}>{e.nombre}</option>)}
-            </select>
+              {[...new Set(ctx.etapas.map((e) => e.pipeline))].map((pn) => (
+                <optgroup key={pn} label={pn}>
+                  {ctx.etapas.filter((e) => e.pipeline === pn).map((e) => <option key={`${pn}-${e.slug}`} value={e.slug}>{e.nombre}</option>)}
+                </optgroup>
+              ))}
+            </Seleccion>
           ) : (p.campo === 'etiqueta' || p.campo === 'texto' || !p.campo) ? (
-            <input value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} list={p.campo === 'texto' ? undefined : 'etiquetas-existentes'}
-              placeholder={p.campo === 'texto' ? 'ej. precio, cuánto' : 'ej. cliente'} className={inp} />
+            <Entrada value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} list={p.campo === 'texto' ? undefined : 'etiquetas-existentes'}
+              placeholder={p.campo === 'texto' ? 'ej. precio, cuánto' : 'ej. cliente'} aria-label="Valor" />
           ) : null}
-          <div className="text-[10px] text-[var(--text-muted)]">Conectá la salida ✅ Sí y la ❌ No a lo que corresponda.</div>
         </div>
       );
     default:
       return null;
   }
+}
+
+/**
+ * "¿Qué pasa después?": unir pasos con un toque (sin arrastrar flechas).
+ * Una fila por salida: "Después", cada botón de una pregunta, o Sí / No.
+ */
+function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
+  p: Paso; nodos: Paso[]; ctx: Ctx;
+  onConectar: (salida: string, destino: string | null) => void;
+  onNuevo: (salida: string) => void;
+}) {
+  const filas: Array<{ salida: string; etiqueta: string; destino: string | null | undefined }> =
+    p.tipo === 'pregunta'
+      ? (p.opciones ?? []).map((o: any, j: number) => ({ salida: `op:${o.id}`, etiqueta: `Si toca «${o.titulo || `Botón ${j + 1}`}»`, destino: o.siguiente }))
+      : p.tipo === 'condicion'
+        ? [{ salida: 'si', etiqueta: 'Si se cumple', destino: p.siguiente_si }, { salida: 'no', etiqueta: 'Si no', destino: p.siguiente_no }]
+        : [{ salida: 'out', etiqueta: p.tipo === 'inicio' ? 'Primer paso' : 'Después', destino: p.siguiente }];
+  const otros = nodos.filter((n) => n.id !== p.id && n.tipo !== 'inicio');
+  const nombre = (n: Paso) => `${NODOS[n.tipo]?.icono ?? '•'} ${NODOS[n.tipo]?.etiqueta ?? n.tipo} · ${resumen(n, ctx).slice(0, 34) || describirCondicion(n)}`;
+  return (
+    <div className="mt-4 space-y-2 border-t border-[var(--border-hairline)] pt-3">
+      <div className="text-[12px] font-semibold">¿Qué pasa después?</div>
+      {filas.map((f) => (
+        <label key={f.salida} className="block">
+          <span className="mb-1 block text-[11px] text-[var(--text-muted)]">{f.etiqueta} →</span>
+          <Seleccion value={f.destino ?? ''} onChange={(e) => {
+            const v = e.target.value;
+            if (v === '__nuevo__') onNuevo(f.salida);
+            else onConectar(f.salida, v || null);
+          }}>
+            <option value="">Terminar acá</option>
+            <option value="__nuevo__">+ Paso nuevo…</option>
+            {otros.length > 0 && (
+              <optgroup label="Ir a un paso que ya está">
+                {otros.map((n) => <option key={n.id} value={n.id}>{nombre(n)}</option>)}
+              </optgroup>
+            )}
+          </Seleccion>
+        </label>
+      ))}
+    </div>
+  );
 }
