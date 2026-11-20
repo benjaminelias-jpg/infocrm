@@ -19,6 +19,9 @@ function pantalla<T extends ComponentType<any>>(cargar: () => Promise<{ default:
     try { sessionStorage.removeItem('infocrm_recargado'); } catch { /* sin almacenamiento */ }
     return m;
   }).catch((err) => {
+    // Sin internet no se recarga (el navegador mostraría su propia página de
+    // error): la pantalla avisa «No hay conexión» y se reintenta.
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) throw err;
     let ya = false;
     try { ya = sessionStorage.getItem('infocrm_recargado') === '1'; sessionStorage.setItem('infocrm_recargado', '1'); } catch { ya = true; }
     if (!ya) { window.location.reload(); return new Promise<{ default: T }>(() => {}); }
@@ -130,10 +133,11 @@ function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ minHeight: '100dvh' }}>
-      <form onSubmit={enviar} className="tarjeta w-full max-w-sm space-y-4 p-6">
+      <form onSubmit={enviar} className="w-full max-w-sm space-y-4 rounded-[24px] p-7" style={{ background: 'var(--surface-1)', boxShadow: 'var(--sombra-flotante)' }}>
         <div>
-          <div className="text-[18px] font-semibold tracking-tight">InfoCRM</div>
-          <p className="mt-1 text-[13px] text-[var(--text-muted)]">CRM de infoproducción conectado a Instagram</p>
+          <span className="flex h-11 w-11 items-center justify-center rounded-[13px] text-[15px] font-extrabold tracking-tight text-white" style={{ background: 'var(--accion)' }} aria-hidden>iC</span>
+          <h1 className="mt-4 text-[24px] font-bold leading-tight tracking-tight">Entrá a InfoCRM</h1>
+          <p className="mt-1 text-[13px] text-[var(--text-muted)]">Tus leads de Instagram, tu pipeline y tus ventas en un lugar.</p>
         </div>
         {motivo === 'sesion' && (
           <p className="rounded-lg px-3 py-2 text-[12px]" style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)' }}>

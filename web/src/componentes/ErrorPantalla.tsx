@@ -15,6 +15,24 @@ export default class ErrorPantalla extends Component<{ children: ReactNode }, { 
 
   render() {
     if (!this.state.error) return this.props.children;
+    // Una pantalla que no se pudo descargar casi siempre es falta de internet.
+    const sinRed = (typeof navigator !== 'undefined' && navigator.onLine === false)
+      || /dynamically imported module|Importing a module script failed|Loading chunk|Failed to fetch/i.test(String(this.state.error?.message ?? ''));
+    if (sinRed) {
+      return (
+        <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
+          <div className="tarjeta w-full max-w-md p-6 text-center">
+            <div className="text-[28px]" aria-hidden>📶</div>
+            <h1 className="mt-2 text-[16px] font-semibold">No hay conexión</h1>
+            <p className="mt-1 text-[13px] text-[var(--text-secondary)]">No pudimos abrir esta pantalla. Revisá tu internet y probá de nuevo.</p>
+            <button type="button" onClick={() => window.location.reload()}
+              className="ui-foco mt-4 h-10 rounded-[12px] px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="flex min-h-[60vh] items-center justify-center px-4 py-10">
         <div className="tarjeta w-full max-w-md p-6 text-center">
@@ -25,10 +43,10 @@ export default class ErrorPantalla extends Component<{ children: ReactNode }, { 
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button type="button" onClick={() => window.location.reload()}
-              className="ui-foco h-10 rounded-lg px-4 text-[13px] font-medium text-white md:h-9" style={{ background: 'var(--series-1)' }}>
+              className="ui-foco h-10 rounded-[12px] px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
               Recargar
             </button>
-            <a href="/" className="ui-foco inline-flex h-10 items-center rounded-lg border border-[var(--border-hairline)] px-4 text-[13px] md:h-9">Ir al Panel</a>
+            <a href="/" className="ui-foco inline-flex h-10 items-center rounded-[12px] px-4 text-[13px] font-semibold md:h-9" style={{ background: 'var(--surface-2)' }}>Ir al Panel</a>
           </div>
         </div>
       </div>
