@@ -225,7 +225,6 @@ function OpcionesCuenta({ tema, cambiarTema }: { tema: Tema; cambiarTema: (t: Te
           onClick={() => cambiarTema(t.id)}>{t.nombre}</ItemMenu>
       ))}
       <SeparadorMenu />
-      <ItemMenu icono={<span aria-hidden>🧪</span>} onClick={() => { try { localStorage.removeItem('infocrm_prueba_oculto'); } catch { /* */ } window.location.reload(); }}>Leads de prueba</ItemMenu>
       <ItemMenu icono={<Icono nombre="salir" tam={16} />} onClick={cerrarSesion}>Salir</ItemMenu>
     </>
   );

@@ -6,14 +6,11 @@ import { Boton, useAviso } from '../ui';
 // pipeline, charlas, reuniones y ventas) y ver el CRM andando; y otro para
 // borrarlos todos juntos. Lo real no se toca. Solo dueño o admin.
 
-const CLAVE_OCULTO = 'infocrm_prueba_oculto';
-
 export default function FranjaPrueba({ rol }: { rol?: string }) {
   const puede = rol === 'owner' || rol === 'admin';
   const aviso = useAviso();
   const [n, setN] = useState<number | null>(null);
   const [ocupado, setOcupado] = useState(false);
-  const [oculto, setOculto] = useState(() => { try { return localStorage.getItem(CLAVE_OCULTO) === '1'; } catch { return false; } });
 
   useEffect(() => {
     if (!puede) return;
@@ -21,7 +18,6 @@ export default function FranjaPrueba({ rol }: { rol?: string }) {
   }, [puede]);
 
   if (!puede || n === null) return null;
-  if (n === 0 && oculto) return null;
 
   async function cargar() {
     setOcupado(true);
@@ -38,7 +34,6 @@ export default function FranjaPrueba({ rol }: { rol?: string }) {
     setOcupado(true);
     try {
       await api('/demo/borrar', { method: 'POST' });
-      try { localStorage.setItem(CLAVE_OCULTO, '1'); } catch { /* sin almacenamiento */ }
       aviso.exito('Borramos los datos de prueba. Recargando…');
       setTimeout(() => window.location.reload(), 900);
     } catch (e: any) {
@@ -63,7 +58,6 @@ export default function FranjaPrueba({ rol }: { rol?: string }) {
           <span className="text-[var(--text-secondary)]">¿Querés ver cómo funciona todo? Cargá leads falsos que recorren el pipeline, el chat y las ventas.</span>
           <div className="ml-auto flex gap-2">
             <Boton tamano="xs" variante="primario" onClick={cargar} disabled={ocupado}>{ocupado ? 'Cargando…' : 'Cargar leads de prueba'}</Boton>
-            <Boton tamano="xs" variante="fantasma" onClick={() => { setOculto(true); try { localStorage.setItem(CLAVE_OCULTO, '1'); } catch { /* */ } }}>Ahora no</Boton>
           </div>
         </>
       )}
