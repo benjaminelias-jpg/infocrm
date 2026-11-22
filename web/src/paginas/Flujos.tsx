@@ -522,6 +522,7 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
   const [base, setBase] = useState(() => JSON.stringify(inicial));
   const [editando, setEditando] = useState<string | null>(existente?.id ?? null);
   const [guardando, setGuardando] = useState(false);
+  const [autoguardado, setAutoguardado] = useState<number | null>(null);
   const [salir, setSalir] = useState(false);
   const [activar, setActivar] = useState(false);
   const [renombrar, setRenombrar] = useState(false);
@@ -571,13 +572,15 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
   }, [form.pasos, form.nombre, prueba.respuestas, prueba.texto, aviso]);
   useEffect(() => { if (probarAlAbrir) probar(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function guardar(): Promise<any | null> {
+  async function guardar(silencioso = false): Promise<any | null> {
     if (!String(form.nombre ?? '').trim()) {
+      if (silencioso) return null;
       aviso.error('Ponele un nombre al automensaje.');
       if (movil) setRenombrar(true); else document.getElementById('nombre-automensaje')?.focus();
       return null;
     }
-    setGuardando(true);
+    if (!silencioso) setGuardando(true);
+    const formEnviado = form;
     const cuerpo = { ...form, palabra_clave: String(form.palabra_clave ?? '').trim() || null, contenido_id: form.contenido_id || null };
     try {
       const r = editando
@@ -585,12 +588,15 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
         : await api<any>('/flujos', { method: 'POST', json: cuerpo });
       borrarBorrador(clave);
       borrarBorrador(claveInicial);
-      const guardado = { ...form, activo: r.activo, pasos: r.pasos };
-      setForm(guardado);
+      const guardado = { ...formEnviado, activo: r.activo, pasos: r.pasos };
+      // Si siguió editando mientras se guardaba, no le pisamos lo nuevo.
+      setForm((f: any) => (f === formEnviado ? guardado : { ...f, activo: r.activo }));
       setBase(JSON.stringify(guardado));
+      setAutoguardado(Date.now());
       const eraNuevo = !editando;
       setEditando(r.id);
       if (eraNuevo) window.history.replaceState(window.history.state, '', `/flujos/${r.id}`);
+      if (silencioso) { onCambio(); return r; }
       if (r.avisos?.length) {
         const primero = (r.marcados ?? [])[0];
         aviso.error(`Se guardó en pausa: ${plural(r.avisos.length, 'cosa', 'cosas')} por completar.`, primero ? { texto: 'Ver', onClick: () => setEnfocar({ id: primero, n: Date.now() }) } : undefined);
@@ -600,8 +606,20 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
       }
       onCambio();
       return r;
-    } catch (err: any) { aviso.error(err.message); return null; } finally { setGuardando(false); }
+    } catch (err: any) { if (!silencioso) aviso.error(err.message); return null; } finally { setGuardando(false); }
   }
+
+  // Autoguardado: 2,5 s después del último cambio. Si el automensaje está
+  // ACTIVO y todavía le falta completar algo, no se guarda solo (lo pausaría):
+  // queda el borrador local hasta que esté listo o toques Guardar.
+  const autoRef = useRef(guardar);
+  autoRef.current = guardar;
+  useEffect(() => {
+    if (!cambios || !String(form.nombre ?? '').trim()) return;
+    if (form.activo && revision.problemas.length) return;
+    const t = window.setTimeout(() => { autoRef.current(true); }, 2500);
+    return () => window.clearTimeout(t);
+  }, [form, cambios, revision.problemas.length]);
 
   // Ctrl/Cmd + S = guardar.
   const guardarRef = useRef(guardar);
@@ -695,7 +713,10 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
             {prueba.abierta ? 'Cerrar prueba' : 'Probar'}
           </Boton>
         )}
-        <Boton variante="primario" tamano="sm" onClick={guardar} cargando={guardando}>
+        <span className="hidden text-[11px] text-[var(--text-muted)] sm:inline" aria-live="polite">
+          {cambios ? (form.activo && revision.problemas.length ? 'Sin guardar: falta completar' : 'Guardando…') : autoguardado ? 'Guardado ✓' : ''}
+        </span>
+        <Boton variante="primario" tamano="sm" onClick={() => guardar()} cargando={guardando}>
           Guardar{cambios && <span className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-white" aria-label="hay cambios sin guardar" />}
         </Boton>
       </div>

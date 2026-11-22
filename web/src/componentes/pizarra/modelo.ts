@@ -130,6 +130,8 @@ export function nuevoPaso(tipo: string, datos: Record<string, any> = {}): Paso {
     base.modo = 'azar';
     base.ramas = [{ id: uid(), nombre: 'A', peso: 50, siguiente: null }, { id: uid(), nombre: 'B', peso: 50, siguiente: null }];
   }
+  // Esperar su respuesta: viene con seguimiento (2 h) ya activado.
+  if (tipo === 'esperar_respuesta' && base.limite_min === undefined) { base.limite_min = 120; base.siguiente_sin_respuesta = null; }
   if (tipo === 'condicion') { base.campo = base.campo ?? 'etiqueta'; base.siguiente_si = null; base.siguiente_no = null; }
   else if (tipo !== 'pregunta' && tipo !== 'router' && !('siguiente' in base)) base.siguiente = null;
   return base;
