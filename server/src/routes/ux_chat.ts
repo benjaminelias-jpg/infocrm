@@ -4,6 +4,7 @@ import { pool, query, queryOne } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import { moverEtapa } from '../modules/pipeline.js';
 import { procesarEsperasVencidas } from '../modules/instagram_dm.js';
+import { procesarEnviosProgramados } from '../modules/secuencias.js';
 
 // Rutas propias de la zona "chat" (mejoras de UX). Montadas en /api/ux/chat.
 // Requieren sesión (cuelgan de /api). Usar req.sesion.cuentaId en TODAS las
@@ -39,6 +40,7 @@ function leadIdDe(req: FastifyRequest): string {
 const BANDEJA = `
   WITH base AS (
     SELECT l.id, l.nombre, l.apellido, l.ig_username, l.avatar_url, l.pais, l.email,
+           ('Calendario enviado' = ANY(l.etiquetas)) AS calendario_enviado,
            l.mensajes_sin_leer::int AS mensajes_sin_leer, l.propietario_id, l.creado_en,
            COALESCE(l.ultimo_mensaje_en, l.creado_en) AS actividad,
            u.nombre AS responsable,
@@ -141,6 +143,7 @@ export default async function rutasUx_chat(app: FastifyInstance) {
     // Como la lista vieja: aprovecha para reanudar automensajes cuya espera por
     // tiempo ya venció (sin websockets ni cron, la bandeja hace de "reloj").
     if (!p.cursor) procesarEsperasVencidas(cuenta, 5).catch(() => {});
+    if (!p.cursor) procesarEnviosProgramados(cuenta).catch(() => {});
 
     const params: any[] = [cuenta, usuario];
     const donde: string[] = [];

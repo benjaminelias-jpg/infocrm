@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { query, queryOne, pool } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
+import { enviarAtajo, procesarEnviosProgramados, pendientesDeLead, cancelarPendientes } from '../modules/secuencias.js';
 import {
   enviarMensajeIG, mensajeDeRecurso, registrarSaliente, urlPublicaRecurso,
   procesarEsperasVencidas, esperasDeLead, MAX_TEXTO_DM,
@@ -16,6 +17,7 @@ export default async function rutasChat(app: FastifyInstance) {
   app.get('/chat/conversaciones', async (req) => {
     // Aprovecha para reanudar flujos cuya espera por tiempo ya venció.
     procesarEsperasVencidas(req.sesion.cuentaId, 5).catch(() => {});
+    procesarEnviosProgramados(req.sesion.cuentaId).catch(() => {});
     return query(
       `SELECT l.id, l.nombre, l.ig_username, l.ig_user_id, l.etiquetas,
               l.mensajes_sin_leer, l.score, l.score_cualitativo,
@@ -132,6 +134,18 @@ export default async function rutasChat(app: FastifyInstance) {
   });
 
   // El setter envía un mensaje (texto, audio del founder o cualquier recurso).
+  // Lo que falta mandar de una secuencia a este lead, y cancelarlo.
+  app.get('/chat/:leadId/programados', async (req) => {
+    const { leadId } = req.params as { leadId: string };
+    if (!UUID.test(leadId ?? '')) throw noEncontrado('Lead');
+    return pendientesDeLead(req.sesion.cuentaId, leadId);
+  });
+  app.post('/chat/:leadId/programados/cancelar', async (req) => {
+    const { leadId } = req.params as { leadId: string };
+    if (!UUID.test(leadId ?? '')) throw noEncontrado('Lead');
+    return { cancelados: await cancelarPendientes(req.sesion.cuentaId, leadId) };
+  });
+
   app.post('/chat/:leadId/enviar', async (req, reply) => {
     const { leadId } = req.params as { leadId: string };
     if (!UUID.test(leadId ?? '')) throw noEncontrado('Lead');
@@ -144,27 +158,23 @@ export default async function rutasChat(app: FastifyInstance) {
       [req.sesion.cuentaId, leadId]);
     if (!lead) throw noEncontrado('Lead');
 
-    let mensaje: Record<string, unknown>;
-    let cuerpo: string;
+    const usuarioId = req.sesion.usuarioId && req.sesion.usuarioId !== 'api-key' ? req.sesion.usuarioId : null;
     if (d.recurso_id) {
-      const rec = await queryOne(
-        `SELECT id, nombre, tipo, texto, url, token, (datos IS NOT NULL) AS tiene_archivo
-           FROM recursos WHERE cuenta_id=$1 AND id=$2`, [req.sesion.cuentaId, d.recurso_id]);
-      if (!rec) throw noEncontrado('Recurso');
-      ({ mensaje, cuerpo } = mensajeDeRecurso(rec));
-    } else {
-      const texto = (d.texto ?? '').trim();
-      if (!texto) throw peticionInvalida('El mensaje está vacío');
-      mensaje = { text: texto };
-      cuerpo = texto;
+      // Atajo suelto o secuencia (el primero sale ya; el resto queda programado).
+      const env = await enviarAtajo(req.sesion.cuentaId, leadId, d.recurso_id, usuarioId);
+      if (!env) throw noEncontrado('Recurso');
+      return reply.code(201).send({ ...env.msg, aviso: env.r.ok ? null : env.r.error, programados: env.programados });
     }
+    const texto = (d.texto ?? '').trim();
+    if (!texto) throw peticionInvalida('El mensaje está vacío');
+    const mensaje: Record<string, unknown> = { text: texto };
+    const cuerpo = texto;
 
     // Lo manda por Instagram; si no se puede, queda guardado con el motivo.
     const r = lead.ig_user_id
       ? await enviarMensajeIG(req.sesion.cuentaId, { igId: lead.ig_user_id }, mensaje)
       : { ok: false, error: 'Este lead no tiene Instagram vinculado (entró por otra vía)' };
-    const usuarioId = req.sesion.usuarioId && req.sesion.usuarioId !== 'api-key' ? req.sesion.usuarioId : null;
-    const msg = await registrarSaliente(req.sesion.cuentaId, leadId, cuerpo, d.recurso_id ?? null, r, usuarioId);
+    const msg = await registrarSaliente(req.sesion.cuentaId, leadId, cuerpo, null, r, usuarioId);
     return reply.code(201).send({ ...msg, aviso: r.ok ? null : r.error });
   });
 }

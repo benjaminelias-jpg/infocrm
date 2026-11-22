@@ -1,4 +1,5 @@
 import { fmtDinero } from '../../api';
+import { estiloEtiqueta } from '../../etiquetas';
 import Icono from '../Iconos';
 import { Temperatura } from './temperatura';
 
@@ -22,7 +23,8 @@ export function fechaCorta(iso?: string | null) {
 
 function EtiquetaChica({ children, ancho = 'max-w-[40%]' }: { children: React.ReactNode; ancho?: string }) {
   return (
-    <span className={`${ancho} shrink-0 truncate rounded border border-[var(--border-hairline)] px-1.5 py-px text-[11px] leading-[16px] text-[var(--text-secondary)]`}>
+    <span className={`${ancho} shrink-0 truncate rounded border border-[var(--border-hairline)] px-1.5 py-px text-[11px] leading-[16px] text-[var(--text-secondary)]`}
+      style={typeof children === 'string' ? estiloEtiqueta(children) : undefined}>
       {children}
     </span>
   );

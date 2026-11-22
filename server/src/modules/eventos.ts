@@ -8,6 +8,7 @@ import {
 } from './atribucion.js';
 import { oportunidadAbierta, moverEtapa, etapaParaEvento, ejecutarAccionesEtapa } from './pipeline.js';
 import { ejecutarReglas } from './reglas.js';
+import { quitarAgendaEnviada } from './agenda.js';
 import { recomputarScore } from './infoproduccion.js';
 import { despacharEvento } from './webhooks_salida.js';
 import { sincronizarVentaDeEvento, sincronizarReembolsoDeEvento } from './ventas_sync.js';
@@ -304,6 +305,9 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
         idempotencyKey: entrada.idempotencyKey, ocurridoEn,
       });
     }
+
+    // 7b. Agendó: ya no está «esperando con el calendario».
+    if (entrada.tipo === 'reunion_agendada' && leadId) await quitarAgendaEnviada(c, leadId);
 
     // 8. Movimiento de etapa según el mapeo evento -> etapa
     let etapaMovida: { desde: string | null; hasta: string } | null = null;

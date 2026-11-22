@@ -1,4 +1,5 @@
 import { fmtDinero } from '../../api';
+import { ETIQUETA_AGENDA, estiloEtiqueta } from '../../etiquetas';
 import { Menu, ItemMenu, SeparadorMenu } from '../../ui';
 import Icono from '../Iconos';
 import { resumirAcciones } from './acciones';
@@ -24,7 +25,8 @@ export function fechaCorta(iso?: string | null) {
 
 function EtiquetaChica({ children, ancho = 'max-w-[45%]' }: { children: React.ReactNode; ancho?: string }) {
   return (
-    <span className={`${ancho} shrink-0 truncate rounded border border-[var(--border-hairline)] px-1.5 py-px text-[11px] leading-[16px] text-[var(--text-secondary)]`}>
+    <span className={`${ancho} shrink-0 truncate rounded border border-[var(--border-hairline)] px-1.5 py-px text-[11px] leading-[16px] text-[var(--text-secondary)]`}
+      style={typeof children === 'string' ? estiloEtiqueta(children) : undefined}>
       {children}
     </span>
   );
@@ -69,7 +71,7 @@ export default function Tarjeta({ t, etapas, usuarios, onAbrir, onChat, onMover,
       onClick={onAbrir} role="button" tabIndex={0} aria-label={`${quien}${t.propietario_nombre ? `, lo atiende ${t.propietario_nombre}` : ''}`}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrir(); } }}
       className="group ui-foco cursor-pointer rounded-lg border border-[var(--border-hairline)] px-3 py-2 transition-shadow hover:shadow-md"
-      style={{ background: 'var(--surface-1)' }}>
+      style={{ background: 'var(--surface-1)', ...(etiquetas.includes(ETIQUETA_AGENDA) ? { borderLeft: '3px solid var(--status-critical)' } : {}) }}>
       <div className="flex items-center justify-between gap-2 text-[12px]">
         {conDueno ? <span className="min-w-0 truncate text-[var(--text-primary)]">{t.propietario_nombre}</span> : nombreAzul}
         <span className="flex shrink-0 items-center gap-1">

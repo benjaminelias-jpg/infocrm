@@ -1,3 +1,4 @@
+import { procesarEnviosProgramados } from '../modules/secuencias.js';
 import { importarConversaciones, importarSiToca } from '../modules/instagram_chats.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
@@ -189,6 +190,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
   // Novedades mientras el Chat está abierto (con freno para no saturar a Meta).
   app.post('/api/instagram/novedades-chats', async (req) => {
     const integ = await queryOne(`SELECT 1 FROM integraciones WHERE cuenta_id = $1 AND tipo = 'instagram' AND estado = 'conectado'`, [req.sesion.cuentaId]);
+    await procesarEnviosProgramados(req.sesion.cuentaId).catch(() => 0);
     if (!integ) return { ok: true, omitido: true };
     return importarSiToca(req.sesion.cuentaId).catch(() => ({ ok: false }));
   });
@@ -439,6 +441,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
       return reply.code(401).send({ error: 'no_autorizado' });
     }
     const reanudadas = await procesarEsperasVencidas(undefined, 50);
+    await procesarEnviosProgramados(undefined, 100).catch(() => 0);
     // De paso, renueva las conexiones de Instagram que vencen en < 15 días.
     const instagram = await renovarTokensPorVencer().catch((err) => {
       req.log.error({ err }, 'renovando conexiones de Instagram');

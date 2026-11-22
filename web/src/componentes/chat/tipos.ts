@@ -7,6 +7,8 @@ export type AutorTipo = 'lead' | 'yo' | 'equipo' | 'automatico';
 
 export interface Conversacion {
   id: string;
+  /** Se le mandó el link de agenda y todavía no agendó. */
+  calendario_enviado?: boolean;
   nombre: string | null;
   apellido: string | null;
   ig_username: string | null;
@@ -97,8 +99,12 @@ export interface Hilo {
 export interface Recurso {
   id: string;
   nombre: string;
-  tipo: 'audio' | 'pdf' | 'imagen' | 'video' | 'texto' | 'link';
+  tipo: 'audio' | 'pdf' | 'imagen' | 'video' | 'texto' | 'link' | 'secuencia';
   texto: string | null;
+  /** Secuencia: los atajos que manda, con la espera (en segundos) antes de cada uno. */
+  pasos?: Array<{ recurso_id: string; espera_seg: number }> | null;
+  /** Link de agenda: al mandarlo, el lead queda «Calendario enviado» hasta que agenda. */
+  es_agenda?: boolean;
   url: string | null;
   url_publica: string | null;
   veces_usado: number;

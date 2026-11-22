@@ -15,6 +15,7 @@ import { esDueno, yo, type EstadoIG } from './datos';
 import { alTerminarEnvio, descartar, deshacer, encolar, ESPERA_ATAJO_MS, limpiarConfirmados, reintentar, useLocales } from './envios';
 import { IconoChat } from './iconos';
 import { ProbarLead } from './ProbarLead';
+import { Programados } from './Programados';
 import { useHilo } from './useHilo';
 import { copiar, esTactil, fuenteEvento, haceCorto, iconoEvento, fmtEvento, primerNombre, rellenar } from './util';
 import type { Conversacion, Etapa, Hilo, LeadHilo, Pipeline } from './tipos';
@@ -444,6 +445,7 @@ export function PanelHilo({
           </div>
         )}
         <FilaAtajos items={atajos} onUsar={usarAtajo} onCrear={onCrearAtajo} onGestionar={onGestionarAtajos} ocupado={!hilo} />
+        <Programados leadId={leadId} />
         <CajaMensaje key={leadId} ref={caja} leadId={leadId} nombreLead={nombre} modo={modo} deshabilitado={!hilo}
           placeholder={igCaido || cerrada ? (unaColumna ? 'Escribí una nota…' : 'Escribí una nota (no le llega)…') : 'Escribí un mensaje…'}
           aviso={avisoCaja} atajos={atajos} onEnviar={mandarTexto} onUsarAtajo={usarAtajo} onAbrirAtajos={() => setPaleta(true)} />

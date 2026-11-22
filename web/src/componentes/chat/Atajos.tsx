@@ -41,6 +41,7 @@ export function previaDe(i: ItemAtajo) {
   const r = i.recurso;
   if (r.tipo === 'texto') return r.texto ?? '';
   if (r.tipo === 'link') return urlCorta(r.url);
+  if (r.tipo === 'secuencia') return `Secuencia de ${r.pasos?.length ?? 0} atajos`;
   if (r.tipo === 'audio') return 'Nota de voz';
   return r.tipo === 'pdf' ? 'PDF' : r.tipo === 'imagen' ? 'Imagen' : 'Video';
 }

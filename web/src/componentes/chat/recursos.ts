@@ -4,14 +4,15 @@ import type { Recurso } from './tipos';
 // grupos (siempre en el mismo orden) y la conversión de audio a WAV.
 
 export const ICONO_RECURSO: Record<string, string> = {
-  audio: '🎙️', imagen: '🖼️', video: '🎬', pdf: '📄', texto: '⚡', link: '🔗',
+  audio: '🎙️', imagen: '🖼️', video: '🎬', pdf: '📄', texto: '⚡', link: '🔗', secuencia: '🔁',
 };
 
-export type GrupoId = 'audio' | 'texto' | 'enlaces';
+export type GrupoId = 'audio' | 'secuencias' | 'texto' | 'enlaces';
 
 /** Los atajos van agrupados y en este orden; dentro de cada grupo, en el orden que eligió el founder. */
 export const GRUPOS: Array<{ id: GrupoId; tipos: string[]; titulo: string; icono: string; vacio: string }> = [
   { id: 'audio', tipos: ['audio'], titulo: 'Audios del founder', icono: '🎙️', vacio: 'Grabá tu audio de bienvenida: tus setters lo mandan con un toque y le llega al lead como nota de voz.' },
+  { id: 'secuencias', tipos: ['secuencia'], titulo: 'Secuencias', icono: '🔁', vacio: 'Varios atajos seguidos con una espera entre cada uno. Ej. «Secuencia A»: 3 audios, uno cada 2 minutos.' },
   { id: 'texto', tipos: ['texto'], titulo: 'Respuestas rápidas', icono: '⚡', vacio: 'Textos que se pegan en la caja para editarlos antes de mandar.' },
   { id: 'enlaces', tipos: ['link', 'pdf', 'imagen', 'video'], titulo: 'Enlaces y archivos', icono: '🔗', vacio: 'Tu calendario, un PDF o una imagen, listos para mandar.' },
 ];

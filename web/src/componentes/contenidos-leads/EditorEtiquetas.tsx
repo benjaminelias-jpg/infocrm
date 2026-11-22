@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { estiloEtiqueta } from '../../etiquetas';
 
 // Etiquetas del lead en línea: chips con ✕ para quitar y un "+ Etiqueta"
 // al final que abre un campo con sugerencias (las que ya usás en la cuenta).
@@ -31,7 +32,7 @@ export default function EditorEtiquetas({ etiquetas, sugerencias, onCambiar, des
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {etiquetas.map((e) => (
-        <span key={e} className="inline-flex h-7 items-center gap-0.5 rounded-md border border-[var(--border-hairline)] pl-2 text-[12px] text-[var(--text-secondary)]">
+        <span key={e} className="inline-flex h-7 items-center gap-0.5 rounded-md border border-[var(--border-hairline)] pl-2 text-[12px] text-[var(--text-secondary)]" style={estiloEtiqueta(e)}>
           {e}
           <button type="button" disabled={deshabilitado} onClick={() => onCambiar(etiquetas.filter((x) => x !== e), { quitada: e })}
             aria-label={`Quitar la etiqueta ${e}`}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, fmtNum } from '../api';
 import {
-  AreaTexto, BotonConfirmar, BotonIcono, Boton, Campo, Dialogo, Entrada, ItemMenu, Menu, SeparadorMenu, TituloSeccion, useAviso,
+  AreaTexto, BotonConfirmar, BotonIcono, Boton, Campo, Dialogo, Entrada, Interruptor, ItemMenu, Menu, SeparadorMenu, TituloSeccion, useAviso,
 } from '../ui';
 import Icono from './Iconos';
 import { fijarRecursos, leerRecursos, recargarRecursos, useAtajosDatos } from './chat/datos';
@@ -18,7 +18,7 @@ import type { Recurso } from './chat/tipos';
 
 export { ICONO_RECURSO };
 
-export type TipoNuevo = 'audio' | 'texto' | 'link' | 'archivo';
+export type TipoNuevo = 'audio' | 'texto' | 'link' | 'archivo' | 'secuencia';
 
 const RAPIDAS_SUGERIDAS = [
   ['Saludo', '¡Hola {{nombre}}! 👋 Gracias por escribir. ¿Qué te gustaría lograr?'],
@@ -55,7 +55,8 @@ const borrados = new Map<string, number>();
 
 function segundaLinea(r: Recurso) {
   if (r.tipo === 'texto') return r.texto ?? '';
-  if (r.tipo === 'link') return urlCorta(r.url);
+  if (r.tipo === 'secuencia') return resumenSecuencia(r, leerRecursos());
+  if (r.tipo === 'link') return `${r.es_agenda || esUrlAgenda(r.url) ? '📅 Agenda · ' : ''}${urlCorta(r.url)}`;
   if (r.tipo === 'audio') return 'Nota de voz';
   return r.tipo === 'pdf' ? 'PDF' : r.tipo === 'imagen' ? 'Imagen' : 'Video';
 }
@@ -64,7 +65,114 @@ function segundaLinea(r: Recurso) {
 // Crear
 // ---------------------------------------------------------------------
 
+const URL_AGENDA = /calendly\.com|(^|\/\/|\.)cal\.com\/|tidycal\.com|zcal\.co|savvycal\.com|calendar\.app\.google|calendar\.google\.com\/calendar\/appointments|meetings\.hubspot\.com|koalendar\.com|youcanbook\.me|acuityscheduling\.com|setmore\.com/i;
+export const esUrlAgenda = (u?: string | null) => URL_AGENDA.test(u ?? '');
+
+function fmtEspera(seg: number) {
+  if (!seg) return 'al toque';
+  if (seg < 60) return `${seg} s`;
+  if (seg % 3600 === 0) return `${seg / 3600} h`;
+  return `${Math.round(seg / 60)} min`;
+}
+
+function resumenSecuencia(r: Recurso, todos: Recurso[]) {
+  const pasos = r.pasos ?? [];
+  const porId = new Map(todos.map((x) => [x.id, x]));
+  const nombres = pasos.map((p) => porId.get(p.recurso_id)?.nombre ?? '(borrado)');
+  const esperas = pasos.slice(1).map((p) => p.espera_seg);
+  const igual = esperas.length && esperas.every((e) => e === esperas[0]);
+  return `${pasos.length} atajos${igual ? `, uno cada ${fmtEspera(esperas[0])}` : ''} · ${nombres.join(' → ')}`;
+}
+
+/** Crear o editar una secuencia: atajos en orden con la espera antes de cada uno. */
+function FormSecuencia({ inicial, onListo, onCancelar }: {
+  inicial?: Recurso; onListo: (texto: string) => void; onCancelar: () => void;
+}) {
+  const { recursos } = useAtajosDatos();
+  const elegibles = recursos.filter((r) => r.tipo !== 'secuencia' && r.id !== inicial?.id);
+  const [nombre, setNombre] = useState(inicial?.nombre ?? '');
+  const [pasos, setPasos] = useState<Array<{ recurso_id: string; min: string }>>(
+    inicial?.pasos?.length
+      ? inicial.pasos.map((p) => ({ recurso_id: p.recurso_id, min: String(Math.round((p.espera_seg ?? 0) / 60 * 10) / 10) }))
+      : [{ recurso_id: '', min: '0' }, { recurso_id: '', min: '2' }]);
+  const [ocupado, setOcupado] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cambiar = (i: number, x: Partial<{ recurso_id: string; min: string }>) => setPasos((ps) => ps.map((p, j) => (j === i ? { ...p, ...x } : p)));
+
+  async function guardar(e?: React.FormEvent) {
+    e?.preventDefault();
+    const n = nombre.trim();
+    const validos = pasos.filter((p) => p.recurso_id);
+    if (!n) { setError('Ponele un nombre (ej. Secuencia A).'); return; }
+    if (validos.length < 2) { setError('Elegí al menos 2 atajos.'); return; }
+    const cuerpo = {
+      nombre: n, tipo: 'secuencia',
+      pasos: validos.map((p, i) => ({ recurso_id: p.recurso_id, espera_seg: i === 0 ? 0 : Math.max(0, Math.round(Number(p.min.replace(',', '.')) * 60) || 0) })),
+    };
+    setOcupado(true); setError(null);
+    try {
+      if (inicial) await api(`/recursos/${inicial.id}`, { method: 'PATCH', json: { nombre: n, pasos: cuerpo.pasos } });
+      else await api('/recursos', { method: 'POST', json: cuerpo });
+      await recargarRecursos();
+      onListo(inicial ? `Secuencia «${n}» actualizada.` : `Secuencia «${n}» creada: aparece en los atajos del Chat.`);
+    } catch (err: any) { setError(err.message); } finally { setOcupado(false); }
+  }
+
+  return (
+    <form onSubmit={guardar} className="tarjeta mb-2 space-y-3 p-3">
+      <Campo etiqueta="Nombre" htmlFor="sec-nombre">
+        <Entrada id="sec-nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Secuencia A" maxLength={80} autoFocus={!inicial} />
+      </Campo>
+      <div className="space-y-2">
+        {pasos.map((p, i) => (
+          <div key={i} className="flex flex-wrap items-center gap-2">
+            <span className="w-5 text-center text-[12px] text-[var(--text-muted)]">{i + 1}</span>
+            <select value={p.recurso_id} onChange={(e) => cambiar(i, { recurso_id: e.target.value })} aria-label={`Atajo ${i + 1}`}
+              className="ui-control ui-foco h-9 min-w-0 flex-1 rounded-md px-2 text-[13px]">
+              <option value="">Elegí un atajo…</option>
+              {elegibles.map((r) => <option key={r.id} value={r.id}>{ICONO_RECURSO[r.tipo] ?? '📎'} {r.nombre}</option>)}
+            </select>
+            {i > 0 ? (
+              <label className="flex items-center gap-1 text-[12px] text-[var(--text-secondary)]">
+                después de
+                <Entrada value={p.min} onChange={(e) => cambiar(i, { min: e.target.value })} inputMode="decimal" className="!w-16" aria-label={`Minutos antes del atajo ${i + 1}`} />
+                min
+              </label>
+            ) : <span className="text-[12px] text-[var(--text-muted)]">sale al toque</span>}
+            {pasos.length > 2 && (
+              <BotonIcono etiqueta={`Quitar el atajo ${i + 1}`} tamano="sm" onClick={() => setPasos((ps) => ps.filter((_, j) => j !== i))}>
+                <Icono nombre="cerrar" tam={14} />
+              </BotonIcono>
+            )}
+          </div>
+        ))}
+        {pasos.length < 10 && (
+          <Boton type="button" tamano="sm" variante="secundario" onClick={() => setPasos((ps) => [...ps, { recurso_id: '', min: ps[ps.length - 1]?.min ?? '2' }])}>
+            + Agregar otro atajo
+          </Boton>
+        )}
+      </div>
+      <p className="text-[12px] text-[var(--text-muted)]">
+        El primero sale al tocar la secuencia en el Chat; los demás salen solos con esa espera (se pueden cancelar desde la conversación).
+        Instagram solo deja escribir dentro de las 24 h desde el último mensaje del lead.
+      </p>
+      {error && <p className="text-[12px]" style={{ color: 'var(--status-critical)' }}>{error}</p>}
+      <div className="flex justify-end gap-2">
+        <Boton type="button" variante="fantasma" tamano="sm" onClick={onCancelar}>Cancelar</Boton>
+        <Boton type="submit" variante="primario" tamano="sm" cargando={ocupado}>Guardar</Boton>
+      </div>
+    </form>
+  );
+}
+
 function FormNuevo({ tipo, onListo, onCancelar, onCambiarTipo }: {
+  tipo: TipoNuevo; onListo: (texto: string) => void; onCancelar: () => void; onCambiarTipo: (t: TipoNuevo) => void;
+}) {
+  if (tipo === 'secuencia') return <FormSecuencia onListo={onListo} onCancelar={onCancelar} />;
+  return <FormNuevoSimple tipo={tipo} onListo={onListo} onCancelar={onCancelar} onCambiarTipo={onCambiarTipo} />;
+}
+
+function FormNuevoSimple({ tipo, onListo, onCancelar, onCambiarTipo }: {
   tipo: TipoNuevo; onListo: (texto: string) => void; onCancelar: () => void; onCambiarTipo: (t: TipoNuevo) => void;
 }) {
   const aviso = useAviso();
@@ -123,7 +231,7 @@ function FormNuevo({ tipo, onListo, onCancelar, onCambiarTipo }: {
     }
   }
 
-  const titulo = { audio: 'Nuevo audio del founder', texto: 'Nueva respuesta rápida', link: 'Nuevo enlace', archivo: 'Subir un archivo' }[tipo];
+  const titulo = { audio: 'Nuevo audio del founder', texto: 'Nueva respuesta rápida', link: 'Nuevo enlace', archivo: 'Subir un archivo', secuencia: 'Nueva secuencia' }[tipo];
   return (
     <div ref={caja} className="tarjeta mb-2 space-y-2.5 p-3">
       <div className="text-[13px] font-semibold">{titulo}</div>
@@ -187,6 +295,7 @@ function EditarAtajo({ r, onCerrar, onBorrar }: { r: Recurso; onCerrar: () => vo
   const aviso = useAviso();
   const [nombre, setNombre] = useState(r.nombre);
   const [valor, setValor] = useState(r.tipo === 'texto' ? r.texto ?? '' : r.tipo === 'link' ? r.url ?? '' : '');
+  const [agenda, setAgenda] = useState(Boolean(r.es_agenda));
   const [regrabar, setRegrabar] = useState(false);
   const [audio, setAudio] = useState<Blob | null>(null);
   const [archivo, setArchivo] = useState<File | null>(null);
@@ -210,8 +319,10 @@ function EditarAtajo({ r, onCerrar, onBorrar }: { r: Recurso; onCerrar: () => vo
         if (p.tipo !== r.tipo) throw new Error(`Elegí un archivo del mismo tipo (${r.tipo === 'pdf' ? 'PDF' : r.tipo}).`);
         cuerpo.archivo_base64 = p.base64; cuerpo.mime = p.mime;
       }
-      if (!Object.keys(cuerpo).length) { onCerrar(); return; }
-      await api(`/ux/chat/recursos/${r.id}`, { method: 'PATCH', json: cuerpo });
+      const cambioAgenda = r.tipo === 'link' && agenda !== Boolean(r.es_agenda);
+      if (!Object.keys(cuerpo).length && !cambioAgenda) { onCerrar(); return; }
+      if (cambioAgenda) await api(`/recursos/${r.id}`, { method: 'PATCH', json: { es_agenda: agenda } });
+      if (Object.keys(cuerpo).length) await api(`/ux/chat/recursos/${r.id}`, { method: 'PATCH', json: cuerpo });
       await recargarRecursos();
       aviso.exito(`«${(cuerpo.nombre as string) ?? r.nombre}» guardado.`);
       onCerrar();
@@ -236,9 +347,17 @@ function EditarAtajo({ r, onCerrar, onBorrar }: { r: Recurso; onCerrar: () => vo
           </Campo>
         )}
         {r.tipo === 'link' && (
-          <Campo etiqueta="Enlace" htmlFor="editar-url">
-            <Entrada id="editar-url" value={valor} onChange={(e) => setValor(e.target.value)} inputMode="url" />
-          </Campo>
+          <>
+            <Campo etiqueta="Enlace" htmlFor="editar-url">
+              <Entrada id="editar-url" value={valor} onChange={(e) => setValor(e.target.value)} inputMode="url" />
+            </Campo>
+            {esUrlAgenda(valor) ? (
+              <p className="text-[12px] text-[var(--text-muted)]">📅 Es un link de agenda: al mandarlo, el lead queda en rojo con «Calendario enviado» hasta que agenda.</p>
+            ) : (
+              <Interruptor activo={agenda} onCambiar={setAgenda}
+                etiqueta="Es mi link de agenda (al mandarlo, el lead queda en rojo con «Calendario enviado» hasta que agenda)" />
+            )}
+          </>
         )}
         {r.tipo === 'audio' && (
           <div className="space-y-2">
@@ -387,7 +506,7 @@ export default function GestorRecursos({ onCerrar, crear, onCrearVisto }: {
     } catch (e: any) { aviso.error(e.message); } finally { setOcupado(false); }
   }
 
-  const formDeGrupo = (g: GrupoId): TipoNuevo[] => (g === 'audio' ? ['audio'] : g === 'texto' ? ['texto'] : ['link', 'archivo']);
+  const formDeGrupo = (g: GrupoId): TipoNuevo[] => (g === 'audio' ? ['audio'] : g === 'secuencias' ? ['secuencia'] : g === 'texto' ? ['texto'] : ['link', 'archivo']);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -449,7 +568,11 @@ export default function GestorRecursos({ onCerrar, crear, onCrearVisto }: {
           );
         })}
       </div>
-      {editando && <EditarAtajo r={editando} onCerrar={() => setEditando(null)} onBorrar={borrar} />}
+      {editando && editando.tipo === 'secuencia' ? (
+        <Dialogo abierto titulo="Editar secuencia" onCerrar={() => setEditando(null)}>
+          <FormSecuencia inicial={editando} onCancelar={() => setEditando(null)} onListo={(t) => { setEditando(null); aviso.exito(t); }} />
+        </Dialogo>
+      ) : editando && <EditarAtajo r={editando} onCerrar={() => setEditando(null)} onBorrar={borrar} />}
     </div>
   );
 }

@@ -765,8 +765,15 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
               <option value="texto">¿Su mensaje dice…?</option>
               <option value="email">¿Ya tenemos su email?</option>
               <option value="telefono">¿Ya tenemos su teléfono?</option>
+              <option value="sigue">¿Te sigue en Instagram?</option>
             </Seleccion>
           </Campo>
+          {p.campo === 'sigue' && (
+            <p className="text-[12px] text-[var(--text-muted)]">
+              Instagram solo deja revisarlo si la persona ya te escribió o comentó. Ideal para «seguime y tocá <i>Ya te sigo</i>»:
+              en «No», mandá una pregunta con ese botón y volvé a esta condición.
+            </p>
+          )}
           {p.campo === 'etapa' ? (
             <Seleccion value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} aria-label="Etapa">
               <option value="">Elegí la etapa…</option>

@@ -189,6 +189,7 @@ export function describirCondicion(p: Paso) {
     case 'email': return '¿Ya tenemos su email?';
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor || '…'}»?`;
+    case 'sigue': return '¿Te sigue en Instagram?';
     default: return '¿Se cumple?';
   }
 }

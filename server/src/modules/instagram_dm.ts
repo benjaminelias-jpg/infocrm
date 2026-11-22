@@ -2,6 +2,7 @@ import { pool, query, queryOne } from '../db/pool.js';
 import { config } from '../config.js';
 import { integracionInstagram, credsUsables } from './instagram.js';
 import { moverEtapa, oportunidadAbierta } from './pipeline.js';
+import { esLinkDeAgenda, marcarAgendaEnviada } from './agenda.js';
 
 // =====================================================================
 // "ManyChat propio": envío de mensajes por Instagram + motor de flujos.
@@ -147,7 +148,7 @@ export function mensajeDeRecurso(r: any): { mensaje: Record<string, unknown>; de
 async function recursoPorId(cuentaId: string, id?: string) {
   if (!id) return null;
   return queryOne(
-    `SELECT id, nombre, tipo, texto, url, token, (datos IS NOT NULL) AS tiene_archivo
+    `SELECT id, nombre, tipo, texto, url, token, es_agenda, (datos IS NOT NULL) AS tiene_archivo
        FROM recursos WHERE cuenta_id=$1 AND id=$2`, [cuentaId, id]);
 }
 
@@ -535,6 +536,7 @@ export function describirCondicion(p: Paso): string {
     case 'email': return '¿Ya tenemos su email?';
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor}»?`;
+    case 'sigue': return '¿Te sigue en Instagram?';
     default: return '¿Se cumple la condición?';
   }
 }
@@ -607,8 +609,37 @@ async function evaluarCondicion(c: Corrida, p: Paso): Promise<boolean> {
     }
     case 'email': return !!lead.email;
     case 'telefono': return !!lead.telefono;
+    case 'sigue': return lead.ig_user_id ? (await sigueALaCuenta(c.cuentaId, String(lead.ig_user_id))) === true : false;
     default: return false;
   }
+}
+
+/**
+ * ¿Esta persona sigue a la cuenta? (is_user_follow_business). Instagram solo lo
+ * responde si la persona ya le escribió o comentó. Con token de Facebook hace
+ * falta el token de la página vinculada: se busca y se reintenta.
+ * Devuelve null si no se pudo saber.
+ */
+export async function sigueALaCuenta(cuentaId: string, igsid: string): Promise<boolean | null> {
+  const integ = await integracionInstagram(cuentaId);
+  const { base, token, igId } = credsUsables(integ?.credenciales ?? {});
+  if (!token) return null;
+  const consultar = async (t: string) => {
+    const r = await fetch(`${base}/${encodeURIComponent(igsid)}?fields=is_user_follow_business&access_token=${encodeURIComponent(t)}`,
+      { signal: AbortSignal.timeout(8000) });
+    const d: any = await r.json().catch(() => ({}));
+    return r.ok && !d.error && typeof d.is_user_follow_business === 'boolean' ? d.is_user_follow_business as boolean : null;
+  };
+  try {
+    const directo = await consultar(token);
+    if (directo !== null) return directo;
+    if (!base.includes('facebook.com') || !igId) return null;
+    const r = await fetch(`${base}/me/accounts?fields=access_token,instagram_business_account&limit=100&access_token=${encodeURIComponent(token)}`,
+      { signal: AbortSignal.timeout(8000) });
+    const d: any = await r.json().catch(() => ({}));
+    const pagina = (d.data ?? []).find((p: any) => String(p.instagram_business_account?.id ?? '') === String(igId));
+    return pagina?.access_token ? await consultar(pagina.access_token) : null;
+  } catch { return null; }
 }
 
 /** Manda un mensaje dentro de una corrida, lo guarda en el Chat y lo anota. */
@@ -699,7 +730,8 @@ async function accion(c: Corrida, p: Paso) {
       const rec = await recursoPorId(c.cuentaId, p.recurso_id);
       if (!rec) { anotar(c, p.tipo, '⚠ El audio/recurso elegido ya no existe (¿lo borraron?): lo salteo'); return; }
       const { mensaje, descripcion, cuerpo } = mensajeDeRecurso(rec);
-      await enviar(c, mensaje, descripcion, cuerpo, rec.id);
+      const salio = await enviar(c, mensaje, descripcion, cuerpo, rec.id);
+      if (salio && !c.ctx.simular && c.ctx.leadId && esLinkDeAgenda(rec)) await marcarAgendaEnviada(c.cuentaId, c.ctx.leadId);
       return;
     }
     case 'responder_comentario': {
