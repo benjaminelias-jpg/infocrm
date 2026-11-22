@@ -142,6 +142,19 @@ export default function Chat() {
     return () => window.clearTimeout(t);
   }, [sel, siguiente?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Novedades de Instagram (DMs nuevos) al abrir el Chat y cada 45 s.
+  useEffect(() => {
+    const pedir = () => {
+      if (document.visibilityState !== 'visible') return;
+      api<any>('/instagram/novedades-chats', { method: 'POST' })
+        .then((r) => { if (r?.mensajes || r?.leadsNuevos) bandeja.refrescar(); })
+        .catch(() => {});
+    };
+    pedir();
+    const t = window.setInterval(pedir, 45_000);
+    return () => window.clearInterval(t);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Refresco liviano de la lista mientras la pestaña está a la vista.
   useEffect(() => {
     const tic = () => { if (document.visibilityState === 'visible') bandeja.refrescar(); };

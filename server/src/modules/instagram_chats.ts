@@ -30,6 +30,7 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
       if (!otro?.id) continue;
       conversaciones++;
       let lead: any = await queryOne(`SELECT id FROM leads WHERE cuenta_id = $1 AND ig_user_id = $2`, [cuentaId, String(otro.id)]);
+      const existia = Boolean(lead);
       if (!lead) {
         const msgs = c.messages?.data ?? [];
         const primero = msgs.length ? new Date(msgs[msgs.length - 1].created_time) : new Date(c.updated_time ?? Date.now());
@@ -57,6 +58,10 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
           `UPDATE leads SET ultimo_mensaje_en = GREATEST(COALESCE(ultimo_mensaje_en, $2), $2),
                   ultimo_contacto_en = GREATEST(COALESCE(ultimo_contacto_en, $2), $2) WHERE id = $1`, [lead.id, ultimo]);
       }
+      // Mensajes nuevos de alguien que ya estaba: cuentan como sin leer.
+      if (existia && entrantes > 0) {
+        await pool.query(`UPDATE leads SET mensajes_sin_leer = mensajes_sin_leer + $2 WHERE id = $1`, [lead.id, entrantes]);
+      }
       if (entrantes > 0) {
         await registrarEvento({ cuentaId, tipo: 'respondio_dm', leadId: lead.id, fuente: 'instagram', sinReglas: true, idempotencyKey: `ig:conv:r:${c.id}` }).catch(() => {});
       }
@@ -69,4 +74,14 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
       ? `Trajimos ${conversaciones} conversaciones de Instagram (${mensajes} mensajes nuevos).`
       : 'Instagram no devolvió conversaciones. Revisá que en la app de Instagram esté activado «Permitir acceso a los mensajes».',
   };
+}
+
+// El Chat abierto pide novedades seguido; a Meta se le consulta como mucho
+// cada 40 s por cuenta (los avisos al instante necesitan pages_messaging).
+const ultimaVez = new Map<string, number>();
+export async function importarSiToca(cuentaId: string): Promise<ResultadoChats | { ok: true; omitido: true }> {
+  const ahora = Date.now();
+  if (ahora - (ultimaVez.get(cuentaId) ?? 0) < 40_000) return { ok: true, omitido: true };
+  ultimaVez.set(cuentaId, ahora);
+  return importarConversaciones(cuentaId, { limite: 50 });
 }

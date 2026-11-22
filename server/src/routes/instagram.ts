@@ -1,4 +1,4 @@
-import { importarConversaciones } from '../modules/instagram_chats.js';
+import { importarConversaciones, importarSiToca } from '../modules/instagram_chats.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -186,6 +186,12 @@ export default async function rutasInstagram(app: FastifyInstance) {
 
   // Trae el historial de DMs de Instagram al Chat (idempotente).
   app.post('/api/instagram/importar-chats', async (req) => importarConversaciones(req.sesion.cuentaId, { limite: 200 }));
+  // Novedades mientras el Chat está abierto (con freno para no saturar a Meta).
+  app.post('/api/instagram/novedades-chats', async (req) => {
+    const integ = await queryOne(`SELECT 1 FROM integraciones WHERE cuenta_id = $1 AND tipo = 'instagram' AND estado = 'conectado'`, [req.sesion.cuentaId]);
+    if (!integ) return { ok: true, omitido: true };
+    return importarSiToca(req.sesion.cuentaId).catch(() => ({ ok: false }));
+  });
 
   app.get('/api/instagram/oauth/start', async (req, reply) => {
     const r = await urlAutorizacion(req.sesion.cuentaId);
