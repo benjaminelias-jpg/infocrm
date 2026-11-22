@@ -197,8 +197,10 @@ export const ETIQUETA_PASO: Record<string, string> = {
 
 /** Ids a los que apunta un paso. */
 export function salidas(n: Paso): Array<string | null | undefined> {
-  if (n.tipo === 'pregunta') return (n.opciones ?? []).map((o: any) => o.siguiente);
+  const sin = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta') && n.limite_min ? [n.siguiente_sin_respuesta] : [];
+  if (n.tipo === 'pregunta') return [...(n.opciones ?? []).map((o: any) => o.siguiente), ...sin];
   if (n.tipo === 'condicion') return [n.siguiente_si, n.siguiente_no];
+  if (n.tipo === 'esperar_respuesta') return [n.siguiente, ...sin, ...(Array.isArray(n.tambien) ? n.tambien : [])];
   const extra = Array.isArray(n.tambien) ? n.tambien : [];
   if (n.tipo === 'router') return [...(n.ramas ?? []).map((r: any) => r.siguiente), ...extra];
   return [n.siguiente, ...extra];
@@ -342,6 +344,12 @@ export function normalizarFlujo(pasos: any): Paso[] {
     } else {
       m.siguiente = ok(m.siguiente);
     }
+    // «Si no responde en X»: salida de seguimiento (pregunta y esperar respuesta).
+    if (m.tipo === 'pregunta' || m.tipo === 'esperar_respuesta') {
+      const lim = Math.round(Number(m.limite_min) || 0);
+      if (lim > 0) { m.limite_min = Math.min(lim, 7 * 1440); m.siguiente_sin_respuesta = ok(m.siguiente_sin_respuesta); }
+      else { delete m.limite_min; delete m.siguiente_sin_respuesta; }
+    }
     // «Y también»: otros pasos que arrancan desde acá además del siguiente.
     if (m.tipo === 'pregunta' || m.tipo === 'condicion') delete m.tambien;
     else {
@@ -470,9 +478,10 @@ export function advertenciasFlujo(nodos: Paso[]): Array<{ nodo: string | null; t
   const mapa = new Map(nodos.map((n) => [n.id, n]));
   const out: Array<{ nodo: string | null; texto: string }> = [];
   for (const p of nodos) {
-    const min = Number(p.minutos) || 0;
-    if (p.tipo !== 'esperar' || min < 23 * 60) continue;
-    const pila: Array<string | null | undefined> = [p.siguiente];
+    const conLimite = (p.tipo === 'esperar_respuesta' || p.tipo === 'pregunta') && Number(p.limite_min) > 0;
+    const min = conLimite ? Number(p.limite_min) : Number(p.minutos) || 0;
+    if ((p.tipo !== 'esperar' && !conLimite) || min < 23 * 60) continue;
+    const pila: Array<string | null | undefined> = [conLimite ? p.siguiente_sin_respuesta : p.siguiente];
     const vistos = new Set<string>();
     let manda = false;
     while (pila.length && !manda) {
@@ -488,7 +497,7 @@ export function advertenciasFlujo(nodos: Paso[]): Array<{ nodo: string | null; t
     if (manda) {
       out.push({
         nodo: p.id,
-        texto: `Esperar ${fmtMin(min)}: Instagram no deja escribirle pasadas 24 h desde su último mensaje, así que el mensaje que sigue no va a llegar. Usá hasta 23 horas, o hacé que te responda antes (con una pregunta con botón).`,
+        texto: `${conLimite ? 'Si no responde en' : 'Esperar'} ${fmtMin(min)}: Instagram no deja escribirle pasadas 24 h desde su último mensaje, así que el mensaje que sigue no va a llegar. Usá hasta 23 horas, o hacé que te responda antes (con una pregunta con botón).`,
       });
     }
   }
@@ -948,16 +957,25 @@ async function correr(c: Corrida, desde: string | null | undefined): Promise<'fi
           id = elegida.siguiente ?? null;
           continue;
         }
-        await pausar(c, p.id, 'respuesta', null, '⏸ Esperando a que el lead toque un botón');
+        const lim = Number(p.limite_min) || 0;
+        await pausar(c, p.id, 'respuesta', lim > 0 ? new Date(Date.now() + lim * 60_000) : null,
+          lim > 0 ? `⏸ Esperando a que toque un botón (si no, en ${fmtMin(lim)} sigue por «No respondió»)` : '⏸ Esperando a que el lead toque un botón');
         return 'pausa';
       }
       if (p.tipo === 'esperar_respuesta') {
+        if (c.ctx.simular && c.ctx.respuestas?.[p.id] === 'sin' && p.limite_min) {
+          anotar(c, 'esperar', `⏰ (prueba) no respondió en ${fmtMin(Number(p.limite_min))}`);
+          id = p.siguiente_sin_respuesta ?? null;
+          continue;
+        }
         if (c.ctx.simular) {
           await guardarRespuesta(c, p, p.guardar_en === 'email' ? 'ejemplo@correo.com' : 'respuesta de ejemplo');
           id = p.siguiente ?? null;
           continue;
         }
-        await pausar(c, p.id, 'respuesta', null, '⏸ Esperando la respuesta del lead');
+        const lim = Number(p.limite_min) || 0;
+        await pausar(c, p.id, 'respuesta', lim > 0 ? new Date(Date.now() + lim * 60_000) : null,
+          lim > 0 ? `⏸ Esperando su respuesta (si no responde en ${fmtMin(lim)}, sigue por «No respondió»)` : '⏸ Esperando la respuesta del lead');
         return 'pausa';
       }
       if (p.tipo === 'esperar') {
@@ -1088,6 +1106,9 @@ async function reanudar(fila: any, entrada: Entrada) {
   } else if (entrada.tipo === 'respuesta' && nodo.tipo === 'esperar_respuesta') {
     await guardarRespuesta(c, nodo, entrada.texto);
     siguiente = nodo.siguiente ?? null;
+  } else if (entrada.tipo === 'tiempo' && (nodo.tipo === 'esperar_respuesta' || nodo.tipo === 'pregunta')) {
+    anotar(c, 'esperar', `⏰ No respondió en ${fmtMin(Number(nodo.limite_min) || 0)}: sigo con el seguimiento`);
+    siguiente = nodo.siguiente_sin_respuesta ?? null;
   } else if (entrada.tipo === 'tiempo' && nodo.tipo === 'esperar') {
     anotar(c, 'esperar', '⏰ Terminó la espera, sigo');
     siguiente = nodo.siguiente ?? null;
@@ -1154,7 +1175,7 @@ export async function procesarEsperasVencidas(cuentaId?: string, limite = 10): P
     `UPDATE flujo_ejecuciones SET estado = 'ok', actualizado_en = now()
       WHERE id IN (
         SELECT id FROM flujo_ejecuciones
-         WHERE estado = 'esperando' AND esperando = 'tiempo' AND reanudar_en <= now()
+         WHERE estado = 'esperando' AND esperando IN ('tiempo', 'respuesta') AND reanudar_en <= now()
            ${cuentaId ? 'AND cuenta_id = $2' : ''}
          ORDER BY reanudar_en ASC LIMIT $1
          FOR UPDATE SKIP LOCKED)

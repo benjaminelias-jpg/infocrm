@@ -5,7 +5,7 @@ import {
   type Node, type Edge, type NodeChange, type EdgeChange, type Connection, type NodeProps, type EdgeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { AreaTexto, Boton, BotonConfirmar, Campo, Chip, Dialogo, Entrada, FilaChips, Seleccion, useAviso, useEsMovil } from '../ui';
+import { AreaTexto, Boton, BotonConfirmar, Campo, Chip, Dialogo, Entrada, FilaChips, Interruptor, Seleccion, useAviso, useEsMovil } from '../ui';
 import { FormNuevo, type TipoNuevo } from './GestorRecursos';
 import TextoConVariables from './TextoConVariables';
 
@@ -123,6 +123,24 @@ function FilaSalida({ d, id, color, children }: { d: DatosNodo; id: string; colo
   );
 }
 
+const NodoEspera = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
+  const d = data;
+  const p = d.paso;
+  if (!p.limite_min) return <NodoPaso data={data} selected={selected} {...({} as any)} />;
+  const m = NODOS.esperar_respuesta;
+  return (
+    <div className="relative">
+      <Handle type="target" position={Position.Left} id="in" style={estiloPunto('var(--baseline)')} />
+      <Caja d={d} selected={selected} color={m.color}>
+        <Titulo p={p} />
+        <div className="px-3 pb-2 pt-1 text-[11px] text-[var(--text-secondary)]">{resumen(p, d.ctx)}</div>
+        <FilaSalida d={d} id="out" color="var(--status-good)">✍️ Si responde</FilaSalida>
+        <FilaSalida d={d} id="sin" color="var(--status-warning)">⏰ Si no responde en {fmtMin(Number(p.limite_min))}</FilaSalida>
+      </Caja>
+    </div>
+  );
+});
+
 const NodoPregunta = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
   const d = data;
   const p = d.paso;
@@ -137,6 +155,7 @@ const NodoPregunta = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
             👉 {o.titulo || `Botón ${j + 1}`}
           </FilaSalida>
         ))}
+        {p.limite_min ? <FilaSalida d={d} id="sin" color="var(--status-warning)">⏰ Si no toca nada en {fmtMin(Number(p.limite_min))}</FilaSalida> : null}
       </Caja>
     </div>
   );
@@ -202,9 +221,9 @@ const NodoRouter = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
   );
 });
 
-const TIPOS_NODO = { inicio: NodoInicio, paso: NodoPaso, pregunta: NodoPregunta, condicion: NodoCondicion, router: NodoRouter };
+const TIPOS_NODO = { inicio: NodoInicio, paso: NodoPaso, pregunta: NodoPregunta, condicion: NodoCondicion, router: NodoRouter, espera: NodoEspera };
 const TIPOS_FLECHA = { borrable: FlechaBorrable };
-const tipoNodo = (t: string) => (t === 'inicio' || t === 'pregunta' || t === 'condicion' || t === 'router' ? t : 'paso');
+const tipoNodo = (t: string) => (t === 'esperar_respuesta' ? 'espera' : t === 'inicio' || t === 'pregunta' || t === 'condicion' || t === 'router' ? t : 'paso');
 
 // ---------------------------------------------------------------------
 // Pizarra
@@ -491,6 +510,8 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
           isValidConnection={(c) => c.target !== 'inicio' && c.source !== c.target}
           deleteKeyCode={['Backspace', 'Delete']} snapToGrid snapGrid={[20, 20]}
           minZoom={0.15} maxZoom={1.8} colorMode={modoColor()}
+          // Trackpad: dos dedos mueven la pizarra; pellizcar hace zoom (como Figma/n8n).
+          panOnScroll zoomOnScroll={false} zoomOnPinch panOnDrag
           defaultEdgeOptions={{ type: 'borrable' }} connectionRadius={36} proOptions={{ hideAttribution: true }}
         >
           <Background variant={BackgroundVariant.Dots} gap={20} size={1.6} />
@@ -646,6 +667,34 @@ function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: 
 
 const ICONO_RECURSO: Record<string, string> = { audio: '🎙️', pdf: '📄', imagen: '🖼️', video: '🎬', link: '🔗' };
 
+/** «Si no responde en X»: activa una segunda salida para el seguimiento. */
+function LimiteRespuesta({ p, onChange, que = 'responde' }: { p: Paso; onChange: (p: Paso) => void; que?: string }) {
+  const lim = Number(p.limite_min) || 0;
+  const enHoras = lim >= 60 && lim % 60 === 0;
+  const [unidad, setUnidad] = useState<'min' | 'h'>(enHoras || !lim ? 'h' : 'min');
+  const valor = lim ? (unidad === 'h' ? lim / 60 : lim) : '';
+  const fijar = (v: number, u = unidad) => onChange({ ...p, limite_min: v > 0 ? Math.round(u === 'h' ? v * 60 : v) : 0, ...(v > 0 ? {} : { siguiente_sin_respuesta: null }) });
+  return (
+    <div className="rounded-md border border-[var(--border-hairline)] p-2.5">
+      <Interruptor activo={lim > 0} onCambiar={(on) => fijar(on ? (unidad === 'h' ? 2 : 30) : 0)}
+        etiqueta={`Seguimiento si no ${que}`} />
+      {lim > 0 && (
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[12px]">
+          <span>Si no {que} en</span>
+          <Entrada value={String(valor)} inputMode="numeric" className="!w-16" aria-label="Tiempo"
+            onChange={(e) => fijar(Number(e.target.value.replace(/\D/g, '')) || 0)} />
+          <Seleccion value={unidad} onChange={(e) => { const u = e.target.value as 'min' | 'h'; setUnidad(u); fijar(Number(valor) || 1, u); }} aria-label="Unidad" className="!w-24">
+            <option value="min">minutos</option>
+            <option value="h">horas</option>
+          </Seleccion>
+          <span className="w-full text-[var(--text-muted)]">Sale por «⏰ Si no {que}»: conectala a tu mensaje de seguimiento.</span>
+        </div>
+      )}
+      {lim > 23 * 60 && <p className="mt-1.5 text-[12px]" style={{ color: 'var(--status-warning)' }}>Instagram no deja escribirle pasadas 24 h desde su último mensaje: usá hasta 23 h.</p>}
+    </div>
+  );
+}
+
 /** Elegir el audio/recurso del paso, o grabarlo/subirlo ahí mismo. */
 function CampoRecurso({ p, ctx, onElegir }: { p: Paso; ctx: Ctx; onElegir: (id: string) => void }) {
   const aviso = useAviso();
@@ -784,15 +833,18 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
     }
     case 'esperar_respuesta':
       return (
-        <Campo etiqueta="¿Qué hacés con lo que escribe?" ayuda="El automensaje se pausa acá hasta que el lead escriba, aunque pasen horas.">
-          <Seleccion value={p.guardar_en ?? ''} onChange={(e) => set('guardar_en', e.target.value)}>
-            <option value="">Solo esperar (no guardar nada)</option>
-            <option value="email">Guardarlo como su email</option>
-            <option value="telefono">Guardarlo como su teléfono</option>
-            <option value="nombre">Guardarlo como su nombre</option>
-            <option value="nota">Guardarlo como nota en su ficha</option>
-          </Seleccion>
-        </Campo>
+        <div className="space-y-3">
+          <Campo etiqueta="¿Qué hacés con lo que escribe?" ayuda="El automensaje se pausa acá hasta que el lead escriba.">
+            <Seleccion value={p.guardar_en ?? ''} onChange={(e) => set('guardar_en', e.target.value)}>
+              <option value="">Solo esperar (no guardar nada)</option>
+              <option value="email">Guardarlo como su email</option>
+              <option value="telefono">Guardarlo como su teléfono</option>
+              <option value="nombre">Guardarlo como su nombre</option>
+              <option value="nota">Guardarlo como nota en su ficha</option>
+            </Seleccion>
+          </Campo>
+          <LimiteRespuesta p={p} onChange={onChange} />
+        </div>
       );
     case 'pregunta': {
       const opciones = p.opciones ?? [];
@@ -819,6 +871,7 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
               className="ui-foco text-[12px] underline text-[var(--text-secondary)]">+ otro botón ({opciones.length}/{MAX_BOTONES})</button>
           )}
           <div className="text-[11px] text-[var(--text-muted)]">Si escribe en vez de tocar, igual se entiende si coincide con un botón.</div>
+          <LimiteRespuesta p={p} onChange={onChange} que="toca nada" />
         </div>
       );
     }
@@ -922,6 +975,9 @@ function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
         : p.tipo === 'router'
           ? (p.ramas ?? []).map((r: any, j: number) => ({ salida: `ra:${r.id}`, etiqueta: `Rama ${r.nombre || j + 1} (${porcentajes(p)[j]} %)`, destino: r.siguiente }))
         : [{ salida: 'out', etiqueta: p.tipo === 'inicio' ? 'Primer paso' : 'Después', destino: p.siguiente }];
+  if ((p.tipo === 'pregunta' || p.tipo === 'esperar_respuesta') && p.limite_min) {
+    filas.push({ salida: 'sin', etiqueta: `Si no ${p.tipo === 'pregunta' ? 'toca nada' : 'responde'} en ${fmtMin(Number(p.limite_min))}`, destino: p.siguiente_sin_respuesta });
+  }
   if (p.tipo !== 'pregunta' && p.tipo !== 'condicion') {
     for (const d of (p.tambien ?? []) as string[]) filas.push({ salida: `y:${d}`, etiqueta: 'Y también', destino: d });
     if (filas.some((f) => f.destino) && (p.tambien ?? []).length < 10) filas.push({ salida: 'mas', etiqueta: '+ Y también (a la vez)', destino: null });

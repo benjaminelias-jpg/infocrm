@@ -44,7 +44,11 @@ export const DISPAROS: Array<{ v: string; t: string; icono: string; palabra: boo
 
 /** Salidas de un paso: [id de la salida, paso al que apunta]. */
 export function salidas(n: Paso): Array<[string, string | null | undefined]> {
-  if (n.tipo === 'pregunta') return (n.opciones ?? []).map((o: any) => [`op:${o.id}`, o.siguiente]);
+  const sin: Array<[string, string]> = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta') && n.limite_min ? [['sin', n.siguiente_sin_respuesta]] : [];
+  if (n.tipo === 'pregunta') return [...(n.opciones ?? []).map((o: any) => [`op:${o.id}`, o.siguiente] as [string, string]), ...sin];
+  if (n.tipo === 'esperar_respuesta') {
+    return [['out', n.siguiente], ...sin, ...(Array.isArray(n.tambien) ? n.tambien : []).map((d: string) => [`y:${d}`, d] as [string, string])];
+  }
   if (n.tipo === 'condicion') return [['si', n.siguiente_si], ['no', n.siguiente_no]];
   const extra: Array<[string, string]> = (Array.isArray(n.tambien) ? n.tambien : []).map((d: string) => [`y:${d}`, d]);
   if (n.tipo === 'router') return [...(n.ramas ?? []).map((r: any) => [`ra:${r.id}`, r.siguiente] as [string, string]), ...extra];
@@ -72,6 +76,7 @@ export function conectar(nodos: Paso[], origen: string, salida: string, destino:
       const rId = salida.slice(3);
       return { ...n, ramas: (n.ramas ?? []).map((r: any) => (r.id === rId ? { ...r, siguiente: destino } : r)) };
     }
+    if (salida === 'sin') return { ...n, siguiente_sin_respuesta: destino };
     if (salida === 'si') return { ...n, siguiente_si: destino };
     if (salida === 'no') return { ...n, siguiente_no: destino };
     return { ...n, siguiente: destino };
@@ -84,6 +89,7 @@ export function quitarNodo(nodos: Paso[], id: string): Paso[] {
     ...n,
     ...('siguiente' in n ? { siguiente: limpiar(n.siguiente) } : {}),
     ...(n.tipo === 'condicion' ? { siguiente_si: limpiar(n.siguiente_si), siguiente_no: limpiar(n.siguiente_no) } : {}),
+    ...('siguiente_sin_respuesta' in n ? { siguiente_sin_respuesta: limpiar(n.siguiente_sin_respuesta) } : {}),
     ...(n.tipo === 'pregunta' ? { opciones: (n.opciones ?? []).map((o: any) => ({ ...o, siguiente: limpiar(o.siguiente) })) } : {}),
     ...(n.tipo === 'router' ? { ramas: (n.ramas ?? []).map((r: any) => ({ ...r, siguiente: limpiar(r.siguiente) })) } : {}),
     ...(Array.isArray(n.tambien) ? { tambien: n.tambien.filter((x: string) => x !== id) } : {}),

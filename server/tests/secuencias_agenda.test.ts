@@ -143,3 +143,33 @@ describe('«Y también» en la pizarra', () => {
     expect(sim).toContain('Hola dos');
   });
 });
+
+describe('seguimiento si no responde', () => {
+  it('si no responde en X tiempo, sigue por «No respondió»; si responde, por el otro lado', async () => {
+    const { ejecutarFlujo, procesarEsperasVencidas, reanudarPorMensaje } = await import('../src/modules/instagram_dm.js');
+    const pasos = [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'w' },
+      { id: 'w', tipo: 'esperar_respuesta', limite_min: 60, siguiente: 'ok', siguiente_sin_respuesta: 'fu' },
+      { id: 'ok', tipo: 'enviar_dm', texto: 'Genial, gracias', siguiente: null },
+      { id: 'fu', tipo: 'enviar_dm', texto: '¿Seguís por ahí?', siguiente: null },
+    ];
+    const f = (await pedir('POST', '/api/flujos', { nombre: 'Seguimiento', disparo: 'dm', palabra_clave: 'SEGUIR', pasos })).datos;
+    expect(f.pasos.find((p: any) => p.id === 'w').siguiente_sin_respuesta).toBe('fu');
+
+    const callado = await nuevoLead('calla.uno');
+    await ejecutarFlujo(cuentaId, f.id, { leadId: callado, sinInstagram: true });
+    await pool.query(`UPDATE flujo_ejecuciones SET reanudar_en = now() - interval '1 minute' WHERE lead_id = $1 AND estado = 'esperando'`, [callado]);
+    await procesarEsperasVencidas(cuentaId, 10);
+    const m1 = (await query(`SELECT cuerpo FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente'`, [callado])).map((m: any) => m.cuerpo);
+    expect(m1).toEqual(['¿Seguís por ahí?']);
+
+    const habla = await nuevoLead('habla.uno');
+    await ejecutarFlujo(cuentaId, f.id, { leadId: habla, sinInstagram: true });
+    await reanudarPorMensaje(cuentaId, habla, { texto: 'hola!' });
+    const m2 = (await query(`SELECT cuerpo FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente'`, [habla])).map((m: any) => m.cuerpo);
+    expect(m2).toEqual(['Genial, gracias']);
+    // Ya respondió: aunque pase el tiempo, no le llega el seguimiento.
+    await procesarEsperasVencidas(cuentaId, 10);
+    expect((await query(`SELECT 1 FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente'`, [habla])).length).toBe(1);
+  });
+});
