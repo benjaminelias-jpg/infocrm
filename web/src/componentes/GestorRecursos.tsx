@@ -165,7 +165,7 @@ function FormSecuencia({ inicial, onListo, onCancelar }: {
   );
 }
 
-function FormNuevo({ tipo, onListo, onCancelar, onCambiarTipo }: {
+export function FormNuevo({ tipo, onListo, onCancelar, onCambiarTipo }: {
   tipo: TipoNuevo; onListo: (texto: string) => void; onCancelar: () => void; onCambiarTipo: (t: TipoNuevo) => void;
 }) {
   if (tipo === 'secuencia') return <FormSecuencia onListo={onListo} onCancelar={onCancelar} />;

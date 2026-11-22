@@ -5,7 +5,8 @@ import {
   type Node, type Edge, type NodeChange, type EdgeChange, type Connection, type NodeProps, type EdgeProps,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { AreaTexto, BotonConfirmar, Campo, Chip, Entrada, FilaChips, Seleccion, useAviso, useEsMovil } from '../ui';
+import { AreaTexto, Boton, BotonConfirmar, Campo, Chip, Dialogo, Entrada, FilaChips, Seleccion, useAviso, useEsMovil } from '../ui';
+import { FormNuevo, type TipoNuevo } from './GestorRecursos';
 import TextoConVariables from './TextoConVariables';
 
 // =====================================================================
@@ -598,6 +599,44 @@ function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: 
 
 const ICONO_RECURSO: Record<string, string> = { audio: '🎙️', pdf: '📄', imagen: '🖼️', video: '🎬', link: '🔗' };
 
+/** Elegir el audio/recurso del paso, o grabarlo/subirlo ahí mismo. */
+function CampoRecurso({ p, ctx, onElegir }: { p: Paso; ctx: Ctx; onElegir: (id: string) => void }) {
+  const aviso = useAviso();
+  const [nuevo, setNuevo] = useState<TipoNuevo | null>(null);
+  const lista = ctx.recursos.filter((r) => r.tipo !== 'texto' && r.tipo !== 'secuencia');
+  const elegido = lista.find((r) => r.id === p.recurso_id);
+  async function creado(texto: string) {
+    setNuevo(null);
+    const antes = new Set(lista.map((r) => r.id));
+    const todos = ctx.recargarRecursos ? await ctx.recargarRecursos().catch(() => ctx.recursos) : ctx.recursos;
+    const nuevoRec = todos.find((r: any) => !antes.has(r.id) && r.tipo !== 'texto' && r.tipo !== 'secuencia');
+    if (nuevoRec) onElegir(nuevoRec.id);
+    aviso.exito(nuevoRec ? `${texto} Ya quedó elegido en este paso.` : texto);
+  }
+  return (
+    <div className="space-y-2">
+      <Campo etiqueta="¿Qué le mandás?">
+        <Seleccion value={p.recurso_id ?? ''} onChange={(e) => onElegir(e.target.value)}>
+          <option value="">Elegí qué mandar…</option>
+          {lista.map((r) => <option key={r.id} value={r.id}>{ICONO_RECURSO[r.tipo] ?? '📎'} {r.nombre}</option>)}
+        </Seleccion>
+      </Campo>
+      {elegido?.tipo === 'audio' && (elegido.url_publica || elegido.url) && <audio controls src={elegido.url_publica || elegido.url} className="h-9 w-full" />}
+      <div className="flex flex-wrap gap-1.5">
+        <Boton tamano="sm" variante="secundario" onClick={() => setNuevo('audio')}>🎙️ Grabar audio</Boton>
+        <Boton tamano="sm" variante="secundario" onClick={() => setNuevo('archivo')}>📎 Subir archivo</Boton>
+        <Boton tamano="sm" variante="secundario" onClick={() => setNuevo('link')}>🔗 Pegar enlace</Boton>
+      </div>
+      {!p.recurso_id && !lista.length && (
+        <p className="text-[12px] text-[var(--text-muted)]">Todavía no tenés audios ni archivos: grabá o subí uno acá y queda también en los atajos del Chat.</p>
+      )}
+      <Dialogo abierto={!!nuevo} onCerrar={() => setNuevo(null)} titulo="Nuevo audio o recurso" ancho={480}>
+        {nuevo && <FormNuevo key={nuevo} tipo={nuevo} onListo={creado} onCancelar={() => setNuevo(null)} onCambiarTipo={setNuevo} />}
+      </Dialogo>
+    </div>
+  );
+}
+
 function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void; ctx: Ctx }) {
   const movil = useEsMovil(768);
   const foco = !movil; // en el celular el teclado se abre recién cuando tocás el campo
@@ -623,27 +662,8 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
           <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Quiere agendar llamada" autoFoco={foco} max={300} />
         </Campo>
       );
-    case 'enviar_recurso': {
-      const lista = ctx.recursos.filter((r) => r.tipo !== 'texto');
-      const elegido = lista.find((r) => r.id === p.recurso_id);
-      return (
-        <div className="space-y-2">
-          <Campo etiqueta="¿Qué le mandás?">
-            <Seleccion value={p.recurso_id ?? ''} onChange={(e) => set('recurso_id', e.target.value)}>
-              <option value="">Elegí qué mandar…</option>
-              {lista.map((r) => <option key={r.id} value={r.id}>{ICONO_RECURSO[r.tipo] ?? '📎'} {r.nombre}</option>)}
-            </Seleccion>
-          </Campo>
-          {elegido?.tipo === 'audio' && elegido.url && <audio controls src={elegido.url} className="h-9 w-full" />}
-          {!p.recurso_id && (
-            <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--surface-1))' }}>
-              {lista.length ? 'Falta elegir el audio o recurso.' : 'Todavía no tenés audios ni archivos.'}{' '}
-              <a href="/chat?recursos=1" className="underline">Grabalos o subilos en Chat → Recursos</a> (tu pizarra queda guardada como borrador).
-            </div>
-          )}
-        </div>
-      );
-    }
+    case 'enviar_recurso':
+      return <CampoRecurso p={p} ctx={ctx} onElegir={(id) => set('recurso_id', id)} />;
     case 'etiquetar':
     case 'quitar_etiqueta':
       return (

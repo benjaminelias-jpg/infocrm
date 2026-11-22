@@ -180,6 +180,11 @@ export default function Flujos() {
         recursos: rec, etapas,
         etiquetas: (et ?? []).map((x: any) => (typeof x === 'string' ? x : x.etiqueta ?? x.nombre)).filter(Boolean),
         contenidos: Array.isArray(cont) ? cont : cont?.contenidos ?? [],
+        recargarRecursos: async () => {
+          const r = await api<any[]>('/recursos');
+          setCtx((c) => ({ ...c, recursos: r }));
+          return r;
+        },
       });
       setIg(est);
       setError(null);

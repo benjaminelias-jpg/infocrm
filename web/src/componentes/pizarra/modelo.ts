@@ -3,7 +3,7 @@
 // automensajes no descarga React Flow; el lienzo se baja al abrir uno.
 
 export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente?: string | null; [k: string]: any };
-export interface Ctx { recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[] }
+export interface Ctx { recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[]; recargarRecursos?: () => Promise<any[]> }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const MAX_TEXTO = 1000;
