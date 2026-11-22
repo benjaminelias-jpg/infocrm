@@ -252,10 +252,22 @@ function modoColor(): 'light' | 'dark' | 'system' {
   return t === 'dark' ? 'dark' : t === 'light' ? 'light' : 'system';
 }
 
+/** Sigue el tema elegido en vivo (si lo cambiás con la pizarra abierta). */
+function useModoColor() {
+  const [modo, setModo] = useState(modoColor);
+  useEffect(() => {
+    const obs = new MutationObserver(() => setModo(modoColor()));
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+  return modo;
+}
+
 function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], notas = {}, enfocar }: PropsPizarra) {
   const rf = useReactFlow();
   const aviso = useAviso();
   const movil = useEsMovil(768);
+  const modo = useModoColor();
   const listos = useNodesInitialized();
   const caja = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<string | null>(null);
@@ -509,7 +521,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
           onPaneClick={() => { setSel(null); setPaleta(null); setSelFlecha(null); }}
           isValidConnection={(c) => c.target !== 'inicio' && c.source !== c.target}
           deleteKeyCode={['Backspace', 'Delete']} snapToGrid snapGrid={[20, 20]}
-          minZoom={0.15} maxZoom={1.8} colorMode={modoColor()}
+          minZoom={0.15} maxZoom={1.8} colorMode={modo}
           // Trackpad: dos dedos mueven la pizarra; pellizcar hace zoom (como Figma/n8n).
           panOnScroll zoomOnScroll={false} zoomOnPinch panOnDrag
           defaultEdgeOptions={{ type: 'borrable' }} connectionRadius={36} proOptions={{ hideAttribution: true }}
