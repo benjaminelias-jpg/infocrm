@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { query } from '../db/pool.js';
 import { simularPasos, advertenciasFlujo, normalizarPasos, validarFlujoDetallado } from '../modules/instagram_dm.js';
 
 // Rutas propias de Automensajes (mejoras de UX). Montadas en /api/ux/automensajes.
@@ -11,6 +12,14 @@ export default async function rutasUx_automensajes(app: FastifyInstance) {
    * "toca" el lead en cada pregunta (o 'si'/'no' en las condiciones) y
    * `texto` es lo que "escribe" (para condiciones y "esperar su respuesta").
    */
+  // Nombres de los campos propios que ya existen (para sugerirlos en la pizarra).
+  app.get('/campos', async (req) => {
+    const filas = await query(
+      `SELECT DISTINCT jsonb_object_keys(campos) AS nombre FROM leads WHERE cuenta_id = $1 AND campos <> '{}'::jsonb ORDER BY 1 LIMIT 200`,
+      [req.sesion.cuentaId]);
+    return filas.map((f: any) => f.nombre);
+  });
+
   app.post('/simular', async (req) => {
     const d = z.object({
       pasos: z.array(z.object({ tipo: z.string() }).passthrough()).max(200),

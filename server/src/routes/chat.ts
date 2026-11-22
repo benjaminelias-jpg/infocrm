@@ -11,6 +11,19 @@ import {
 const VENTANA_MS = 24 * 3600 * 1000; // Instagram deja responder 24 h desde el último mensaje del lead
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Una persona del equipo le escribió a mano: se cortan los automensajes que
+ * esperaban a este lead y no arranca ninguno nuevo por unas horas (configurable).
+ */
+async function pausarPorHumano(cuentaId: string, leadId: string) {
+  await pool.query(
+    `UPDATE flujo_ejecuciones SET estado = 'cancelado', esperando = NULL, reanudar_en = NULL, actualizado_en = now()
+      WHERE cuenta_id = $1 AND lead_id = $2 AND estado = 'esperando'`, [cuentaId, leadId]);
+  await pool.query(
+    `UPDATE leads SET automensajes_pausados_hasta = now() + make_interval(hours => (SELECT pausa_humana_horas FROM cuentas WHERE id = $1))
+      WHERE cuenta_id = $1 AND id = $2 AND (SELECT pausa_humana_horas FROM cuentas WHERE id = $1) > 0`, [cuentaId, leadId]);
+}
+
 export default async function rutasChat(app: FastifyInstance) {
   // Lista de conversaciones: leads ordenados por actividad, con el último
   // mensaje, si esperan respuesta, y de qué contenido vinieron.
@@ -108,8 +121,11 @@ export default async function rutasChat(app: FastifyInstance) {
 
     return {
       lead,
+      automensajes_pausados_hasta: (await queryOne(`SELECT CASE WHEN automensajes_pausados_hasta > now() THEN automensajes_pausados_hasta END AS h FROM leads WHERE id = $1`, [leadId]))?.h ?? null,
       ventana: {
         abierta: !!cierra && cierra.getTime() > Date.now(),
+        // Una persona del equipo puede responder hasta 7 días (etiqueta de agente humano).
+        humana: !!ultimoEntrante && new Date(ultimoEntrante.ocurrido_en).getTime() + 7 * 86_400_000 > Date.now(),
         cierra_en: cierra?.toISOString() ?? null,
         nunca_escribio: !ultimoEntrante,
         por_manychat: tManychat > Date.now() - VENTANA_MS
@@ -161,6 +177,7 @@ export default async function rutasChat(app: FastifyInstance) {
     const usuarioId = req.sesion.usuarioId && req.sesion.usuarioId !== 'api-key' ? req.sesion.usuarioId : null;
     if (d.recurso_id) {
       // Atajo suelto o secuencia (el primero sale ya; el resto queda programado).
+      if (usuarioId) await pausarPorHumano(req.sesion.cuentaId, leadId);
       const env = await enviarAtajo(req.sesion.cuentaId, leadId, d.recurso_id, usuarioId);
       if (!env) throw noEncontrado('Recurso');
       return reply.code(201).send({ ...env.msg, aviso: env.r.ok ? null : env.r.error, programados: env.programados });
@@ -169,10 +186,16 @@ export default async function rutasChat(app: FastifyInstance) {
     if (!texto) throw peticionInvalida('El mensaje está vacío');
     const mensaje: Record<string, unknown> = { text: texto };
     const cuerpo = texto;
+    if (usuarioId) await pausarPorHumano(req.sesion.cuentaId, leadId);
+
+    // Pasadas las 24 h (hasta 7 días) una persona del equipo puede responder con la etiqueta de agente humano.
+    const ult = await queryOne(`SELECT max(ocurrido_en) AS en FROM mensajes WHERE lead_id = $1 AND direccion = 'entrante'`, [leadId]);
+    const horas = ult?.en ? (Date.now() - +new Date(ult.en)) / 3_600_000 : 0;
+    const tag = usuarioId && horas > 24 && horas < 24 * 7 ? { tag: 'HUMAN_AGENT' as const } : {};
 
     // Lo manda por Instagram; si no se puede, queda guardado con el motivo.
     const r = lead.ig_user_id
-      ? await enviarMensajeIG(req.sesion.cuentaId, { igId: lead.ig_user_id }, mensaje)
+      ? await enviarMensajeIG(req.sesion.cuentaId, { igId: lead.ig_user_id }, mensaje, tag)
       : { ok: false, error: 'Este lead no tiene Instagram vinculado (entró por otra vía)' };
     const msg = await registrarSaliente(req.sesion.cuentaId, leadId, cuerpo, null, r, usuarioId);
     return reply.code(201).send({ ...msg, aviso: r.ok ? null : r.error });

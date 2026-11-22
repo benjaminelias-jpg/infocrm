@@ -16,7 +16,7 @@ import {
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
 import { integracionInstagram } from '../modules/instagram.js';
 
-const DISPAROS = ['comentario', 'dm', 'historia', 'mencion', 'reaccion', 'boton', 'anuncio'] as const;
+const DISPAROS = ['comentario', 'dm', 'historia', 'mencion', 'reaccion', 'boton', 'anuncio', 'por_defecto'] as const;
 const PASO = z.object({ tipo: z.string() }).passthrough();
 const esquemaFlujo = z.object({
   nombre: z.string().min(1),

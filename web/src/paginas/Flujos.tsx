@@ -162,13 +162,14 @@ export default function Flujos() {
 
   const cargar = useCallback(async () => {
     try {
-      const [f, rec, pipes, et, cont, est] = await Promise.all([
+      const [f, rec, pipes, et, cont, est, campos] = await Promise.all([
         api<any[]>('/flujos'),
         api<any[]>('/recursos').catch(() => []),
         api<any[]>('/pipelines').catch(() => []),
         api<any[]>('/etiquetas').catch(() => []),
         api<any>('/contenidos').catch(() => []),
         api<any>('/instagram/estado').catch(() => null),
+        api<string[]>('/ux/automensajes/campos').catch(() => []),
       ]);
       setFlujos(f);
       // Todas las etapas, con su pipeline (el predeterminado primero).
@@ -180,6 +181,7 @@ export default function Flujos() {
         recursos: rec, etapas,
         etiquetas: (et ?? []).map((x: any) => (typeof x === 'string' ? x : x.etiqueta ?? x.nombre)).filter(Boolean),
         contenidos: Array.isArray(cont) ? cont : cont?.contenidos ?? [],
+        campos,
         recargarRecursos: async () => {
           const r = await api<any[]>('/recursos');
           setCtx((c) => ({ ...c, recursos: r }));

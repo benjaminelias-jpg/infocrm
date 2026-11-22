@@ -176,6 +176,12 @@ export async function elegirFlujo(cuentaId: string, ev: EventoIG) {
     validos.sort((a: any, b: any) => puntaje(b) - puntaje(a));
     if (validos[0]) return validos[0];
   }
+  // Nada coincidió con lo que escribió: la «respuesta por defecto» (máx. 1 vez cada 24 h por lead).
+  if (['dm', 'historia', 'boton', 'anuncio', 'reaccion', 'mencion'].includes(ev.tipo)) {
+    const def = await queryOne(
+      `SELECT * FROM flujos WHERE cuenta_id = $1 AND activo AND disparo = 'por_defecto' ORDER BY creado_en ASC LIMIT 1`, [cuentaId]);
+    if (def) return def;
+  }
   return null;
 }
 
@@ -249,6 +255,10 @@ export async function procesarEventoInstagram(cuentaId: string, ev: EventoIG): P
       }).catch(() => {});
     }
   }
+
+  // 2b. Alguien del equipo le está respondiendo a mano: los automensajes no se meten.
+  const pausa = await queryOne(`SELECT automensajes_pausados_hasta > now() AS pausado FROM leads WHERE id = $1`, [lead.id]);
+  if (pausa?.pausado && !ev.sinInstagram) return { leadId: lead.id, pausado: 'le está respondiendo una persona del equipo' };
 
   // 3. ¿Un flujo de este lead estaba esperando su respuesta? Se reanuda ahí.
   if (['dm', 'boton', 'historia', 'anuncio'].includes(ev.tipo)) {

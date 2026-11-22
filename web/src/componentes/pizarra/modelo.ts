@@ -3,7 +3,7 @@
 // automensajes no descarga React Flow; el lienzo se baja al abrir uno.
 
 export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente?: string | null; [k: string]: any };
-export interface Ctx { recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[]; recargarRecursos?: () => Promise<any[]> }
+export interface Ctx { recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[]; campos?: string[]; recargarRecursos?: () => Promise<any[]> }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const MAX_TEXTO = 1000;
@@ -29,13 +29,14 @@ export const NODOS: Record<string, { etiqueta: string; icono: string; color: str
 export const GRUPOS = ['Mensajes', 'Lógica', 'El lead'] as const;
 
 export const DISPAROS: Array<{ v: string; t: string; icono: string; palabra: boolean; ph: string; ayuda: string }> = [
-  { v: 'comentario', t: 'Comenta en un reel o post', icono: '💭', palabra: true, ph: 'ej. GUIA', ayuda: 'Varias palabras separadas por coma. Vacío = cualquier comentario.' },
+  { v: 'comentario', t: 'Comenta en un reel, post o vivo', icono: '💭', palabra: true, ph: 'ej. GUIA', ayuda: 'Varias palabras separadas por coma. Vacío = cualquier comentario.' },
   { v: 'dm', t: 'Te escribe por DM', icono: '✉️', palabra: true, ph: 'ej. INFO', ayuda: 'Vacío = cualquier mensaje (respuesta automática de bienvenida).' },
   { v: 'historia', t: 'Responde a una historia', icono: '⭕', palabra: true, ph: 'opcional', ayuda: 'Vacío = cualquier respuesta a tus historias.' },
   { v: 'mencion', t: 'Te menciona en su historia', icono: '@', palabra: false, ph: '', ayuda: 'Cada vez que alguien te etiqueta en una historia.' },
   { v: 'reaccion', t: 'Reacciona a un mensaje', icono: '❤️', palabra: false, ph: '', ayuda: 'Cuando reacciona con un emoji a un mensaje tuyo.' },
   { v: 'boton', t: 'Toca un botón', icono: '👉', palabra: true, ph: 'texto o código del botón', ayuda: 'Botones de Instagram (menú, rompehielos).' },
-  { v: 'anuncio', t: 'Viene de un anuncio', icono: '📣', palabra: true, ph: 'ref del anuncio (opcional)', ayuda: 'Anuncios de "enviar mensaje" o enlaces ig.me/…?ref=' },
+  { v: 'anuncio', t: 'Entra por un link de DM o un anuncio', icono: '🔗', palabra: true, ph: 'ej. GUIA (el ref del link)', ayuda: 'Tu link: ig.me/m/TU_USUARIO?ref=GUIA — ponelo en la bio, historias o anuncios. Cada ref dispara su automensaje.' },
+  { v: 'por_defecto', t: 'Respuesta por defecto', icono: '💤', palabra: false, ph: '', ayuda: 'Cuando escribe algo que no coincide con ningún otro automensaje (máx. 1 vez cada 24 h por persona).' },
 ];
 
 // ---------------------------------------------------------------------
@@ -221,6 +222,8 @@ export function describirCondicion(p: Paso) {
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor || '…'}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
+    case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre || '…'}» es «${p.valor || '…'}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre || '…'}» dice «${p.valor || '…'}»?` : `¿Ya tenemos «${p.campo_nombre || '…'}»?`;
+    case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple?';
   }
 }

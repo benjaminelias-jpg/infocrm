@@ -589,6 +589,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
         )}
       </aside>
       <datalist id="etiquetas-existentes">{ctx.etiquetas.map((e) => <option key={e} value={e} />)}</datalist>
+      <datalist id="campos-existentes">{(ctx.campos ?? []).map((e) => <option key={e} value={e} />)}</datalist>
     </div>
   );
 }
@@ -745,7 +746,25 @@ function CampoRecurso({ p, ctx, onElegir }: { p: Paso; ctx: Ctx; onElegir: (id: 
   );
 }
 
+const MANDA = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+
 function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void; ctx: Ctx }) {
+  return (
+    <>
+      <CamposPasoBase p={p} onChange={onChange} ctx={ctx} />
+      {MANDA.has(p.tipo) && (
+        <label className="mt-3 flex items-center gap-2 text-[12px] text-[var(--text-secondary)]">
+          ⌨️ «Escribiendo…» antes de mandarlo
+          <Seleccion value={String(p.demora_seg ?? 2)} onChange={(e) => onChange({ ...p, demora_seg: Number(e.target.value) })} className="!w-24" aria-label="Segundos escribiendo">
+            {[0, 1, 2, 3, 5, 8].map((n) => <option key={n} value={n}>{n ? `${n} s` : 'No'}</option>)}
+          </Seleccion>
+        </label>
+      )}
+    </>
+  );
+}
+
+function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void; ctx: Ctx }) {
   const movil = useEsMovil(768);
   const foco = !movil; // en el celular el teclado se abre recién cuando tocás el campo
   const set = (k: string, v: any) => onChange({ ...p, [k]: v });
@@ -758,12 +777,27 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
             filas={5} placeholder="Hola {{nombre}} 👋 …" autoFoco={foco} />
         </Campo>
       );
-    case 'responder_comentario':
+    case 'responder_comentario': {
+      const variantes: string[] = Array.isArray(p.variantes) ? p.variantes : [];
       return (
-        <Campo etiqueta="Respuesta pública al comentario">
-          <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="¡Te lo mandé por DM! 📩" autoFoco={foco} max={300} />
-        </Campo>
+        <div className="space-y-2">
+          <Campo etiqueta="Respuesta pública al comentario">
+            <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="¡Te lo mandé por DM! 📩" autoFoco={foco} max={300} />
+          </Campo>
+          {variantes.map((v, i) => (
+            <div key={i} className="flex items-start gap-1.5">
+              <div className="min-w-0 flex-1">
+                <TextoConVariables valor={v} onCambio={(x) => set('variantes', variantes.map((y, j) => (j === i ? x : y)))} linea placeholder={`Otra versión ${i + 2}`} max={300} etiqueta={`Versión ${i + 2}`} />
+              </div>
+              <button type="button" className="ui-foco mt-2 rounded-md px-1.5 text-[var(--text-muted)] hover:text-[var(--status-critical)]" aria-label={`Quitar la versión ${i + 2}`}
+                onClick={() => set('variantes', variantes.filter((_, j) => j !== i))}>✕</button>
+            </div>
+          ))}
+          {variantes.length < 9 && <Boton tamano="sm" variante="secundario" onClick={() => set('variantes', [...variantes, ''])}>+ Otra versión</Boton>}
+          <p className="text-[11px] text-[var(--text-muted)]">Con varias versiones, cada comentario recibe una al azar: no parece spam.</p>
+        </div>
       );
+    }
     case 'notificar':
       return (
         <Campo etiqueta="¿Qué tiene que saber el equipo?" ayuda="Aparece marcado en el Chat para que lo atiendan.">
@@ -812,12 +846,31 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
           </Seleccion>
         </Campo>
       );
-    case 'webhook':
+    case 'webhook': {
+      const guardar: Array<{ ruta: string; campo: string }> = Array.isArray(p.guardar) ? p.guardar : [];
       return (
-        <Campo etiqueta="Dirección de la otra app" ayuda="La que te da Zapier, Make o tu proveedor (empieza con https://).">
-          <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://hook.make.com/…" inputMode="url" autoFocus={foco} />
-        </Campo>
+        <div className="space-y-3">
+          <Campo etiqueta="Dirección de la otra app" ayuda="La que te da Zapier, Make o tu proveedor (empieza con https://). Le mandamos los datos del lead.">
+            <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://hook.make.com/…" inputMode="url" autoFocus={foco} />
+          </Campo>
+          <div className="space-y-1.5">
+            <div className="text-[12px] font-medium text-[var(--text-secondary)]">Guardar lo que responde (opcional)</div>
+            {guardar.map((g, i) => (
+              <div key={i} className="flex items-center gap-1.5">
+                <Entrada value={g.ruta} placeholder="ej. data.plan" aria-label="Dato de la respuesta" className="min-w-0 flex-1"
+                  onChange={(e) => set('guardar', guardar.map((x, j) => (j === i ? { ...x, ruta: e.target.value } : x)))} />
+                <span className="text-[12px] text-[var(--text-muted)]">→</span>
+                <Entrada value={g.campo} placeholder="campo del lead" aria-label="Campo donde se guarda" className="min-w-0 flex-1" list="campos-existentes"
+                  onChange={(e) => set('guardar', guardar.map((x, j) => (j === i ? { ...x, campo: e.target.value } : x)))} />
+                <button type="button" className="ui-foco rounded-md px-1.5 text-[var(--text-muted)]" aria-label="Quitar" onClick={() => set('guardar', guardar.filter((_, j) => j !== i))}>✕</button>
+              </div>
+            ))}
+            <Boton tamano="sm" variante="secundario" onClick={() => set('guardar', [...guardar, { ruta: '', campo: '' }])}>+ Guardar un dato</Boton>
+            <p className="text-[11px] text-[var(--text-muted)]">Después lo usás en mensajes con {'{{campo.Nombre}}'} o en una condición.</p>
+          </div>
+        </div>
       );
+    }
     case 'esperar': {
       const min = Number(p.minutos) || 0;
       const unidad = min && min % 1440 === 0 ? 1440 : min && min % 60 === 0 ? 60 : 1;
@@ -853,8 +906,17 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
               <option value="telefono">Guardarlo como su teléfono</option>
               <option value="nombre">Guardarlo como su nombre</option>
               <option value="nota">Guardarlo como nota en su ficha</option>
+              <option value="campo:">Guardarlo en un campo propio…</option>
+              {String(p.guardar_en ?? '').startsWith('campo:') && String(p.guardar_en).slice(6) && (
+                <option value={p.guardar_en}>Campo «{String(p.guardar_en).slice(6)}»</option>
+              )}
             </Seleccion>
           </Campo>
+          {String(p.guardar_en ?? '').startsWith('campo:') && (
+            <Campo etiqueta="Nombre del campo" ayuda="Ej. Nicho, Facturación, Objetivo. Lo ves en la ficha del lead y lo usás con {{campo.Nombre}}.">
+              <Entrada value={String(p.guardar_en).slice(6)} onChange={(e) => set('guardar_en', `campo:${e.target.value.slice(0, 40)}`)} list="campos-existentes" placeholder="Nicho" />
+            </Campo>
+          )}
           <LimiteRespuesta p={p} onChange={onChange} />
         </div>
       );
@@ -942,8 +1004,39 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
               <option value="email">¿Ya tenemos su email?</option>
               <option value="telefono">¿Ya tenemos su teléfono?</option>
               <option value="sigue">¿Te sigue en Instagram?</option>
+              <option value="campo">Un campo propio (ej. Nicho)…</option>
+              <option value="horario">¿Es horario de atención?</option>
             </Seleccion>
           </Campo>
+          {p.campo === 'campo' && (
+            <div className="space-y-2">
+              <Entrada value={p.campo_nombre ?? ''} onChange={(e) => set('campo_nombre', e.target.value)} list="campos-existentes" placeholder="Nombre del campo (ej. Nicho)" aria-label="Campo" />
+              <Seleccion value={p.operador ?? 'tiene'} onChange={(e) => set('operador', e.target.value)} aria-label="Cómo compara">
+                <option value="tiene">¿Ya lo tenemos? (tiene algo)</option>
+                <option value="contiene">¿Dice…? (contiene)</option>
+                <option value="igual">¿Es exactamente…?</option>
+              </Seleccion>
+              {(p.operador === 'contiene' || p.operador === 'igual') && (
+                <Entrada value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} placeholder="ej. fitness" aria-label="Valor" />
+              )}
+            </div>
+          )}
+          {p.campo === 'horario' && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-[12px]">
+                De <Entrada type="time" value={p.desde ?? '09:00'} onChange={(e) => set('desde', e.target.value)} className="!w-28" aria-label="Desde" />
+                a <Entrada type="time" value={p.hasta ?? '18:00'} onChange={(e) => set('hasta', e.target.value)} className="!w-28" aria-label="Hasta" />
+              </div>
+              <FilaChips>
+                {['D', 'L', 'M', 'M', 'J', 'V', 'S'].map((d, i) => {
+                  const dias: number[] = Array.isArray(p.dias) && p.dias.length ? p.dias : [1, 2, 3, 4, 5];
+                  const on = dias.includes(i);
+                  return <Chip key={i} activo={on} onClick={() => set('dias', on ? dias.filter((x) => x !== i) : [...dias, i].sort())}>{d}</Chip>;
+                })}
+              </FilaChips>
+              <p className="text-[11px] text-[var(--text-muted)]">Con la zona horaria de tu cuenta. «No» = fuera de horario (ej. «te respondemos mañana»).</p>
+            </div>
+          )}
           {p.campo === 'sigue' && (
             <p className="text-[12px] text-[var(--text-muted)]">
               Instagram solo deja revisarlo si la persona ya te escribió o comentó. Ideal para «seguime y tocá <i>Ya te sigo</i>»:

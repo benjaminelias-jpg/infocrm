@@ -62,7 +62,7 @@ async function canalMensajes(cuentaId: string): Promise<{ url: string; token: st
  * que la pantalla pueda decir la verdad ("no salió a Instagram").
  */
 export async function enviarMensajeIG(
-  cuentaId: string, destino: Destino, mensaje: Record<string, unknown>,
+  cuentaId: string, destino: Destino, mensaje: Record<string, unknown>, opts: { tag?: 'HUMAN_AGENT' } = {},
 ): Promise<ResultadoEnvio> {
   const recipient = destino.commentId ? { comment_id: destino.commentId }
     : destino.igId ? { id: destino.igId } : null;
@@ -73,7 +73,11 @@ export async function enviarMensajeIG(
     const res = await fetch(canal.url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ recipient, message: mensaje, access_token: canal.token }),
+      body: JSON.stringify({
+        recipient, message: mensaje, access_token: canal.token,
+        // Una persona del equipo puede responder hasta 7 días (no 24 h) con la etiqueta de agente humano.
+        ...(opts.tag ? { messaging_type: 'MESSAGE_TAG', tag: opts.tag } : {}),
+      }),
       signal: AbortSignal.timeout(12_000),
     });
     const d: any = await res.json().catch(() => ({}));
@@ -82,6 +86,17 @@ export async function enviarMensajeIG(
   } catch (err: any) {
     return { ok: false, error: String(err?.message ?? err) };
   }
+}
+
+/** Muestra «escribiendo…» en el chat del lead (best-effort). */
+export async function escribiendo(cuentaId: string, igId: string): Promise<boolean> {
+  const canal = await canalMensajes(cuentaId);
+  if ('error' in canal) return false;
+  return fetch(canal.url, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ recipient: { id: igId }, sender_action: 'typing_on', access_token: canal.token }),
+    signal: AbortSignal.timeout(5_000),
+  }).then(() => true).catch(() => false);
 }
 
 /** Compatibilidad: manda un texto a un IGSID. */
@@ -452,6 +467,8 @@ export function validarFlujoDetallado(nodos: Paso[]): Array<{ nodo: string | nul
       case 'condicion':
         if (!p.campo) mal('elegí qué revisar.');
         else if (['etiqueta', 'etapa', 'texto'].includes(p.campo) && !String(p.valor ?? '').trim()) mal('completá el valor.');
+        else if (p.campo === 'campo' && !String(p.campo_nombre ?? '').trim()) mal('elegí qué campo revisar.');
+        else if (p.campo === 'campo' && p.operador && p.operador !== 'tiene' && !String(p.valor ?? '').trim()) mal('completá el valor.');
         break;
     }
   }
@@ -554,6 +571,10 @@ function rellenar(texto: string, lead: any, simular = false): string {
   return String(texto ?? '')
     .replace(/\{\{\s*nombre\s*\}\}/gi, nombre)
     .replace(/\{\{\s*usuario\s*\}\}/gi, usuario)
+    .replace(/\{\{\s*campo\.([^}]+?)\s*\}\}/gi, (_m, k) => {
+      const v = (lead?.campos ?? {})[String(k).trim()];
+      return v !== undefined && v !== null && v !== '' ? String(v) : (simular ? `[${String(k).trim()}]` : '');
+    })
     // Si el lead no tiene nombre, que no quede "¡Hola !"
     .replace(/ +([!?.,;:])/g, '$1');
 }
@@ -586,6 +607,8 @@ export function describirCondicion(p: Paso): string {
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
+    case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre}» es «${p.valor}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre}» dice «${p.valor}»?` : `¿Ya tenemos «${p.campo_nombre}»?`;
+    case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple la condición?';
   }
 }
@@ -625,6 +648,8 @@ interface Corrida {
   pasosCorridos: number;
   /** Paso que se está ejecutando (para pintar el recorrido en la pizarra). */
   nodoActual: string | null;
+  /** Segundos de «escribiendo…» ya usados en esta corrida (tope para no colgar el servidor). */
+  demora?: number;
 }
 
 const MAX_ENVIOS_POR_CORRIDA = 15; // tope anti-spam por ejecución
@@ -661,8 +686,33 @@ async function evaluarCondicion(c: Corrida, p: Paso): Promise<boolean> {
     case 'email': return !!lead.email;
     case 'telefono': return !!lead.telefono;
     case 'sigue': return lead.ig_user_id ? (await sigueALaCuenta(c.cuentaId, String(lead.ig_user_id))) === true : false;
+    case 'campo': {
+      const v = String((lead.campos ?? {})[String(p.campo_nombre ?? '').trim()] ?? '');
+      if (p.operador === 'igual') return normalizar(v) === normalizar(p.valor);
+      if (p.operador === 'contiene') return !!String(p.valor ?? '').trim() && normalizar(v).includes(normalizar(p.valor));
+      return v.trim() !== '';
+    }
+    case 'horario': return await enHorario(c.cuentaId, p);
     default: return false;
   }
+}
+
+/** ¿Ahora es horario de atención? (zona horaria de la cuenta; días 0=domingo…6=sábado). */
+export async function enHorario(cuentaId: string, p: Paso, ahora = new Date()): Promise<boolean> {
+  const cta = await queryOne(`SELECT zona_horaria FROM cuentas WHERE id = $1`, [cuentaId]);
+  const zona = cta?.zona_horaria || 'UTC';
+  let partes: Record<string, string> = {};
+  try {
+    partes = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: zona, weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false })
+      .formatToParts(ahora).map((x) => [x.type, x.value]));
+  } catch { partes = { weekday: 'Mon', hour: String(ahora.getUTCHours()), minute: String(ahora.getUTCMinutes()) }; }
+  const dia = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(partes.weekday);
+  const dias: number[] = Array.isArray(p.dias) && p.dias.length ? p.dias.map(Number) : [1, 2, 3, 4, 5];
+  if (!dias.includes(dia)) return false;
+  const min = (Number(partes.hour) % 24) * 60 + Number(partes.minute);
+  const aMin = (h: string, def: number) => { const m = String(h ?? '').match(/^(\d{1,2}):(\d{2})$/); return m ? Number(m[1]) * 60 + Number(m[2]) : def; };
+  const desde = aMin(p.desde, 9 * 60); const hasta = aMin(p.hasta, 18 * 60);
+  return desde <= hasta ? min >= desde && min < hasta : min >= desde || min < hasta;
 }
 
 /**
@@ -708,6 +758,16 @@ async function enviar(
   const destino: Destino = c.ctx.commentId && c.envios === 0
     ? { commentId: c.ctx.commentId }
     : { igId: c.ctx.destinatarioIgId };
+  // «Escribiendo…» y una pausa natural antes de cada DM (no en la respuesta al comentario).
+  if (!c.ctx.sinInstagram && destino.igId) {
+    const paso = c.nodoActual ? c.grafo.get(c.nodoActual) : undefined;
+    const seg = Math.max(0, Math.min(8, Number(paso?.demora_seg ?? 2)));
+    const usar = Math.min(seg, 12 - (c.demora ?? 0));
+    if (usar > 0 && await escribiendo(c.cuentaId, destino.igId)) {
+      await new Promise((r) => setTimeout(r, usar * 1000));
+      c.demora = (c.demora ?? 0) + usar;
+    }
+  }
   const r: ResultadoEnvio = c.ctx.sinInstagram
     ? { ok: true, simulado: true }
     : await enviarMensajeIG(c.cuentaId, destino, mensaje);
@@ -728,6 +788,13 @@ async function guardarRespuesta(c: Corrida, p: Paso, texto: string) {
     return;
   }
   let guardado = '';
+  if (destino?.startsWith('campo:')) {
+    const nombre = destino.slice(6).trim().slice(0, 40);
+    await pool.query(`UPDATE leads SET campos = campos || jsonb_build_object($2::text, $3::text) WHERE id = $1`,
+      [c.ctx.leadId, nombre, texto.trim().slice(0, 500)]);
+    anotar(c, 'respuesta', `✍️ Respondió «${corto(texto)}» → guardado en «${nombre}»`);
+    return;
+  }
   if (destino === 'email') {
     const m = texto.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
     if (m) {
@@ -787,7 +854,9 @@ async function accion(c: Corrida, p: Paso) {
     }
     case 'responder_comentario': {
       const lead = await cargarLead(c.cuentaId, leadId);
-      const texto = rellenar(String(p.texto ?? ''), lead, c.ctx.simular);
+      // Varias versiones: se elige una al azar para no repetir siempre lo mismo (anti-spam).
+      const versiones = [p.texto, ...(Array.isArray(p.variantes) ? p.variantes : [])].map((x) => String(x ?? '').trim()).filter(Boolean);
+      const texto = rellenar(versiones.length ? versiones[Math.floor(Math.random() * versiones.length)] : '', lead, c.ctx.simular);
       if (sim) { anotar(c, p.tipo, `💭 Respondería el comentario en público: «${corto(texto)}» (prueba)`); return; }
       if (c.ctx.sinInstagram) { anotar(c, p.tipo, `💭 Respuesta pública «${corto(texto)}» (simulado, no salió a Instagram)`); return; }
       if (!c.ctx.commentId) { anotar(c, p.tipo, '💭 No vino de un comentario: no hay nada que responder'); return; }
@@ -858,19 +927,31 @@ async function accion(c: Corrida, p: Paso) {
       const url = String(p.url ?? '');
       if (sim) { anotar(c, p.tipo, `🔗 Avisaría a ${corto(url, 40)} (prueba)`); return; }
       const lead = await cargarLead(c.cuentaId, leadId);
+      let respuesta: any = null;
       const r = await fetch(url, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           evento: 'flujo', flujo: c.flujo.nombre,
           lead: lead && {
             id: lead.id, nombre: lead.nombre, ig_username: lead.ig_username, email: lead.email,
-            telefono: lead.telefono, etiquetas: lead.etiquetas, etapa: lead.etapa_nombre,
+            telefono: lead.telefono, etiquetas: lead.etiquetas, etapa: lead.etapa_nombre, campos: lead.campos ?? {},
           },
         }),
         signal: AbortSignal.timeout(10_000),
-      }).then((x) => x.ok).catch(() => false);
+      }).then(async (x) => { respuesta = await x.json().catch(() => null); return x.ok; }).catch(() => false);
       if (!r) c.fallos++;
-      anotar(c, p.tipo, r ? `🔗 Aviso enviado a ${corto(url, 40)} ✓` : `🔗 ${corto(url, 40)} no respondió bien`, { ok: r });
+      // Usar lo que responde la otra app: guardarlo en campos del lead.
+      const guardados: string[] = [];
+      if (r && respuesta && leadId && Array.isArray(p.guardar)) {
+        for (const g of p.guardar.slice(0, 10)) {
+          const valor = String(g?.ruta ?? '').split('.').filter(Boolean).reduce((o: any, k: string) => (o == null ? o : o[k]), respuesta);
+          const campo = String(g?.campo ?? '').trim().slice(0, 40);
+          if (!campo || valor === undefined || valor === null || typeof valor === 'object') continue;
+          await pool.query(`UPDATE leads SET campos = campos || jsonb_build_object($2::text, $3::text) WHERE id = $1`, [leadId, campo, String(valor).slice(0, 500)]);
+          guardados.push(campo);
+        }
+      }
+      anotar(c, p.tipo, r ? `🔗 Aviso enviado a ${corto(url, 40)} ✓${guardados.length ? ` · guardé ${guardados.join(', ')}` : ''}` : `🔗 ${corto(url, 40)} no respondió bien`, { ok: r });
       return;
     }
     default:

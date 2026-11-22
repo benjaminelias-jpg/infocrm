@@ -408,6 +408,8 @@ function Resumen({ lead, onMarcar, onEditar, onVolver }: {
   const datos: Array<[string, string]> = ([
     ['Email', lead.email], ['Teléfono', lead.telefono], ['A qué se dedica', lead.modelo_negocio],
     ['Cuánto factura', lead.ingresos_aprox], ['Qué lo frena', lead.cuello_botella],
+    // Campos propios que guardaron los automensajes (ej. Nicho, Objetivo).
+    ...Object.entries((lead.campos ?? {}) as Record<string, unknown>).map(([k, v]) => [k, String(v ?? '')]),
   ] as Array<[string, string]>).filter(([, v]) => Boolean(v));
   const otras = (lead.oportunidades ?? []).filter((o: any) => o.id !== lead.oportunidad_id);
 

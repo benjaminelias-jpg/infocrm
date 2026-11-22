@@ -328,7 +328,7 @@ async function callbackInstagram(cuentaId: string, code: string, appId: string, 
   return { ok: true, mensaje: `Instagram conectado como @${username ?? uid}`, username };
 }
 
-const CAMPOS_AVISOS = ['comments,messages,messaging_postbacks,message_reactions,messaging_referral', 'comments,messages'];
+const CAMPOS_AVISOS = ['comments,live_comments,messages,messaging_postbacks,message_reactions,messaging_referral', 'comments,messages,messaging_postbacks,messaging_referral', 'comments,messages'];
 
 /** Suscribe la cuenta de Instagram a los avisos de la app (DMs y comentarios al instante). */
 async function suscribirAvisos(cuentaId: string, igId: string, token: string) {

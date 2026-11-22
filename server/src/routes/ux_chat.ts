@@ -285,6 +285,13 @@ export default async function rutasUx_chat(app: FastifyInstance) {
    * Cortar los automensajes que esperan a este lead (cuando el setter toma
    * la conversación a mano y no quiere que le llegue un mensaje automático).
    */
+  // Volver a dejar que los automensajes le respondan (después de pausarlos al escribirle a mano).
+  app.post('/:leadId/reanudar-automensajes', async (req) => {
+    const leadId = leadIdDe(req);
+    await pool.query(`UPDATE leads SET automensajes_pausados_hasta = NULL WHERE cuenta_id = $1 AND id = $2`, [req.sesion.cuentaId, leadId]);
+    return { ok: true };
+  });
+
   app.post('/:leadId/cortar-automensajes', async (req) => {
     const leadId = leadIdDe(req);
     const filas = await query(

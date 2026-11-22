@@ -383,8 +383,23 @@ export function PanelHilo({
   // ---------------- Caja ----------------
 
   const ventana = hilo?.ventana ?? null;
-  const cerrada = !igCaido && !!ventana && !ventana.abierta;
+  const humana = !igCaido && !!ventana && !ventana.abierta && !!(ventana as any).humana && !ventana.por_manychat;
+  const cerrada = !igCaido && !!ventana && !ventana.abierta && !humana;
   const modo: 'enviar' | 'guardar' = igCaido || cerrada ? 'guardar' : 'enviar';
+  const pausadoHasta: string | null = (hilo as any)?.automensajes_pausados_hasta ?? null;
+  const avisoPausa = pausadoHasta ? (
+    <p className="mb-1.5 flex items-center gap-2 rounded-md px-3 py-1.5 text-[12px] text-[var(--text-secondary)]" style={{ background: 'var(--gridline)' }}>
+      <span className="min-w-0 flex-1">🤖 Automensajes en pausa con {primerNombre(lead)} hasta las {new Date(pausadoHasta).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}: le estás respondiendo vos.</span>
+      <button type="button" className="ui-foco shrink-0 font-medium underline" onClick={async () => {
+        try { await api(`/ux/chat/${leadId}/reanudar-automensajes`, { method: 'POST' }); recargar(true); } catch { /* */ }
+      }}>Reanudar</button>
+    </p>
+  ) : null;
+  const avisoHumano = humana ? (
+    <p className="mb-1.5 rounded-md px-3 py-1.5 text-[12px] text-[var(--text-secondary)]" style={{ background: 'var(--gridline)' }}>
+      Pasaron más de 24 h: como persona del equipo podés responderle igual (hasta 7 días desde su último mensaje). Los automensajes no.
+    </p>
+  ) : null;
   const avisoCaja = cerrada && ventana ? (
     <p className="mb-1.5 rounded-lg px-3 py-1.5 text-[12px] text-[var(--text-secondary)]" style={{ background: 'var(--gridline)' }}>
       {ventana.por_manychat
@@ -448,7 +463,7 @@ export function PanelHilo({
         <Programados leadId={leadId} />
         <CajaMensaje key={leadId} ref={caja} leadId={leadId} nombreLead={nombre} modo={modo} deshabilitado={!hilo}
           placeholder={igCaido || cerrada ? (unaColumna ? 'Escribí una nota…' : 'Escribí una nota (no le llega)…') : 'Escribí un mensaje…'}
-          aviso={avisoCaja} atajos={atajos} onEnviar={mandarTexto} onUsarAtajo={usarAtajo} onAbrirAtajos={() => setPaleta(true)} />
+          aviso={avisoCaja ?? (avisoPausa || avisoHumano ? <>{avisoPausa}{avisoHumano}</> : null)} atajos={atajos} onEnviar={mandarTexto} onUsarAtajo={usarAtajo} onAbrirAtajos={() => setPaleta(true)} />
       </div>
 
       <PaletaAtajos abierto={paleta} onCerrar={() => setPaleta(false)} items={atajos} onUsar={usarAtajo}
