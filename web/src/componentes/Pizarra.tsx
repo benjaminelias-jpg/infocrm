@@ -241,7 +241,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
   const caja = useRef<HTMLDivElement>(null);
   const [sel, setSel] = useState<string | null>(null);
   const [selFlecha, setSelFlecha] = useState<string | null>(null);
-  const [paleta, setPaleta] = useState<null | { desde?: { nodo: string; salida: string } }>(null);
+  const [paleta, setPaleta] = useState<null | { desde?: { nodo: string; salida: string }; pos?: { x: number; y: number } }>(null);
   const nodos: Paso[] = form.pasos;
 
   const setNodos = useCallback((f: (n: Paso[]) => Paso[]) => setForm((x: any) => ({ ...x, pasos: f(x.pasos) })), [setForm]);
@@ -416,7 +416,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
 
   function agregar(tipo: string, pos?: { x: number; y: number }) {
     const desde = paleta?.desde;
-    let p = pos;
+    let p = pos ?? paleta?.pos;
     if (!p) {
       if (desde) {
         const o = nodos.find((n) => n.id === desde.nodo);
@@ -474,6 +474,18 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
         <ReactFlow
           nodes={rfNodos} edges={flechas} nodeTypes={TIPOS_NODO} edgeTypes={TIPOS_FLECHA}
           onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect}
+          onConnectEnd={(ev, estado: any) => {
+            // Soltaste la flecha en el vacío: elegí qué paso crear ahí (como n8n).
+            if (estado?.isValid || !estado?.fromNode || estado?.fromHandle?.type !== 'source') return;
+            const origen = nodos.find((n) => n.id === estado.fromNode.id);
+            if (!origen) return;
+            let salida = String(estado.fromHandle.id ?? 'out');
+            if (salida === 'out' && origen.siguiente) salida = 'mas';
+            const t = 'changedTouches' in ev ? (ev as TouchEvent).changedTouches[0] : (ev as MouseEvent);
+            const pos = rf.screenToFlowPosition({ x: t.clientX, y: t.clientY });
+            setSel(null);
+            setPaleta({ desde: { nodo: origen.id, salida }, pos: { x: pos.x, y: pos.y - 40 } });
+          }}
           onNodeClick={(_, n) => { setSel(n.id); setPaleta(null); setSelFlecha(null); centrarEn(n.id); }}
           onPaneClick={() => { setSel(null); setPaleta(null); setSelFlecha(null); }}
           isValidConnection={(c) => c.target !== 'inicio' && c.source !== c.target}
