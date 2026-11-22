@@ -189,7 +189,7 @@ const PAUSAN = new Set(['pregunta', 'esperar_respuesta', 'esperar']);
 
 export const ETIQUETA_PASO: Record<string, string> = {
   enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso',
-  responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición',
+  responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición', router: 'Router (repartir al azar)',
   esperar_respuesta: 'Esperar su respuesta', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
   quitar_etiqueta: 'Quitar etiqueta', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
   notificar: 'Avisar al equipo', webhook: 'Avisar a otra app', inicio: 'Disparador',
@@ -199,7 +199,25 @@ export const ETIQUETA_PASO: Record<string, string> = {
 export function salidas(n: Paso): Array<string | null | undefined> {
   if (n.tipo === 'pregunta') return (n.opciones ?? []).map((o: any) => o.siguiente);
   if (n.tipo === 'condicion') return [n.siguiente_si, n.siguiente_no];
-  return [n.siguiente];
+  const extra = Array.isArray(n.tambien) ? n.tambien : [];
+  if (n.tipo === 'router') return [...(n.ramas ?? []).map((r: any) => r.siguiente), ...extra];
+  return [n.siguiente, ...extra];
+}
+
+/**
+ * Router: elige una rama al azar. Con modo «pesos» respeta el % de cada una
+ * (ej. 50/30/20); si no, todas por igual. Sirve para variar mensajes
+ * (10 ganchos distintos) y que no parezca spam, o para probar versiones.
+ */
+export function elegirRama(n: Paso, azar: () => number = Math.random): any | null {
+  const ramas = (n.ramas ?? []).filter((r: any) => r && r.siguiente);
+  if (!ramas.length) return null;
+  const pesos = ramas.map((r: any) => (n.modo === 'pesos' ? Math.max(0, Number(r.peso) || 0) : 1));
+  const total = pesos.reduce((a: number, b: number) => a + b, 0);
+  if (total <= 0) return ramas[Math.floor(azar() * ramas.length)];
+  let x = azar() * total;
+  for (let i = 0; i < ramas.length; i++) { x -= pesos[i]; if (x < 0) return ramas[i]; }
+  return ramas[ramas.length - 1];
 }
 
 /** Convierte un flujo viejo (árbol con ramas anidadas) en grafo. */
@@ -312,8 +330,24 @@ export function normalizarFlujo(pasos: any): Paso[] {
       m.siguiente_si = ok(m.siguiente_si);
       m.siguiente_no = ok(m.siguiente_no);
       delete m.siguiente;
+    } else if (m.tipo === 'router') {
+      m.modo = m.modo === 'pesos' ? 'pesos' : 'azar';
+      m.ramas = (Array.isArray(m.ramas) ? m.ramas : []).slice(0, 20).map((r: any, j: number) => ({
+        id: String(r?.id ?? `${m.id}r${j}`),
+        nombre: String(r?.nombre ?? '').slice(0, 40),
+        peso: Math.max(0, Math.min(100, Number(r?.peso) || 0)),
+        siguiente: ok(r?.siguiente),
+      }));
+      delete m.siguiente;
     } else {
       m.siguiente = ok(m.siguiente);
+    }
+    // «Y también»: otros pasos que arrancan desde acá además del siguiente.
+    if (m.tipo === 'pregunta' || m.tipo === 'condicion') delete m.tambien;
+    else {
+      const t = [...new Set((Array.isArray(m.tambien) ? m.tambien : []).map(ok).filter(Boolean) as string[])]
+        .filter((x) => x !== m.siguiente).slice(0, 10);
+      if (t.length) m.tambien = t; else delete m.tambien;
     }
     limpio.push(m);
   }
@@ -401,6 +435,12 @@ export function validarFlujoDetallado(nodos: Paso[]): Array<{ nodo: string | nul
           if (!String(o.titulo ?? '').trim()) mal(`el botón ${j + 1} no tiene texto.`);
         });
         break;
+      case 'router': {
+        const conectadas = (p.ramas ?? []).filter((r: any) => r.siguiente);
+        if (conectadas.length < 2) mal('conectá al menos 2 ramas (cada una a su mensaje).');
+        else if (p.modo === 'pesos' && conectadas.reduce((a: number, r: any) => a + (Number(r.peso) || 0), 0) <= 0) mal('poné el % de cada rama.');
+        break;
+      }
       case 'condicion':
         if (!p.campo) mal('elegí qué revisar.');
         else if (['etiqueta', 'etapa', 'texto'].includes(p.campo) && !String(p.valor ?? '').trim()) mal('completá el valor.');
@@ -468,7 +508,7 @@ export async function simularPasos(cuentaId: string, pasos: any[], ctx: Omit<Con
   };
   const inicio = nodos.find((n) => n.tipo === 'inicio');
   c.nodoActual = inicio?.id ?? null;
-  await correr(c, inicio?.siguiente);
+  await correr(c, inicio?.id);
   return { resultados: c.resultados, estado: 'simulado' as const };
 }
 
@@ -560,6 +600,8 @@ export interface ContextoFlujo {
    * pero no se llama a Instagram; los mensajes quedan como "simulado".
    */
   sinInstagram?: boolean;
+  /** Ramas «Y también» que quedan por correr cuando termina la actual. */
+  cola?: string[];
 }
 
 interface Corrida {
@@ -835,15 +877,21 @@ async function pausar(
   await pool.query(
     `UPDATE flujo_ejecuciones
         SET estado = 'esperando', esperando = $2, nodo_id = $3, reanudar_en = $4,
-            resultado = $5::jsonb, actualizado_en = now()
+            resultado = $5::jsonb, contexto = $6::jsonb, actualizado_en = now()
       WHERE id = $1`,
-    [c.ejecucionId, tipo, nodoId, reanudarEn, JSON.stringify(c.resultados)]);
+    [c.ejecucionId, tipo, nodoId, reanudarEn, JSON.stringify(c.resultados), JSON.stringify(contextoPersistible(c.ctx))]);
 }
 
 /** Recorre el grafo desde un paso hasta terminar o pausar. */
 async function correr(c: Corrida, desde: string | null | undefined): Promise<'fin' | 'pausa'> {
   let id: string | null = desde ?? null;
-  while (id) {
+  for (;;) {
+    // Terminó una rama: sigue la próxima «Y también» pendiente.
+    if (!id) {
+      id = c.ctx.cola?.shift() ?? null;
+      if (!id) break;
+      anotar(c, 'tambien', '➕ Y también…');
+    }
     if (++c.pasosCorridos > MAX_PASOS_POR_CORRIDA) {
       anotar(c, 'limite', '⚠ El flujo es demasiado largo: se cortó por seguridad.');
       return 'fin';
@@ -854,12 +902,21 @@ async function correr(c: Corrida, desde: string | null | undefined): Promise<'fi
       return 'fin';
     }
     c.nodoActual = p.id;
+    if (Array.isArray(p.tambien) && p.tambien.length) c.ctx.cola = [...p.tambien, ...(c.ctx.cola ?? [])];
     if (ENVIAN.has(p.tipo) && c.envios >= MAX_ENVIOS_POR_CORRIDA) {
       anotar(c, 'limite', `⚠ Ya se mandaron ${MAX_ENVIOS_POR_CORRIDA} mensajes seguidos: corté para no hacer spam.`);
       return 'fin';
     }
     try {
       if (p.tipo === 'inicio') { id = p.siguiente ?? null; continue; }
+      if (p.tipo === 'router') {
+        const forzada = c.ctx.respuestas?.[p.id];
+        const rama = (forzada && (p.ramas ?? []).find((r: any) => r.id === forzada && r.siguiente)) || elegirRama(p);
+        const i = (p.ramas ?? []).indexOf(rama);
+        anotar(c, 'router', rama ? `🎲 Router → ${rama.nombre || `Rama ${i + 1}`}` : '🎲 Router sin ramas conectadas: termina acá');
+        id = rama?.siguiente ?? null;
+        continue;
+      }
       if (p.tipo === 'condicion') {
         const forzada = c.ctx.respuestas?.[p.id];
         const si = forzada ? forzada === 'si' : (c.ctx.simular && !c.ctx.leadId ? true : await evaluarCondicion(c, p));
@@ -951,6 +1008,7 @@ function contextoPersistible(ctx: ContextoFlujo) {
   return {
     destinatarioIgId: ctx.destinatarioIgId ?? null, texto: ctx.texto ?? null,
     sinInstagram: ctx.sinInstagram ?? false,
+    cola: ctx.cola ?? [],
   };
 }
 
@@ -978,7 +1036,7 @@ export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: Cont
   }
   const inicio = nodos.find((n) => n.tipo === 'inicio');
   c.nodoActual = inicio?.id ?? null;
-  const fin = await correr(c, inicio?.siguiente);
+  const fin = await correr(c, inicio?.id);
   return cerrar(c, fin);
 }
 
@@ -1008,6 +1066,7 @@ async function reanudar(fila: any, entrada: Entrada) {
       destinatarioIgId: ctxGuardado.destinatarioIgId ?? undefined,
       texto: entrada.tipo === 'respuesta' ? entrada.texto : (ctxGuardado.texto ?? undefined),
       sinInstagram: !!ctxGuardado.sinInstagram,
+      cola: Array.isArray(ctxGuardado.cola) ? ctxGuardado.cola : [],
     },
     resultados: Array.isArray(fila.resultado) ? fila.resultado : [],
     fallos: 0, envios: 1, pasosCorridos: 0, nodoActual: fila.nodo_id ?? null,

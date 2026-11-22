@@ -93,3 +93,53 @@ describe('condición ¿Te sigue?', () => {
     expect(describirCondicion({ id: 'x', tipo: 'condicion', campo: 'sigue' })).toBe('¿Te sigue en Instagram?');
   });
 });
+
+describe('router de la pizarra', () => {
+  it('reparte al azar parejo o según el %', async () => {
+    const { elegirRama } = await import('../src/modules/instagram_dm.js');
+    const ramas = [{ id: 'a', peso: 80, siguiente: 'x' }, { id: 'b', peso: 20, siguiente: 'y' }, { id: 'c', peso: 50, siguiente: null }];
+    // Sin conectar no cuenta; en «pesos» 80/20.
+    let n = 0; let semilla = 1;
+    const azar = () => { semilla = (semilla * 16807) % 2147483647; return semilla / 2147483647; };
+    for (let i = 0; i < 2000; i++) if (elegirRama({ id: 'r', tipo: 'router', modo: 'pesos', ramas }, azar)?.id === 'a') n++;
+    expect(n / 2000).toBeGreaterThan(0.75);
+    expect(n / 2000).toBeLessThan(0.85);
+    let m = 0;
+    for (let i = 0; i < 2000; i++) if (elegirRama({ id: 'r', tipo: 'router', modo: 'azar', ramas }, azar)?.id === 'a') m++;
+    expect(m / 2000).toBeGreaterThan(0.45);
+    expect(m / 2000).toBeLessThan(0.55);
+    expect(elegirRama({ id: 'r', tipo: 'router', ramas: [] })).toBeNull();
+  });
+
+  it('un flujo con router manda uno de los mensajes', async () => {
+    const pasos = [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'r' },
+      { id: 'r', tipo: 'router', modo: 'azar', ramas: [{ id: 'a', nombre: 'Gancho A', siguiente: 'm1' }, { id: 'b', nombre: 'Gancho B', siguiente: 'm2' }] },
+      { id: 'm1', tipo: 'enviar_dm', texto: 'Hola A', siguiente: null },
+      { id: 'm2', tipo: 'enviar_dm', texto: 'Hola B', siguiente: null },
+    ];
+    const f = await pedir('POST', '/api/flujos', { nombre: 'Router test', disparo: 'dm', palabra_clave: 'ROUTERX', pasos });
+    expect(f.codigo).toBeLessThan(300);
+    const sim = await pedir('POST', `/api/flujos/${f.datos.id}/simular`, { texto: 'ROUTERX' });
+    const txt = JSON.stringify(sim.datos);
+    expect(txt).toMatch(/Router → Gancho [AB]/);
+    expect(/Hola A/.test(txt) !== /Hola B/.test(txt)).toBe(true);
+  });
+});
+
+describe('«Y también» en la pizarra', () => {
+  it('desde el disparador hace esto Y esto', async () => {
+    const pasos = [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'm1', tambien: ['t1'] },
+      { id: 'm1', tipo: 'enviar_dm', texto: 'Hola uno', siguiente: null },
+      { id: 't1', tipo: 'enviar_dm', texto: 'Hola dos', siguiente: null },
+    ];
+    const f = await pedir('POST', '/api/flujos', { nombre: 'Y tambien', disparo: 'dm', palabra_clave: 'YTAMBIEN', pasos });
+    expect(f.codigo).toBeLessThan(300);
+    const ini = (f.datos.pasos ?? []).find((p: any) => p.tipo === 'inicio');
+    expect(ini?.tambien).toEqual(['t1']);
+    const sim = JSON.stringify((await pedir('POST', `/api/flujos/${f.datos.id}/simular`, { texto: 'YTAMBIEN' })).datos);
+    expect(sim).toContain('Hola uno');
+    expect(sim).toContain('Hola dos');
+  });
+});

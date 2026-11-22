@@ -173,9 +173,38 @@ function FlechaBorrable({ id, sourceX, sourceY, targetX, targetY, sourcePosition
   );
 }
 
-const TIPOS_NODO = { inicio: NodoInicio, paso: NodoPaso, pregunta: NodoPregunta, condicion: NodoCondicion };
+/** % que le toca a cada rama (iguales en modo azar). */
+export function porcentajes(p: any): number[] {
+  const ramas = p.ramas ?? [];
+  if (!ramas.length) return [];
+  if (p.modo !== 'pesos') return ramas.map(() => Math.round(100 / ramas.length));
+  const total = ramas.reduce((a: number, r: any) => a + (Number(r.peso) || 0), 0);
+  return ramas.map((r: any) => (total > 0 ? Math.round(((Number(r.peso) || 0) / total) * 100) : 0));
+}
+
+const NodoRouter = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
+  const d = data;
+  const p = d.paso;
+  const pct = porcentajes(p);
+  return (
+    <div className="relative">
+      <Handle type="target" position={Position.Left} id="in" style={estiloPunto('var(--baseline)')} />
+      <Caja d={d} selected={selected} color={NODOS.router.color}>
+        <Titulo p={p} />
+        <div className="px-3 pb-2 pt-1 text-[11px] text-[var(--text-secondary)]">{p.modo === 'pesos' ? 'Reparte según el %' : 'Reparte al azar, parejo'}</div>
+        {(p.ramas ?? []).map((r: any, j: number) => (
+          <FilaSalida key={r.id} d={d} id={`ra:${r.id}`} color={NODOS.router.color}>
+            {r.nombre || `Rama ${j + 1}`} <span className="cifras text-[var(--text-muted)]">· {pct[j]} %</span>
+          </FilaSalida>
+        ))}
+      </Caja>
+    </div>
+  );
+});
+
+const TIPOS_NODO = { inicio: NodoInicio, paso: NodoPaso, pregunta: NodoPregunta, condicion: NodoCondicion, router: NodoRouter };
 const TIPOS_FLECHA = { borrable: FlechaBorrable };
-const tipoNodo = (t: string) => (t === 'inicio' || t === 'pregunta' || t === 'condicion' ? t : 'paso');
+const tipoNodo = (t: string) => (t === 'inicio' || t === 'pregunta' || t === 'condicion' || t === 'router' ? t : 'paso');
 
 // ---------------------------------------------------------------------
 // Pizarra
@@ -241,7 +270,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
         const id = `${n.id}|${salida}`;
         const pintada = tramosRecorrido.has(`${n.id}>${destino}`);
         out.push({
-          id, source: n.id, sourceHandle: salida, target: destino, targetHandle: 'in', type: 'borrable',
+          id, source: n.id, sourceHandle: salida.startsWith('y:') ? 'out' : salida, target: destino, targetHandle: 'in', type: 'borrable',
           selected: selFlecha === id, animated: pintada,
           style: { stroke: pintada ? '#0ca30c' : '#9a9a94', strokeWidth: pintada ? 2.6 : 1.8 },
           markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: pintada ? '#0ca30c' : '#9a9a94' },
@@ -372,7 +401,12 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
 
   const onConnect = useCallback((c: Connection) => {
     if (!c.source || !c.target || !c.sourceHandle || c.target === 'inicio') return;
-    setNodos((ns) => conectar(ns, c.source, c.sourceHandle!, c.target));
+    setNodos((ns) => {
+      const origen = ns.find((n) => n.id === c.source);
+      // Ya sale una flecha de ese punto: la nueva se suma («hace esto Y esto»), no reemplaza.
+      if (c.sourceHandle === 'out' && origen?.siguiente && origen.siguiente !== c.target) return conectar(ns, c.source!, 'mas', c.target);
+      return conectar(ns, c.source!, c.sourceHandle!, c.target);
+    });
   }, [setNodos]);
 
   function centroVisible() {
@@ -422,9 +456,10 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
     const copia: Paso = {
       ...JSON.parse(JSON.stringify(o)), id: uid(), x: (o.x ?? 0) + 40, y: (o.y ?? 0) + 60,
       ...(o.tipo === 'pregunta' ? { opciones: (o.opciones ?? []).map((x: any) => ({ ...x, id: uid(), siguiente: null })) } : {}),
+      ...(o.tipo === 'router' ? { ramas: (o.ramas ?? []).map((x: any) => ({ ...x, id: uid(), siguiente: null })) } : {}),
       ...(o.tipo === 'condicion' ? { siguiente_si: null, siguiente_no: null } : { siguiente: null }),
     };
-    if (o.tipo === 'pregunta') delete copia.siguiente;
+    if (o.tipo === 'pregunta' || o.tipo === 'router') delete copia.siguiente;
     setNodos((ns) => [...ns, copia]);
     setSel(copia.id);
   }
@@ -775,6 +810,50 @@ function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void
         </div>
       );
     }
+    case 'router': {
+      const ramas: any[] = p.ramas ?? [];
+      const pct = porcentajes(p);
+      const pesos = p.modo === 'pesos';
+      const suma = ramas.reduce((a, r) => a + (Number(r.peso) || 0), 0);
+      const setRamas = (rs: any[]) => onChange({ ...p, ramas: rs });
+      return (
+        <div className="space-y-3">
+          <p className="text-[12px] text-[var(--text-muted)]">
+            Cada persona sale por <b>una</b> rama. Conectá cada rama a un mensaje distinto (ej. 10 ganchos) para que no todos reciban lo mismo y no parezca spam.
+          </p>
+          <FilaChips>
+            <Chip activo={!pesos} onClick={() => onChange({ ...p, modo: 'azar' })}>Al azar, parejo</Chip>
+            <Chip activo={pesos} onClick={() => onChange({ ...p, modo: 'pesos', ramas: ramas.map((r) => ({ ...r, peso: r.peso || Math.round(100 / ramas.length) })) })}>Con % propio</Chip>
+          </FilaChips>
+          <div className="space-y-1.5">
+            {ramas.map((r, j) => (
+              <div key={r.id} className="flex items-center gap-2">
+                <Entrada value={r.nombre ?? ''} onChange={(e) => setRamas(ramas.map((x) => (x.id === r.id ? { ...x, nombre: e.target.value.slice(0, 40) } : x)))}
+                  placeholder={`Rama ${j + 1}`} aria-label={`Nombre de la rama ${j + 1}`} className="min-w-0 flex-1" />
+                {pesos ? (
+                  <label className="flex items-center gap-1 text-[12px]">
+                    <Entrada value={String(r.peso ?? '')} inputMode="numeric" className="!w-16" aria-label={`% de la rama ${j + 1}`}
+                      onChange={(e) => setRamas(ramas.map((x) => (x.id === r.id ? { ...x, peso: Math.max(0, Math.min(100, Number(e.target.value.replace(/\D/g, '')) || 0)) } : x)))} />%
+                  </label>
+                ) : <span className="cifras w-12 text-right text-[12px] text-[var(--text-muted)]">{pct[j]} %</span>}
+                {ramas.length > 2 && (
+                  <button type="button" className="ui-foco rounded-md px-1.5 text-[var(--text-muted)] hover:text-[var(--status-critical)]" aria-label={`Quitar la rama ${j + 1}`}
+                    onClick={() => setRamas(ramas.filter((x) => x.id !== r.id))}>✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+          {pesos && suma !== 100 && (
+            <p className="text-[12px]" style={{ color: 'var(--status-warning)' }}>Suman {suma} %: se reparte en esa proporción (no hace falta que dé 100).</p>
+          )}
+          {ramas.length < 20 && (
+            <Boton tamano="sm" variante="secundario" onClick={() => setRamas([...ramas, { id: uid(), nombre: String.fromCharCode(65 + ramas.length), peso: pesos ? Math.round(100 / (ramas.length + 1)) : 0, siguiente: null }])}>
+              + Agregar rama
+            </Boton>
+          )}
+        </div>
+      );
+    }
     case 'condicion':
       return (
         <div className="space-y-2">
@@ -828,7 +907,13 @@ function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
       ? (p.opciones ?? []).map((o: any, j: number) => ({ salida: `op:${o.id}`, etiqueta: `Si toca «${o.titulo || `Botón ${j + 1}`}»`, destino: o.siguiente }))
       : p.tipo === 'condicion'
         ? [{ salida: 'si', etiqueta: 'Si se cumple', destino: p.siguiente_si }, { salida: 'no', etiqueta: 'Si no', destino: p.siguiente_no }]
+        : p.tipo === 'router'
+          ? (p.ramas ?? []).map((r: any, j: number) => ({ salida: `ra:${r.id}`, etiqueta: `Rama ${r.nombre || j + 1} (${porcentajes(p)[j]} %)`, destino: r.siguiente }))
         : [{ salida: 'out', etiqueta: p.tipo === 'inicio' ? 'Primer paso' : 'Después', destino: p.siguiente }];
+  if (p.tipo !== 'pregunta' && p.tipo !== 'condicion') {
+    for (const d of (p.tambien ?? []) as string[]) filas.push({ salida: `y:${d}`, etiqueta: 'Y también', destino: d });
+    if (filas.some((f) => f.destino) && (p.tambien ?? []).length < 10) filas.push({ salida: 'mas', etiqueta: '+ Y también (a la vez)', destino: null });
+  }
   const otros = nodos.filter((n) => n.id !== p.id && n.tipo !== 'inicio');
   const nombre = (n: Paso) => `${NODOS[n.tipo]?.icono ?? '•'} ${NODOS[n.tipo]?.etiqueta ?? n.tipo} · ${resumen(n, ctx).slice(0, 34) || describirCondicion(n)}`;
   return (

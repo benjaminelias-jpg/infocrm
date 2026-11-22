@@ -16,6 +16,7 @@ export const NODOS: Record<string, { etiqueta: string; icono: string; color: str
   responder_comentario: { etiqueta: 'Responder el comentario', icono: '💭', color: '#2a78d6', grupo: 'Mensajes', ayuda: 'Respuesta pública debajo del reel' },
   pregunta: { etiqueta: 'Pregunta con botones', icono: '❓', color: '#e76f51', grupo: 'Lógica', ayuda: 'Cada botón sale por su propia flecha' },
   condicion: { etiqueta: 'Condición (sí / no)', icono: '🔀', color: '#264653', grupo: 'Lógica', ayuda: 'Una flecha si se cumple y otra si no' },
+  router: { etiqueta: 'Router (repartir al azar)', icono: '🎲', color: '#5c6b7a', grupo: 'Lógica', ayuda: 'Manda a cada uno por una rama distinta, al azar o con el % que elijas' },
   esperar_respuesta: { etiqueta: 'Esperar su respuesta', icono: '✍️', color: '#8d99ae', grupo: 'Lógica', ayuda: 'Pausa hasta que escriba (y guarda lo que dice)' },
   esperar: { etiqueta: 'Esperar un tiempo', icono: '⏳', color: '#8d99ae', grupo: 'Lógica', ayuda: 'Sigue solo después de minutos, horas o días' },
   etiquetar: { etiqueta: 'Poner etiqueta', icono: '🏷️', color: '#f4a261', grupo: 'El lead', ayuda: 'Para filtrarlo después' },
@@ -45,7 +46,9 @@ export const DISPAROS: Array<{ v: string; t: string; icono: string; palabra: boo
 export function salidas(n: Paso): Array<[string, string | null | undefined]> {
   if (n.tipo === 'pregunta') return (n.opciones ?? []).map((o: any) => [`op:${o.id}`, o.siguiente]);
   if (n.tipo === 'condicion') return [['si', n.siguiente_si], ['no', n.siguiente_no]];
-  return [['out', n.siguiente]];
+  const extra: Array<[string, string]> = (Array.isArray(n.tambien) ? n.tambien : []).map((d: string) => [`y:${d}`, d]);
+  if (n.tipo === 'router') return [...(n.ramas ?? []).map((r: any) => [`ra:${r.id}`, r.siguiente] as [string, string]), ...extra];
+  return [['out', n.siguiente], ...extra];
 }
 
 export function conectar(nodos: Paso[], origen: string, salida: string, destino: string | null): Paso[] {
@@ -54,6 +57,20 @@ export function conectar(nodos: Paso[], origen: string, salida: string, destino:
     if (salida.startsWith('op:')) {
       const opId = salida.slice(3);
       return { ...n, opciones: (n.opciones ?? []).map((o: any) => (o.id === opId ? { ...o, siguiente: destino } : o)) };
+    }
+    if (salida.startsWith('y:')) {
+      // «Y también»: quitar esa flecha extra (o cambiar su destino).
+      const viejo = salida.slice(2);
+      const lista = (n.tambien ?? []).filter((x: string) => x !== viejo);
+      return { ...n, tambien: destino ? [...lista, destino] : lista };
+    }
+    if (salida === 'mas') {
+      // Agregar otra flecha desde el mismo punto (hace esto Y esto).
+      return { ...n, tambien: destino && !(n.tambien ?? []).includes(destino) ? [...(n.tambien ?? []), destino] : (n.tambien ?? []) };
+    }
+    if (salida.startsWith('ra:')) {
+      const rId = salida.slice(3);
+      return { ...n, ramas: (n.ramas ?? []).map((r: any) => (r.id === rId ? { ...r, siguiente: destino } : r)) };
     }
     if (salida === 'si') return { ...n, siguiente_si: destino };
     if (salida === 'no') return { ...n, siguiente_no: destino };
@@ -68,6 +85,8 @@ export function quitarNodo(nodos: Paso[], id: string): Paso[] {
     ...('siguiente' in n ? { siguiente: limpiar(n.siguiente) } : {}),
     ...(n.tipo === 'condicion' ? { siguiente_si: limpiar(n.siguiente_si), siguiente_no: limpiar(n.siguiente_no) } : {}),
     ...(n.tipo === 'pregunta' ? { opciones: (n.opciones ?? []).map((o: any) => ({ ...o, siguiente: limpiar(o.siguiente) })) } : {}),
+    ...(n.tipo === 'router' ? { ramas: (n.ramas ?? []).map((r: any) => ({ ...r, siguiente: limpiar(r.siguiente) })) } : {}),
+    ...(Array.isArray(n.tambien) ? { tambien: n.tambien.filter((x: string) => x !== id) } : {}),
   }));
 }
 
@@ -79,7 +98,7 @@ export function quitarYUnir(nodos: Paso[], id: string): Paso[] {
   const entradas: Array<[string, string]> = [];
   for (const n of nodos) for (const [salida, destino] of salidas(n)) if (destino === id && n.id !== id) entradas.push([n.id, salida]);
   let r = quitarNodo(nodos, id);
-  if (entradas.length === 1 && sale.length === 1 && borrado.tipo !== 'pregunta' && borrado.tipo !== 'condicion') {
+  if (entradas.length === 1 && sale.length === 1 && borrado.tipo !== 'pregunta' && borrado.tipo !== 'condicion' && borrado.tipo !== 'router') {
     r = conectar(r, entradas[0][0], entradas[0][1], sale[0]);
   }
   return r;
@@ -101,8 +120,12 @@ export function alcanzables(nodos: Paso[]): Set<string> {
 export function nuevoPaso(tipo: string, datos: Record<string, any> = {}): Paso {
   const base: Paso = { id: uid(), tipo, ...datos };
   if (tipo === 'pregunta' && !base.opciones) base.opciones = [{ id: uid(), titulo: '', siguiente: null }];
+  if (tipo === 'router' && !base.ramas) {
+    base.modo = 'azar';
+    base.ramas = [{ id: uid(), nombre: 'A', peso: 50, siguiente: null }, { id: uid(), nombre: 'B', peso: 50, siguiente: null }];
+  }
   if (tipo === 'condicion') { base.campo = base.campo ?? 'etiqueta'; base.siguiente_si = null; base.siguiente_no = null; }
-  else if (tipo !== 'pregunta' && !('siguiente' in base)) base.siguiente = null;
+  else if (tipo !== 'pregunta' && tipo !== 'router' && !('siguiente' in base)) base.siguiente = null;
   return base;
 }
 
