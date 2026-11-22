@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { query, queryOne, pool, transaction } from '../db/pool.js';
 import { AppError, conflicto, peticionInvalida, prohibido } from '../lib/errores.js';
-import { cargarDemo } from '../modules/demo.js';
+import { borrarDemo, cargarDemo, hayDemo } from '../modules/demo.js';
 import { registrarEvento } from '../modules/eventos.js';
 import {
   comisionDe, comisionPctDe, fechaISO, hoyEn, planDeCuotas, recalcularEstadoVenta, repartir, sumarDias,
@@ -320,8 +320,14 @@ const GANCHOS_VENTA: Ganchos = {
 export default async function rutasFinanzas(app: FastifyInstance) {
   // Cargar datos de demostración en la cuenta actual (para ver el CRM "con vida").
   app.post('/demo/cargar', async (req) => {
+    exigirAdmin(req, 'Solo el dueño puede cargar datos de prueba.');
     const n = Number((req.query as any)?.leads ?? 14);
-    return cargarDemo(req.sesion.cuentaId, Math.min(Math.max(n, 1), 22));
+    return cargarDemo(req.sesion.cuentaId, Math.min(Math.max(n, 1), 40));
+  });
+  app.get('/demo', async (req) => ({ leads: await hayDemo(req.sesion.cuentaId) }));
+  app.post('/demo/borrar', async (req) => {
+    exigirAdmin(req, 'Solo el dueño puede borrar los datos de prueba.');
+    return borrarDemo(req.sesion.cuentaId);
   });
 
   crud(app, '/productos', 'productos',

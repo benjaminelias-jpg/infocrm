@@ -32,8 +32,10 @@ async function cuenta(tabla: string, cuentaId: string): Promise<number> {
 }
 
 /** Crea los elementos base (cada sección se completa sola si falta). */
-async function asegurarBase(cuentaId: string) {
+async function asegurarBase(cuentaId: string): Promise<string[]> {
   const ahora = Date.now();
+  const vacias: string[] = [];
+  for (const t of ['contenidos', 'personas_equipo', 'productos', 'gastos']) if (await cuenta(t, cuentaId) === 0) vacias.push(t);
   if (await cuenta('contenidos', cuentaId) === 0) {
     for (const [i, c] of CONTENIDOS.entries()) {
       const mediaId = `179${String(100000000000 + i * 7919).slice(0, 12)}`;
@@ -69,25 +71,14 @@ async function asegurarBase(cuentaId: string) {
         [cuentaId, new Date(ahora - entre(1, 40) * DIA), g[0], g[1], g[2]]);
     }
   }
-  if (await cuenta('flujos', cuentaId) === 0) {
-    for (const f of [
-      { nombre: 'Recurso del reel de guías', palabra: 'GUIA', pasos: [{ tipo: 'entregar_recurso', recurso: 'Aquí tienes la guía 👇' }, { tipo: 'etiquetar', etiqueta: 'pidio-guia' }] },
-      { nombre: 'Masterclass', palabra: 'CLASE', pasos: [{ tipo: 'enviar_dm', texto: '¡Gracias! Te dejo el acceso a la clase.' }, { tipo: 'mover_etapa', etapa_slug: 'conversacion' }] },
-    ]) {
-      await pool.query(`INSERT INTO flujos (cuenta_id, nombre, disparo, palabra_clave, pasos, activo) VALUES ($1,$2,'comentario',$3,$4::jsonb,true)`,
-        [cuentaId, f.nombre, f.palabra, JSON.stringify(f.pasos)]);
-    }
-  }
-  if (await cuenta('recursos', cuentaId) === 0) {
-    for (const rc of [['Bienvenida del founder', 'Hola, soy yo en persona dándote la bienvenida 🙌'], ['Explicación de la oferta', 'Te cuento en 2 min cómo funciona el programa.']]) {
-      await pool.query(`INSERT INTO recursos (cuenta_id, nombre, tipo, texto) VALUES ($1,$2,'texto',$3)`, [cuentaId, rc[0], rc[1]]);
-    }
-  }
+  return vacias;
 }
 
 /** Genera un lote de leads (con su recorrido) para la cuenta. */
 export async function cargarDemo(cuentaId: string, leads = 14): Promise<{ creados: number; ventas: number }> {
-  await asegurarBase(cuentaId);
+  const vacias = await asegurarBase(cuentaId);
+  // Lo que se creó recién (la tabla estaba vacía) es de prueba: se borra con «Borrar datos de prueba».
+  for (const t of vacias) await pool.query(`UPDATE ${t} SET de_prueba = true WHERE cuenta_id = $1`, [cuentaId]);
   const ahora = Date.now();
 
   const contenidos = await query(`SELECT id, ig_media_id, titulo FROM contenidos WHERE cuenta_id=$1`, [cuentaId]);
@@ -121,6 +112,7 @@ export async function cargarDemo(cuentaId: string, leads = 14): Promise<{ creado
     });
     creados++;
     const leadId = r1.leadId;
+    await pool.query(`UPDATE leads SET de_prueba = true WHERE id = $1`, [leadId]);
     let t = entrada.getTime();
 
     if (!pasa(0.07)) await registrarEvento({ cuentaId, tipo: 'recurso_entregado', leadId, senales, fuente: 'manychat', ocurridoEn: new Date(t + 60000), idempotencyKey: `demo_rec_${sufijo}`, sinReglas: true });
@@ -128,6 +120,13 @@ export async function cargarDemo(cuentaId: string, leads = 14): Promise<{ creado
     if (pasa(Math.min(0.4 * q, 0.75))) {
       t += entre(1, 48) * 3_600_000;
       await registrarEvento({ cuentaId, tipo: 'respondio_dm', leadId, senales, fuente: 'manychat', ocurridoEn: new Date(t), idempotencyKey: `demo_dm_${sufijo}`, sinReglas: true });
+      // Una charla corta para que el Chat tenga algo que mostrar.
+      await pool.query(
+        `INSERT INTO mensajes (cuenta_id, lead_id, direccion, canal, cuerpo, estado, ocurrido_en) VALUES
+           ($1,$2,'saliente','instagram_dm',$3,'enviado',$4),
+           ($1,$2,'entrante','instagram_dm',$5,'recibido',$6)`,
+        [cuentaId, leadId, `¡Hola ${nombre}! Te dejo el recurso de ${palabra} 👇 ¿Qué te pareció?`, new Date(t - 1_800_000),
+         elegir(['Buenísimo, gracias! Me interesa saber más', 'Hola! sí lo vi, cómo sería trabajar con vos?', 'Gracias!! cuánto sale el programa?', 'Me sirvió mucho, quiero empezar ya']), new Date(t)]);
 
       if (pasa(Math.min(0.55 * q, 0.85))) {
         // Agenda la reunión (en el pasado, para que el recorrido quepa).
@@ -174,4 +173,26 @@ export async function cargarDemo(cuentaId: string, leads = 14): Promise<{ creado
     }
   }
   return { creados, ventas };
+}
+
+/** Borra todo lo cargado con «Cargar leads de prueba» (lo real no se toca). */
+export async function borrarDemo(cuentaId: string): Promise<{ leads: number }> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    const ids = `SELECT id FROM leads WHERE cuenta_id = $1 AND de_prueba`;
+    await c.query(`DELETE FROM ventas WHERE cuenta_id = $1 AND lead_id IN (${ids})`, [cuentaId]);
+    await c.query(`DELETE FROM llamadas WHERE cuenta_id = $1 AND lead_id IN (${ids})`, [cuentaId]);
+    const r = await c.query(`DELETE FROM leads WHERE cuenta_id = $1 AND de_prueba`, [cuentaId]);
+    for (const t of ['gastos', 'productos', 'personas_equipo', 'contenidos']) {
+      await c.query(`DELETE FROM ${t} WHERE cuenta_id = $1 AND de_prueba`, [cuentaId]);
+    }
+    await c.query('COMMIT');
+    return { leads: r.rowCount ?? 0 };
+  } catch (e) { await c.query('ROLLBACK'); throw e; } finally { c.release(); }
+}
+
+export async function hayDemo(cuentaId: string): Promise<number> {
+  const r = await queryOne(`SELECT COUNT(*)::int n FROM leads WHERE cuenta_id = $1 AND de_prueba`, [cuentaId]);
+  return r?.n ?? 0;
 }

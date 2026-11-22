@@ -6,6 +6,7 @@ import { api, cerrarSesion, guardarSesion, leerSesion, token, EVENTO_SESION_VENC
 import Icono from './componentes/Iconos';
 import { useFicha } from './componentes/useFicha';
 import BuscadorGlobal, { useAtajoBuscar } from './componentes/BuscadorGlobal';
+import FranjaPrueba from './componentes/DatosPrueba';
 import ErrorPantalla from './componentes/ErrorPantalla';
 import {
   ProveedorAvisos, Menu, ItemMenu, SeparadorMenu, Boton, Campo, Dialogo, Entrada, EsqueletoPantalla, useTema, type Tema,
@@ -224,6 +225,7 @@ function OpcionesCuenta({ tema, cambiarTema }: { tema: Tema; cambiarTema: (t: Te
           onClick={() => cambiarTema(t.id)}>{t.nombre}</ItemMenu>
       ))}
       <SeparadorMenu />
+      <ItemMenu icono={<span aria-hidden>🧪</span>} onClick={() => { try { localStorage.removeItem('infocrm_prueba_oculto'); } catch { /* */ } window.location.reload(); }}>Leads de prueba</ItemMenu>
       <ItemMenu icono={<Icono nombre="salir" tam={16} />} onClick={cerrarSesion}>Salir</ItemMenu>
     </>
   );
@@ -352,6 +354,7 @@ function Marco({ children }: { children: React.ReactNode }) {
             Sin conexión: lo que hagas puede no guardarse hasta que vuelva internet.
           </div>
         )}
+        {conBarra && <FranjaPrueba rol={sesion?.usuario?.rol} />}
         <ErrorPantalla key={ruta}>
           <Suspense fallback={<div aria-busy="true" aria-label="Cargando"><EsqueletoPantalla /></div>}>{children}</Suspense>
         </ErrorPantalla>
