@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  BotonIcono, Boton, Buscador, Chip, Desplegable, ErrorCarga, Esqueleto, FilaChips, Vacio,
+  BotonIcono, Boton, Buscador, Chip, Desplegable, ErrorCarga, Esqueleto, FilaChips, Vacio, Menu, ItemMenu,
 } from '../../ui';
 import { fmtNum } from '../../api';
 import { FilaConversacion, type AccionesFila } from './FilaConversacion';
@@ -104,6 +104,19 @@ export function ListaConversaciones({
       <div className="space-y-2 border-b border-[var(--border-hairline)] px-3 pb-2.5 pt-3">
         <div className="flex items-center gap-2">
           <Buscador valor={q} onCambiar={onQ} placeholder="Buscar por nombre o @usuario" className="min-w-0 flex-1" />
+          <Menu alinear="derecha" titulo="Filtros" ancho={240} disparador={({ alternar, abierto }) => (
+            <span className="relative inline-flex">
+              <BotonIcono etiqueta="Filtros" onClick={alternar} aria-expanded={abierto} variante="secundario" tamano="md"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M3 5h18M6 12h12M10 19h4" /></svg></BotonIcono>
+              {filtro !== visibles[0]?.id && <span className="absolute right-1 top-1 h-2 w-2 rounded-full" style={{ background: 'var(--series-1)' }} aria-hidden />}
+            </span>
+          )}>
+            {visibles.map((f) => (
+              <ItemMenu key={f.id} activo={filtro === f.id} onClick={() => onFiltro(f.id)}
+                derecha={conteos && conteos[f.id] ? <span className="cifras text-[11px] text-[var(--text-muted)]">{fmtNum(conteos[f.id])}</span> : undefined}>
+                {f.texto}
+              </ItemMenu>
+            ))}
+          </Menu>
           <BotonIcono etiqueta="Recursos y atajos" onClick={onRecursos} variante="secundario" tamano="md">
             <IconoChat nombre="microfono" tam={18} />
           </BotonIcono>
@@ -113,14 +126,7 @@ export function ListaConversaciones({
             {bandeja.cargando ? 'Buscando en todos tus leads…' : `Resultados en todos tus leads${items.length ? ` (${fmtNum(items.length)}${bandeja.hayMas ? '+' : ''})` : ''}`}
           </p>
         ) : (
-          <FilaChips>
-            {visibles.map((f) => (
-              <Chip key={f.id} activo={filtro === f.id} onClick={() => onFiltro(f.id)}
-                contador={conteos ? conteos[f.id] : undefined}>
-                {f.texto}
-              </Chip>
-            ))}
-          </FilaChips>
+          <p className="px-0.5 text-[12px] text-[var(--text-muted)]">Mostrando: <b className="font-medium text-[var(--text-secondary)]">{visibles.find((f) => f.id === filtro)?.texto ?? ''}</b></p>
         )}
       </div>
 

@@ -4,7 +4,7 @@ import { api, fmtDinero, fmtNum, plural, token } from '../api';
 import ConfigPipelines from './ConfigPipelines';
 import {
   SelectorConMas, Buscador, BotonIcono, Boton, Dialogo, Chip, FilaChips, Ayuda, ErrorCarga, Vacio, Esqueleto,
-  BotonFlotante, Menu, ItemMenu, useAviso, useEsMovil,
+  BotonFlotante, Menu, ItemMenu, SeparadorMenu, useAviso, useEsMovil,
 } from '../ui';
 import Icono from '../componentes/Iconos';
 import { useFicha } from '../componentes/useFicha';
@@ -384,10 +384,38 @@ export default function Pipeline() {
       ].filter(Boolean).join(' · ') || undefined}
       onGestionar={() => abrirConfig()} textoGestionar="Configurar etapas y automatizaciones" />
   );
-  const chipsFiltro = (
-    <FilaChips>
-      {FILTROS.map((f) => <Chip key={f.id} activo={filtro === f.id} onClick={() => setFiltro(f.id)}>{f.nombre}</Chip>)}
-    </FilaChips>
+  const menuFiltros = (
+    <Menu alinear="derecha" titulo="Filtros" ancho={260} disparador={({ alternar, abierto }) => (
+      <span className="relative inline-flex">
+        {movil ? (
+          <BotonIcono etiqueta="Filtros" variante="secundario" onClick={alternar} aria-expanded={abierto}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+          </BotonIcono>
+        ) : (
+          <Boton variante="secundario" tamano="sm" onClick={alternar} aria-expanded={abierto}>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M3 5h18M6 12h12M10 19h4" /></svg>
+            Filtros{filtro !== 'todos' ? ' · 1' : ''}
+          </Boton>
+        )}
+        {movil && filtro !== 'todos' && <span className="absolute right-1 top-1 h-2 w-2 rounded-full" style={{ background: 'var(--series-1)' }} aria-hidden />}
+      </span>
+    )}>
+      <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Mostrar</div>
+      {FILTROS.map((f) => <ItemMenu key={f.id} activo={filtro === f.id} onClick={() => setFiltro(f.id)}>{f.nombre}</ItemMenu>)}
+      {etapas && etapas.length > 0 && (
+        <>
+          <SeparadorMenu />
+          <div className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">Ir a la etapa</div>
+          {etapas.map((e, i) => (
+            <ItemMenu key={e.id} onClick={() => irAColumna(i)}
+              icono={<span className="h-2 w-2 rounded-full" style={{ background: e.color }} aria-hidden />}
+              derecha={<span className="cifras text-[11px] text-[var(--text-muted)]">{fmtNum(busqueda ? (e.coinciden ?? 0) : e.total)}</span>}>
+              {e.nombre}
+            </ItemMenu>
+          ))}
+        </>
+      )}
+    </Menu>
   );
 
   return (
@@ -404,23 +432,14 @@ export default function Pipeline() {
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">{selector}</div>
               <BotonIcono etiqueta="Buscar" variante="secundario" onClick={() => setBuscadorMovil(true)}><Icono nombre="buscar" tam={18} /></BotonIcono>
-              <Menu alinear="derecha" titulo="Mostrar" disparador={({ alternar, abierto }) => (
-                <span className="relative inline-flex">
-                  <BotonIcono etiqueta="Filtrar" variante="secundario" onClick={alternar} aria-expanded={abierto}>
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden><path d="M3 5h18M6 12h12M10 19h4" /></svg>
-                  </BotonIcono>
-                  {filtro !== 'todos' && <span className="absolute right-1 top-1 h-2 w-2 rounded-full" style={{ background: 'var(--series-1)' }} aria-hidden />}
-                </span>
-              )}>
-                {FILTROS.map((f) => <ItemMenu key={f.id} activo={filtro === f.id} onClick={() => setFiltro(f.id)}>{f.nombre}</ItemMenu>)}
-              </Menu>
+              {menuFiltros}
               <BotonIcono etiqueta="Configurar etapas y automatizaciones" variante="secundario" onClick={() => abrirConfig()}><Icono nombre="reglas" tam={18} /></BotonIcono>
             </div>
           )
         ) : (
           <div className="flex flex-wrap items-center gap-2">
             {selector}
-            {chipsFiltro}
+            {menuFiltros}
             <div className="ml-auto flex items-center gap-2">
               <Buscador valor={q} onCambiar={setQ} placeholder="Buscar @usuario, nombre, etiqueta…" className="w-[260px]" />
               <BotonIcono etiqueta="Configurar etapas y automatizaciones" variante="secundario" onClick={() => abrirConfig()}><Icono nombre="reglas" tam={18} /></BotonIcono>
@@ -434,26 +453,6 @@ export default function Pipeline() {
           </div>
         )}
       </div>
-
-      {/* Mapa de etapas: saltar a cualquier columna (celular y escritorio) */}
-      {etapas && etapas.length > 0 && (
-        <div ref={filaChips} data-no-deslizar className="sin-barra flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2 lg:px-8" role="tablist" aria-label="Etapas">
-          {etapas.map((e, i) => {
-            const enVista = i >= visibles[0] && i <= visibles[1];
-            const n = busqueda ? (e.coinciden ?? 0) : e.total;
-            return (
-              <button key={e.id} type="button" data-chip={i} onClick={() => irAColumna(i)} role="tab" aria-selected={enVista}
-                aria-current={i === visibles[0] ? 'true' : undefined}
-                className={`ui-foco inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[12px] transition-colors ${enVista ? 'border-[color-mix(in_srgb,var(--text-primary)_22%,transparent)] bg-[color-mix(in_srgb,var(--text-primary)_7%,var(--surface-1))] font-medium text-[var(--text-primary)]' : 'border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--surface-1)]'}`}>
-                <span className="h-2 w-2 rounded-full" style={{ background: e.color }} aria-hidden />
-                {e.nombre}
-                <span className="cifras text-[10px] opacity-80">{fmtNum(n)}</span>
-                {accionesDe(e).length > 0 && <span className="text-[10px]" aria-label="tiene automatizaciones">⚡</span>}
-              </button>
-            );
-          })}
-        </div>
-      )}
 
       {/* Tablero */}
       <div className="relative min-h-0 flex-1">

@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, fmtDinero, fmtNum, hace, plural } from '../api';
 import {
   Avatar, Ayuda, Boton, BotonFlotante, BotonIcono, Buscador, Chip, Dialogo, ErrorCarga, Esqueleto, FilaChips,
-  FilaDeslizable, IdentidadLead, ItemMenu, Menu, Vacio, useAviso, useEsMovil,
+  FilaDeslizable, IdentidadLead, ItemMenu, Menu, SeparadorMenu, Vacio, useAviso, useEsMovil,
 } from '../ui';
 import Icono from '../componentes/Iconos';
 import { useFicha } from '../componentes/useFicha';
@@ -215,20 +215,26 @@ export default function Leads() {
       </header>
 
       <div className="mt-3 space-y-2">
-        <Buscador valor={busqueda} onCambiar={setBusqueda} placeholder="Buscar @usuario, nombre o email…" className="w-full md:max-w-[420px]" />
-        <FilaChips>
-          {VISTAS.map((v) => (
-            <Chip key={v.id} activo={filtros.vista === v.id} onClick={() => cambiar({ ...filtros, vista: v.id as Vista })}
-              contador={conteos ? conteos[v.id] : undefined}>{v.etiqueta}</Chip>
-          ))}
-          <span className="mx-0.5 w-px shrink-0 self-stretch bg-[var(--border-hairline)]" aria-hidden />
-          {(ctx?.etiquetas ?? []).slice(0, 8).map((t) => (
-            <Chip key={t.etiqueta} activo={filtros.etiqueta === t.etiqueta} contador={t.n}
-              onClick={() => cambiar({ ...filtros, etiqueta: filtros.etiqueta === t.etiqueta ? '' : t.etiqueta })}>{t.etiqueta}</Chip>
-          ))}
-          <Chip activo={avanzadosActivos > 0} onClick={() => setVerFiltros(true)} icono={<IconoFiltro />}
-            contador={avanzadosActivos || undefined}>Filtros</Chip>
-        </FilaChips>
+        <div className="flex items-center gap-2">
+          <Buscador valor={busqueda} onCambiar={setBusqueda} placeholder="Buscar @usuario, nombre o email…" className="min-w-0 flex-1 md:max-w-[420px]" />
+          <Menu alinear="derecha" titulo="Mostrar" ancho={240} disparador={({ alternar, abierto }) => (
+            <Boton variante="secundario" tamano="sm" onClick={alternar} aria-expanded={abierto}>
+              {VISTAS.find((v) => v.id === filtros.vista)?.etiqueta ?? 'Todos'}{filtros.etiqueta ? ` · ${filtros.etiqueta}` : ''} ▾
+            </Boton>
+          )}>
+            {VISTAS.map((v) => (
+              <ItemMenu key={v.id} activo={filtros.vista === v.id} onClick={() => cambiar({ ...filtros, vista: v.id as Vista })}
+                derecha={conteos ? <span className="cifras text-[11px] text-[var(--text-muted)]">{fmtNum(conteos[v.id] ?? 0)}</span> : undefined}>{v.etiqueta}</ItemMenu>
+            ))}
+            {(ctx?.etiquetas ?? []).length > 0 && <SeparadorMenu />}
+            {(ctx?.etiquetas ?? []).slice(0, 12).map((t) => (
+              <ItemMenu key={t.etiqueta} activo={filtros.etiqueta === t.etiqueta}
+                onClick={() => cambiar({ ...filtros, etiqueta: filtros.etiqueta === t.etiqueta ? '' : t.etiqueta })}
+                derecha={<span className="cifras text-[11px] text-[var(--text-muted)]">{fmtNum(t.n)}</span>}>{t.etiqueta}</ItemMenu>
+            ))}
+          </Menu>
+          <Boton variante="secundario" tamano="sm" onClick={() => setVerFiltros(true)}>{'Filtros'}{avanzadosActivos ? ` · ${avanzadosActivos}` : ''}</Boton>
+        </div>
         {activos.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             {activos.map((a) => (

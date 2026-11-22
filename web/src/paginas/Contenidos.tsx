@@ -235,19 +235,21 @@ export default function Contenidos() {
       <div className="mt-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <RangoFechas rango={periodo} setRango={(r) => setPeriodo(r)} />
+          <Menu alinear="izquierda" titulo="Ángulo" ancho={220} disparador={({ alternar, abierto }) => (
+            <Boton variante="secundario" tamano="sm" onClick={alternar} aria-expanded={abierto}>
+              {angulo === 'sin' ? 'Sin ángulo' : angulo ? (ANGULOS.find((a) => a.valor === angulo)?.etiqueta ?? 'Ángulo') : 'Todos los ángulos'} ▾
+            </Boton>
+          )}>
+            <ItemMenu activo={!angulo} onClick={() => setAngulo('')}>Todos los ángulos</ItemMenu>
+            {ANGULOS.map((a) => <ItemMenu key={a.valor} activo={angulo === a.valor} onClick={() => setAngulo(a.valor)}>{a.etiqueta}</ItemMenu>)}
+            {filas.some((f) => f.id && !f.angulo) && <ItemMenu activo={angulo === 'sin'} onClick={() => setAngulo('sin')}>Sin ángulo</ItemMenu>}
+          </Menu>
           {modelo === 'ultimo' && (
             <button type="button" onClick={() => setModelo('primer')} className="ui-foco rounded-md" aria-label="Volver a contar por el reel que trajo a cada lead">
               <Insignia tono="azul">Contando por el último reel que vio <Icono nombre="cerrar" tam={11} /></Insignia>
             </button>
           )}
         </div>
-        <FilaChips>
-          <Chip activo={!angulo} onClick={() => setAngulo('')}>Todos</Chip>
-          {ANGULOS.map((a) => (
-            <Chip key={a.valor} activo={angulo === a.valor} onClick={() => setAngulo(angulo === a.valor ? '' : a.valor)}>{a.etiqueta}</Chip>
-          ))}
-          {filas.some((f) => f.id && !f.angulo) && <Chip activo={angulo === 'sin'} onClick={() => setAngulo(angulo === 'sin' ? '' : 'sin')}>Sin ángulo</Chip>}
-        </FilaChips>
       </div>
 
       {error && !datos ? (

@@ -2,7 +2,7 @@ import { useCallback, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { fmtDinero, fmtFecha, monedaCuenta } from '../../api';
 import { textoDe, tonoDe } from '../../textos';
-import { Ayuda, BotonIcono, Chip, Entrada, FilaChips, Insignia, Menu, useParamUrl, type Tono } from '../../ui';
+import { Ayuda, BotonIcono, Chip, Entrada, FilaChips, Insignia, Menu, ItemMenu, Boton, useParamUrl, type Tono } from '../../ui';
 import Icono from '../Iconos';
 
 // Piezas chicas que comparten las pestañas de Finanzas (y el diálogo de venta
@@ -39,9 +39,13 @@ export function usePeriodo(): [Periodo, (p: Periodo) => void] {
 export function SelectorPeriodo({ valor, onCambiar, className = '' }: { valor: Periodo; onCambiar: (p: Periodo) => void; className?: string }) {
   return (
     <div role="group" aria-label="Período" className={className}>
-      <FilaChips>
-        {PERIODOS.map((p) => <Chip key={p.id} activo={valor === p.id} onClick={() => onCambiar(p.id)}>{p.etiqueta}</Chip>)}
-      </FilaChips>
+      <Menu alinear="izquierda" titulo="Período" ancho={200} disparador={({ alternar, abierto }) => (
+        <Boton variante="secundario" tamano="sm" onClick={alternar} aria-expanded={abierto}>
+          {PERIODOS.find((p) => p.id === valor)?.etiqueta} ▾
+        </Boton>
+      )}>
+        {PERIODOS.map((p) => <ItemMenu key={p.id} activo={valor === p.id} onClick={() => onCambiar(p.id)}>{p.etiqueta}</ItemMenu>)}
+      </Menu>
     </div>
   );
 }
