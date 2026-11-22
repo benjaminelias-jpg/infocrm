@@ -1,3 +1,4 @@
+import { importarConversaciones } from './instagram_chats.js';
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
 import { pool, query, queryOne } from '../db/pool.js';
@@ -332,9 +333,10 @@ const CAMPOS_AVISOS = ['comments,messages,messaging_postbacks,message_reactions,
 /** Suscribe la cuenta de Instagram a los avisos de la app (DMs y comentarios al instante). */
 async function suscribirAvisos(cuentaId: string, igId: string, token: string) {
   if (!igId) return false;
-  for (const campos of CAMPOS_AVISOS) {
+  // Token de Instagram (graph.instagram.com) o de Facebook (graph.facebook.com): se prueban los dos.
+  for (const base of [IG_GRAPH, 'https://graph.facebook.com']) for (const campos of CAMPOS_AVISOS) {
     const r = await http(
-      `${IG_GRAPH}/${V}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=${encodeURIComponent(campos)}` +
+      `${base}/${V}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=${encodeURIComponent(campos)}` +
       `&access_token=${encodeURIComponent(token)}`,
       { method: 'POST', signal: AbortSignal.timeout(15000) });
     const d: any = await r.json().catch(() => ({}));
@@ -436,7 +438,11 @@ export async function conectarConToken(cuentaId: string, token: string, igId: st
     });
     // Sincroniza el contenido con sus métricas nada más conectar.
     const sync = await sincronizarInstagram(cuentaId, { limite: 15 }).catch(() => null);
-    const extra = sync?.ok ? ` · ${sync.creados + sync.actualizados} contenidos sincronizados` : '';
+    const chats = await importarConversaciones(cuentaId, { limite: 100 }).catch(() => null);
+    // Avisos de Meta al instante (DMs nuevos y comentarios). Best-effort.
+    await suscribirAvisos(cuentaId, String(igId), largo.token).catch(() => null);
+    const extra = (sync?.ok ? ` · ${sync.creados + sync.actualizados} contenidos sincronizados` : '')
+      + (chats?.ok && chats.conversaciones ? ` · ${chats.conversaciones} chats traídos` : '');
     return { ok: true, mensaje: `Instagram conectado como @${d.username ?? igId}${extra}`, username: d.username };
   } catch (e: any) {
     return { ok: false, mensaje: `Error validando el token: ${e?.message ?? e}` };

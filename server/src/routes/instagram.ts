@@ -1,3 +1,4 @@
+import { importarConversaciones } from '../modules/instagram_chats.js';
 import type { FastifyInstance } from 'fastify';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
@@ -182,6 +183,9 @@ export default async function rutasInstagram(app: FastifyInstance) {
     if (!r.ok) throw peticionInvalida(r.mensaje);
     return r;
   });
+
+  // Trae el historial de DMs de Instagram al Chat (idempotente).
+  app.post('/api/instagram/importar-chats', async (req) => importarConversaciones(req.sesion.cuentaId, { limite: 200 }));
 
   app.get('/api/instagram/oauth/start', async (req, reply) => {
     const r = await urlAutorizacion(req.sesion.cuentaId);

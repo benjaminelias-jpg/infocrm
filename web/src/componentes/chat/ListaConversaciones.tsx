@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import {
-  BotonIcono, Boton, Buscador, Chip, Desplegable, ErrorCarga, Esqueleto, FilaChips, Vacio, Menu, ItemMenu,
+  BotonIcono, Boton, Buscador, Chip, Desplegable, ErrorCarga, Esqueleto, FilaChips, Vacio, Menu, ItemMenu, SeparadorMenu, useAviso,
 } from '../../ui';
-import { fmtNum } from '../../api';
+import { api, fmtNum } from '../../api';
 import { FilaConversacion, type AccionesFila } from './FilaConversacion';
 import { IconoChat } from './iconos';
 import { useBandeja, type Bandeja } from './useBandeja';
@@ -98,6 +98,16 @@ export function ListaConversaciones({
   const visibles = FILTROS.filter((f) => f.siempre || f.id === filtro || (conteos?.[f.id] ?? 0) > 0);
   const vacio = VACIOS[filtro];
 
+  const aviso = useAviso();
+  async function traerDeInstagram() {
+    aviso.info('Trayendo tus chats de Instagram…');
+    try {
+      const r = await api<{ ok: boolean; mensaje: string }>('/instagram/importar-chats', { method: 'POST' });
+      (r.ok ? aviso.exito : aviso.error)(r.mensaje);
+      bandeja.recargar();
+    } catch (e: any) { aviso.error(e?.message ?? 'No pudimos traer tus chats.'); }
+  }
+
   return (
     <section className="flex h-full min-h-0 flex-col" aria-label="Conversaciones">
       {arriba}
@@ -116,6 +126,8 @@ export function ListaConversaciones({
                 {f.texto}
               </ItemMenu>
             ))}
+            <SeparadorMenu />
+            <ItemMenu icono={<span aria-hidden>↻</span>} onClick={traerDeInstagram}>Traer mis chats de Instagram</ItemMenu>
           </Menu>
           <BotonIcono etiqueta="Recursos y atajos" onClick={onRecursos} variante="secundario" tamano="md">
             <IconoChat nombre="microfono" tam={18} />
