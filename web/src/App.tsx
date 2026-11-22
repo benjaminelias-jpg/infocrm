@@ -319,6 +319,17 @@ function Marco({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
 
+        {(() => {
+          const oscuroAhora = tema === 'oscuro' || (tema === 'auto' && typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+          const texto = oscuroAhora ? 'Modo claro' : 'Modo oscuro';
+          return (
+            <button type="button" onClick={() => cambiar(oscuroAhora ? 'claro' : 'oscuro')} aria-label={texto} title={compacto ? texto : undefined}
+              className={`ui-foco mt-2 flex h-8 items-center gap-2 rounded-md text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)] ${compacto ? 'justify-center' : 'px-3'}`}>
+              <Icono nombre={oscuroAhora ? 'sol' : 'luna'} tam={16} />
+              {!compacto && <span>{texto}</span>}
+            </button>
+          );
+        })()}
         <button type="button" onClick={alternarCompacto} aria-label={compacto ? 'Agrandar el menú' : 'Achicar el menú'} title={compacto ? 'Agrandar el menú' : 'Achicar el menú'}
           className={`ui-foco mt-2 flex h-8 items-center gap-2 rounded-md text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)] ${compacto ? 'justify-center' : 'px-3'}`}>
           <Icono nombre={compacto ? 'siguiente' : 'volver'} tam={16} />
