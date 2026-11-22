@@ -11,7 +11,7 @@ import { slugify } from '../lib/utils.js';
 export const ETAPAS_DEFECTO = [
   { slug: 'nuevo',             nombre: 'Lead nuevo',        orden: 0, tipo: 'abierta', color: '#64748b', probabilidad: 5,   evento: 'lead_creado' },
   { slug: 'recurso-entregado', nombre: 'Recurso entregado', orden: 1, tipo: 'abierta', color: '#0ea5e9', probabilidad: 10,  evento: 'recurso_entregado' },
-  { slug: 'en-conversacion',   nombre: 'En conversación',   orden: 2, tipo: 'abierta', color: '#8b5cf6', probabilidad: 20,  evento: 'respondio_dm' },
+  { slug: 'en-conversacion',   nombre: 'En conversación',   orden: 2, tipo: 'abierta', color: '#0891b2', probabilidad: 20,  evento: 'respondio_dm' },
   { slug: 'reunion-agendada',  nombre: 'Reunión agendada',  orden: 3, tipo: 'abierta', color: '#f59e0b', probabilidad: 40,  evento: 'reunion_agendada', marca_reunion: true },
   { slug: 'no-asistio',        nombre: 'No asistió',        orden: 4, tipo: 'abierta', color: '#ef4444', probabilidad: 15,  evento: 'reunion_no_asistio' },
   { slug: 'reunion-realizada', nombre: 'Reunión realizada', orden: 5, tipo: 'abierta', color: '#14b8a6', probabilidad: 60,  evento: 'reunion_realizada' },

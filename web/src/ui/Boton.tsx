@@ -4,24 +4,23 @@ import { forwardRef, useEffect, useRef, useState } from 'react';
 // destructivo en rojo; lo secundario con borde. En el celular los botones
 // miden 40 px de alto (dedo); en escritorio 36 px.
 
-export type Variante = 'primario' | 'secundario' | 'peligro' | 'fantasma' | 'exito' | 'tinta';
+export type Variante = 'primario' | 'secundario' | 'peligro' | 'fantasma' | 'exito';
 export type Tamano = 'xs' | 'sm' | 'md';
 
-const BASE = 'ui-foco inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap font-semibold transition-[background,border-color,color,opacity,box-shadow] duration-150 disabled:cursor-not-allowed disabled:opacity-50';
+const BASE = 'ui-foco inline-flex select-none items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-[background,border-color,color,opacity] duration-150 disabled:cursor-not-allowed disabled:opacity-50';
 
 const TAMANOS: Record<Tamano, string> = {
-  xs: 'h-7 rounded-[8px] px-2 text-[11px]',
-  sm: 'h-9 rounded-[10px] px-3 text-[12px] md:h-8 md:px-2.5',
-  md: 'h-10 rounded-[12px] px-4 text-[13px] md:h-9 md:px-3.5',
+  xs: 'h-7 px-2 text-[11px]',
+  sm: 'h-9 px-3 text-[12px] md:h-8 md:px-2.5',
+  md: 'h-10 px-4 text-[13px] md:h-9 md:px-3.5',
 };
 
 const VARIANTES: Record<Variante, string> = {
-  primario: 'bg-[var(--accion)] text-white shadow-[0_6px_14px_-8px_var(--accion)] hover:bg-[var(--accion-hover)] active:brightness-95',
-  secundario: 'bg-[var(--surface-2)] text-[var(--text-primary)] hover:bg-[var(--surface-3)]',
+  primario: 'bg-[var(--series-1)] text-white hover:brightness-110 active:brightness-95',
+  secundario: 'border border-[var(--border-hairline)] bg-[var(--surface-1)] text-[var(--text-primary)] hover:bg-[var(--page-plane)]',
   peligro: 'bg-[var(--status-critical)] text-white hover:brightness-110',
-  fantasma: 'text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]',
+  fantasma: 'text-[var(--text-secondary)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)]',
   exito: 'bg-[var(--status-good)] text-white hover:brightness-110',
-  tinta: 'bg-[var(--ink)] text-[var(--on-ink)] hover:opacity-90',
 };
 
 export interface PropsBoton extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -59,7 +58,7 @@ export const BotonIcono = forwardRef<HTMLButtonElement, PropsBoton & { etiqueta:
   { etiqueta, variante = 'fantasma', tamano = 'sm', className = '', children, type = 'button', ...resto },
   ref,
 ) {
-  const lado = tamano === 'xs' ? 'h-7 w-7 rounded-[8px]' : tamano === 'sm' ? 'h-9 w-9 rounded-[10px] md:h-8 md:w-8' : 'h-10 w-10 rounded-[12px] md:h-9 md:w-9';
+  const lado = tamano === 'xs' ? 'h-7 w-7' : tamano === 'sm' ? 'h-9 w-9 md:h-8 md:w-8' : 'h-10 w-10 md:h-9 md:w-9';
   return (
     <button ref={ref} type={type} aria-label={etiqueta} title={etiqueta}
       className={`${BASE} ${lado} ${VARIANTES[variante]} !px-0 text-[15px] ${className}`} {...resto}>

@@ -26,7 +26,7 @@ export default class ErrorPantalla extends Component<{ children: ReactNode }, { 
             <h1 className="mt-2 text-[16px] font-semibold">No hay conexión</h1>
             <p className="mt-1 text-[13px] text-[var(--text-secondary)]">No pudimos abrir esta pantalla. Revisá tu internet y probá de nuevo.</p>
             <button type="button" onClick={() => window.location.reload()}
-              className="ui-foco mt-4 h-10 rounded-[12px] px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
+              className="ui-foco mt-4 h-10 rounded-lg px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
               Reintentar
             </button>
           </div>
@@ -43,10 +43,10 @@ export default class ErrorPantalla extends Component<{ children: ReactNode }, { 
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
             <button type="button" onClick={() => window.location.reload()}
-              className="ui-foco h-10 rounded-[12px] px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
+              className="ui-foco h-10 rounded-lg px-4 text-[13px] font-semibold text-white md:h-9" style={{ background: 'var(--accion)' }}>
               Recargar
             </button>
-            <a href="/" className="ui-foco inline-flex h-10 items-center rounded-[12px] px-4 text-[13px] font-semibold md:h-9" style={{ background: 'var(--surface-2)' }}>Ir al Panel</a>
+            <a href="/" className="ui-foco inline-flex h-10 items-center rounded-lg px-4 text-[13px] font-semibold md:h-9" style={{ background: 'var(--surface-2)' }}>Ir al Panel</a>
           </div>
         </div>
       </div>

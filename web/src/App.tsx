@@ -134,9 +134,9 @@ function Login() {
 
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ minHeight: '100dvh' }}>
-      <form onSubmit={enviar} className="w-full max-w-sm space-y-4 rounded-[24px] p-7" style={{ background: 'var(--surface-1)', boxShadow: 'var(--sombra-flotante)' }}>
+      <form onSubmit={enviar} className="tarjeta w-full max-w-sm space-y-4 p-6">
         <div>
-          <span className="flex h-11 w-11 items-center justify-center rounded-[13px] text-[15px] font-extrabold tracking-tight text-white" style={{ background: 'var(--accion)' }} aria-hidden>iC</span>
+          <span className="flex h-11 w-11 items-center justify-center rounded-md text-[15px] font-bold tracking-tight" style={{ background: 'var(--text-primary)', color: 'var(--page-plane)' }} aria-hidden>iC</span>
           <h1 className="mt-4 text-[24px] font-bold leading-tight tracking-tight">Entrá a InfoCRM</h1>
           <p className="mt-1 text-[13px] text-[var(--text-muted)]">Tus leads de Instagram, tu pipeline y tus ventas en un lugar.</p>
         </div>
@@ -208,7 +208,7 @@ function useNoLeidos() {
 function Globito({ n, chico }: { n: number; chico?: boolean }) {
   if (!n) return null;
   return (
-    <span className={`cifras inline-flex items-center justify-center rounded-[6px] font-bold text-white ${chico ? 'h-4 min-w-4 px-1 text-[10px]' : 'h-[18px] min-w-[18px] px-1.5 text-[10px]'}`}
+    <span className={`inline-flex items-center justify-center rounded font-semibold text-white ${chico ? 'h-4 min-w-4 px-1 text-[10px]' : 'h-[18px] min-w-[18px] px-1.5 text-[10px]'}`}
       style={{ background: 'var(--status-critical)' }} aria-label={`${n} sin leer`}>
       {n > 99 ? '99+' : n}
     </span>
@@ -284,23 +284,16 @@ function Marco({ children }: { children: React.ReactNode }) {
   return (
     <div className={`flex min-h-screen flex-col md:flex-row ${conBarra ? 'con-barra-inf' : ''}`}>
       {/* Menú lateral (escritorio) */}
-      <aside className={`sticky top-3 m-3 mr-0 hidden h-[calc(100vh-24px)] shrink-0 flex-col rounded-[24px] py-4 transition-[width] duration-200 md:flex ${compacto ? 'w-[76px] px-2.5' : 'w-[212px] px-3'}`}
-        style={{ background: 'var(--surface-1)' }}>
-        <div className={`mb-3 flex items-center gap-2.5 ${compacto ? 'justify-center' : 'px-1.5'}`}>
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[11px] text-[13px] font-extrabold tracking-tight text-white" style={{ background: 'var(--accion)' }} aria-hidden>iC</span>
-          {!compacto && (
-            <span className="min-w-0">
-              <span className="block text-[15px] font-bold tracking-tight">InfoCRM</span>
-              <span className="block truncate text-[11px] text-[var(--text-muted)]">{sesion?.cuenta?.nombre ?? ''}</span>
-            </span>
-          )}
+      <aside className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[var(--border-hairline)] py-4 transition-[width] duration-200 md:flex ${compacto ? 'w-[64px] px-2' : 'w-[218px] px-3'}`}>
+        <div className={`mb-3 ${compacto ? 'text-center' : 'px-2'}`}>
+          <div className="text-[15px] font-semibold tracking-tight">{compacto ? 'iC' : 'InfoCRM'}</div>
+          {!compacto && <div className="mt-0.5 truncate text-[11px] text-[var(--text-muted)]">{sesion?.cuenta?.nombre ?? ''}</div>}
         </div>
         <button type="button" onClick={() => setBuscar(true)} aria-label="Buscar lead (⌘K)" title={compacto ? 'Buscar lead (⌘K)' : undefined}
-          className={`ui-foco mb-3 flex h-9 items-center gap-2 rounded-[12px] text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] ${compacto ? 'justify-center' : 'px-2.5'}`}
-          style={{ background: 'var(--surface-2)' }}>
+          className={`ui-foco mb-3 flex h-9 items-center gap-2 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] text-left text-[12px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] ${compacto ? 'justify-center' : 'px-2.5'}`}>
           <Icono nombre="buscar" tam={15} />
           {!compacto && <span className="flex-1">Buscar lead…</span>}
-          {!compacto && <kbd className="rounded-[5px] px-1 font-sans text-[10px] font-semibold" style={{ background: 'var(--surface-1)' }}>⌘K</kbd>}
+          {!compacto && <kbd className="rounded border border-[var(--border-hairline)] px-1 text-[10px] font-sans">⌘K</kbd>}
         </button>
 
         <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden" aria-label="Principal">
@@ -311,9 +304,9 @@ function Marco({ children }: { children: React.ReactNode }) {
                 : <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{g.rotulo}</div>)}
               {g.items.map((n) => (
                 <NavLink key={n.a} to={n.a} end={n.a === '/'} aria-label={compacto ? n.etiqueta : undefined} title={compacto ? n.etiqueta : undefined}
-                  className={({ isActive }) => `ui-foco relative flex items-center gap-3 rounded-[12px] py-2 text-[13px] transition-colors ${compacto ? 'justify-center px-0' : 'px-3'} ${isActive || activo(n, ruta)
-                    ? 'bg-[var(--ink)] font-semibold text-[var(--on-ink)]'
-                    : 'font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)]'}`}>
+                  className={({ isActive }) => `ui-foco relative flex items-center gap-3 rounded-md py-2 text-[13px] transition-colors ${compacto ? 'justify-center px-0' : 'px-3'} ${isActive || activo(n, ruta)
+                    ? 'bg-[var(--surface-1)] font-medium text-[var(--text-primary)] shadow-[0_0_0_1px_var(--border-hairline)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-1)]'}`}>
                   <span className="shrink-0 opacity-80"><Icono nombre={n.icono} tam={19} /></span>
                   {!compacto && <span className="flex-1">{n.etiqueta}</span>}
                   {n === CHAT && (compacto
@@ -326,16 +319,16 @@ function Marco({ children }: { children: React.ReactNode }) {
         </nav>
 
         <button type="button" onClick={alternarCompacto} aria-label={compacto ? 'Agrandar el menú' : 'Achicar el menú'} title={compacto ? 'Agrandar el menú' : 'Achicar el menú'}
-          className={`ui-foco mt-2 flex h-8 items-center gap-2 rounded-[10px] text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-2)] hover:text-[var(--text-primary)] ${compacto ? 'justify-center' : 'px-3'}`}>
+          className={`ui-foco mt-2 flex h-8 items-center gap-2 rounded-md text-[12px] text-[var(--text-muted)] hover:bg-[var(--surface-1)] hover:text-[var(--text-primary)] ${compacto ? 'justify-center' : 'px-3'}`}>
           <Icono nombre={compacto ? 'siguiente' : 'volver'} tam={16} />
           {!compacto && <span>Achicar el menú</span>}
         </button>
 
-        <div className="mt-2 border-t border-[var(--border-hairline)] pt-2.5">
+        <div className="mt-2 border-t border-[var(--border-hairline)] pt-2">
           <Menu alinear="izquierda" ancho={220} disparador={({ alternar, abierto }) => (
             <button type="button" onClick={alternar} aria-expanded={abierto} aria-haspopup="menu" aria-label={compacto ? `${nombre || 'Mi cuenta'}: tema y salir` : undefined}
-              className={`ui-foco flex w-full items-center gap-2.5 rounded-[12px] py-2 text-left hover:bg-[var(--surface-2)] ${compacto ? 'justify-center' : 'px-2'}`}>
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white" style={{ background: 'var(--accion)' }} aria-hidden>
+              className={`ui-foco flex w-full items-center gap-2.5 rounded-md py-2 text-left hover:bg-[var(--surface-1)] ${compacto ? 'justify-center' : 'px-2'}`}>
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white" style={{ background: 'var(--series-1)' }} aria-hidden>
                 {iniciales(nombre)}
               </span>
               {!compacto && (
@@ -371,18 +364,17 @@ function Marco({ children }: { children: React.ReactNode }) {
       {/* Barra inferior (celular): lo del día a día a un toque; el resto en "Más". */}
       {conBarra && (
         <nav aria-label="Principal"
-          className="ui-vidrio fixed inset-x-3 bottom-[max(10px,env(safe-area-inset-bottom))] z-40 grid rounded-[22px] px-1.5 md:hidden"
-          style={{ gridTemplateColumns: `repeat(${BARRA.length + 1}, minmax(0, 1fr))` }}>
+          className="fixed inset-x-0 bottom-0 z-40 grid border-t border-[var(--border-hairline)] pb-[env(safe-area-inset-bottom)] md:hidden"
+          style={{ background: 'var(--page-plane)', gridTemplateColumns: `repeat(${BARRA.length + 1}, minmax(0, 1fr))` }}>
           {BARRA.map((n) => {
             const on = activo(n, ruta);
             return (
               <NavLink key={n.a} to={n.a} end={n.a === '/'} aria-current={on ? 'page' : undefined}
-                className="ui-foco relative flex h-[60px] flex-col items-center justify-center gap-0.5 rounded-[14px] text-[11px]"
-                style={{ color: on ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: on ? 700 : 500 }}>
-                <span className="relative flex h-7 w-11 items-center justify-center rounded-[10px] transition-colors"
-                  style={on ? { background: 'var(--ink)', color: 'var(--on-ink)' } : undefined}>
-                  <Icono nombre={n.icono} tam={20} />
-                  {n === CHAT && noLeidos > 0 && <span className="absolute -right-1.5 -top-1.5"><Globito n={noLeidos} chico /></span>}
+                className="ui-foco relative flex h-14 flex-col items-center justify-center gap-0.5 text-[11px]"
+                style={{ color: on ? 'var(--series-1)' : 'var(--text-secondary)', fontWeight: on ? 600 : 400 }}>
+                <span className="relative">
+                  <Icono nombre={n.icono} tam={22} />
+                  {n === CHAT && noLeidos > 0 && <span className="absolute -right-2.5 -top-1.5"><Globito n={noLeidos} chico /></span>}
                 </span>
                 {n.etiqueta}
               </NavLink>
@@ -390,11 +382,9 @@ function Marco({ children }: { children: React.ReactNode }) {
           })}
           <Menu titulo="Más" disparador={({ alternar, abierto }) => (
             <button type="button" onClick={alternar} aria-expanded={abierto} aria-haspopup="menu"
-              className="ui-foco flex h-[60px] w-full flex-col items-center justify-center gap-0.5 rounded-[14px] text-[11px]"
-              style={{ color: enMas ? 'var(--text-primary)' : 'var(--text-secondary)', fontWeight: enMas ? 700 : 500 }}>
-              <span className="flex h-7 w-11 items-center justify-center rounded-[10px]" style={enMas ? { background: 'var(--ink)', color: 'var(--on-ink)' } : undefined}>
-                <Icono nombre="menu" tam={20} />
-              </span>
+              className="ui-foco flex h-14 w-full flex-col items-center justify-center gap-0.5 text-[11px]"
+              style={{ color: enMas ? 'var(--series-1)' : 'var(--text-secondary)', fontWeight: enMas ? 600 : 400 }}>
+              <Icono nombre="menu" tam={22} />
               Más
             </button>
           )} className="w-full">

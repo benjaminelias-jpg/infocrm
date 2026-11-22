@@ -135,7 +135,7 @@ export function Dialogo({
     <div className="fixed inset-0 z-[60] flex items-end justify-center sm:items-center sm:p-4">
       <div className="ui-fundido absolute inset-0 bg-black/35" onClick={onCerrar} aria-hidden />
       <div ref={caja} role="dialog" aria-modal="true" aria-labelledby={titulo ? id : undefined} tabIndex={-1}
-        className={`${movil ? `ui-subir w-full rounded-t-2xl ${pie ? '' : 'pb-[max(16px,env(safe-area-inset-bottom))]'}` : 'ui-aparecer rounded-2xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
+        className={`${movil ? `ui-subir w-full rounded-t-xl ${pie ? '' : 'pb-[max(16px,env(safe-area-inset-bottom))]'}` : 'ui-aparecer rounded-xl'} ui-alto-hoja relative overflow-y-auto overscroll-contain shadow-2xl outline-none`}
         style={{ background: 'var(--surface-1)', width: movil ? '100%' : ancho, border: '1px solid var(--border-hairline)' }}>
         {/* Encabezado fijo: en guías largas el título y la ✕ no se van; en el celular se arrastra para cerrar. */}
         <div {...arrastre} className={`sticky top-0 z-10 ${titulo || descripcion ? '' : 'pb-1'}`} style={{ background: 'var(--surface-1)', ...arrastre.style }}>
@@ -254,7 +254,7 @@ export function Menu({
       {abierto && movil && createPortal(
         <div className="fixed inset-0 z-[60] flex items-end">
           <div className="ui-fundido absolute inset-0 bg-black/35" onClick={cerrar} aria-hidden />
-          <div ref={hoja} className="ui-subir relative max-h-[75vh] w-full overflow-y-auto rounded-t-2xl pb-[max(12px,env(safe-area-inset-bottom))] shadow-2xl"
+          <div ref={hoja} className="ui-subir relative max-h-[75vh] w-full overflow-y-auto rounded-t-xl pb-[max(12px,env(safe-area-inset-bottom))] shadow-2xl"
             style={{ background: 'var(--surface-1)' }}>
             <div {...arrastre} className="sticky top-0 z-10" style={{ background: 'var(--surface-1)', ...arrastre.style }}>
               <div className="h-5 pt-2" aria-hidden><div className="mx-auto h-1 w-10 rounded-full" style={{ background: 'var(--baseline)' }} /></div>
@@ -349,7 +349,7 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
       {(onCrear || onNuevo) && (
         <button type="button" onClick={() => (onNuevo ? onNuevo() : setCreando((v) => !v))} aria-label={`Crear ${queEs}`} title={`Crear ${queEs}`}
           className="ui-foco flex h-10 w-10 items-center justify-center rounded-lg text-[18px] font-medium text-white shadow-sm hover:brightness-110 md:h-9 md:w-9"
-          style={{ background: 'var(--accion)' }}>+</button>
+          style={{ background: 'var(--series-1)' }}>+</button>
       )}
       {creando && (
         <form onSubmit={crear} className="ui-aparecer absolute left-0 top-[calc(100%+6px)] z-50 flex w-[min(320px,86vw)] flex-col gap-2 rounded-xl p-3 shadow-xl"
@@ -360,7 +360,7 @@ export function SelectorConMas<T extends { id: string; nombre: string }>({
             className="ui-control h-10 w-full rounded-lg px-3 text-[16px] md:h-9 md:text-[13px]" />
           <div className="flex justify-end gap-2">
             <button type="button" onClick={() => { setCreando(false); setNombre(''); }} className="ui-foco h-9 rounded-lg px-3 text-[12px] text-[var(--text-secondary)] hover:bg-[var(--page-plane)]">Cancelar</button>
-            <button type="submit" disabled={!nombre.trim() || ocupado} className="ui-foco h-9 rounded-[10px] px-3 text-[12px] font-semibold text-white disabled:opacity-50" style={{ background: 'var(--accion)' }}>
+            <button type="submit" disabled={!nombre.trim() || ocupado} className="ui-foco h-9 rounded-lg px-3 text-[12px] font-medium text-white disabled:opacity-50" style={{ background: 'var(--series-1)' }}>
               {ocupado ? 'Creando…' : `Crear ${queEs}`}
             </button>
           </div>

@@ -1,6 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { config } from '../config.js';
-import { pool, queryOne } from '../db/pool.js';
+import { pool, query, queryOne } from '../db/pool.js';
 import { integracionInstagram, sincronizarInstagram } from './instagram.js';
 
 // =====================================================================
@@ -15,11 +15,26 @@ import { integracionInstagram, sincronizarInstagram } from './instagram.js';
 //      token, y la cuenta de Instagram Business conectada. Los DMs van por la
 //      Messenger Platform (graph.facebook.com/{page}/messages).
 //
-// La App ID / Secret (y el config_id en el flujo B) los pega el usuario una
-// vez; se guardan en integraciones.config.
+// App de PLATAFORMA: si la cuenta no cargó una app propia, se usa la app de
+// Meta del dueño del CRM (META_APP_ID / META_APP_SECRET y, si existe,
+// META_CONFIG_ID del entorno). Así el infoproductor solo toca "Conectar con
+// Instagram". La app propia queda como opción avanzada (integraciones.config).
 // =====================================================================
 
 const V = 'v21.0';
+
+/** Cliente HTTP inyectable (en los tests se reemplaza por uno falso). */
+export type ClienteHttp = (url: string, init?: RequestInit) => Promise<Response>;
+let http: ClienteHttp = (url, init) => fetch(url, init);
+export function usarClienteHttpInstagram(c?: ClienteHttp) { http = c ?? ((url, init) => fetch(url, init)); }
+
+/** La app de Meta del CRM (para todas las cuentas), si está configurada. */
+export function appPlataforma(): { appId: string; appSecret: string; configId?: string } | null {
+  const appId = process.env.META_APP_ID?.trim();
+  const appSecret = process.env.META_APP_SECRET?.trim();
+  if (!appId || !appSecret) return null;
+  return { appId, appSecret, configId: process.env.META_CONFIG_ID?.trim() || undefined };
+}
 
 // Flujo A (Instagram Login)
 const IG_AUTORIZAR = 'https://www.instagram.com/oauth/authorize';
@@ -40,7 +55,7 @@ export function redirectUri(): string {
   return `${config.apiUrl}/instagram/callback`;
 }
 
-interface AppMeta { appId?: string; appSecret?: string; configId?: string; igUserId?: string }
+interface AppMeta { appId?: string; appSecret?: string; configId?: string; igUserId?: string; plataforma?: boolean }
 
 /** Guarda App ID / App Secret (+ config_id e ig_user_id opcionales) de la app de Meta. */
 export async function guardarApp(
@@ -61,12 +76,52 @@ export async function guardarApp(
      RETURNING id, tipo, estado`, [cuentaId, cfg]);
 }
 
+/** Deja de usar la app propia: vuelve a la app de la plataforma. */
+export async function olvidarAppPropia(cuentaId: string) {
+  const integ = await integracionInstagram(cuentaId);
+  if (!integ) return null;
+  return queryOne(
+    `UPDATE integraciones SET config = config - 'app_id' - 'app_secret' - 'config_id' WHERE id = $1
+     RETURNING id`, [integ.id]);
+}
+
+/**
+ * Confirmaciones de la guía ("Ya es profesional", "Ya activé el permiso")
+ * guardadas en la cuenta, no en el navegador: valen en cualquier celular,
+ * compu o para cualquier persona del equipo.
+ */
+export async function guardarPasosInstagram(cuentaId: string, pasos: { profesional?: boolean; permiso_mensajes?: boolean }) {
+  const limpio = Object.fromEntries(Object.entries(pasos).filter(([, v]) => typeof v === 'boolean'));
+  const integ = await integracionInstagram(cuentaId);
+  if (integ) {
+    await pool.query(
+      `UPDATE integraciones SET config = jsonb_set(config, '{pasos}', COALESCE(config->'pasos', '{}'::jsonb) || $2::jsonb)
+        WHERE id = $1`, [integ.id, JSON.stringify(limpio)]);
+  } else {
+    await pool.query(
+      `INSERT INTO integraciones (cuenta_id, tipo, nombre, config)
+       VALUES ($1,'instagram','Instagram Business', jsonb_build_object('pasos', $2::jsonb))`,
+      [cuentaId, JSON.stringify(limpio)]);
+  }
+  const fila = await integracionInstagram(cuentaId);
+  return fila?.config?.pasos ?? {};
+}
+
 async function appDe(cuentaId: string): Promise<AppMeta> {
   const integ = await integracionInstagram(cuentaId);
   const cfg = integ?.config ?? {};
+  // La app propia manda (si tiene identificador y clave); si no, la del CRM.
+  if (cfg.app_id && cfg.app_secret) {
+    return {
+      appId: cfg.app_id, appSecret: cfg.app_secret,
+      configId: cfg.config_id || undefined, igUserId: cfg.ig_user_id || undefined, plataforma: false,
+    };
+  }
+  const p = appPlataforma();
+  if (p) return { ...p, igUserId: cfg.ig_user_id || undefined, plataforma: true };
   return {
     appId: cfg.app_id, appSecret: cfg.app_secret,
-    configId: cfg.config_id || undefined, igUserId: cfg.ig_user_id || undefined,
+    configId: cfg.config_id || undefined, igUserId: cfg.ig_user_id || undefined, plataforma: false,
   };
 }
 
@@ -74,7 +129,7 @@ async function appDe(cuentaId: string): Promise<AppMeta> {
 export async function urlAutorizacion(cuentaId: string): Promise<{ url: string } | { error: string }> {
   const { appId, configId } = await appDe(cuentaId);
   if (!appId) {
-    return { error: 'Falta la App de Meta. Pega tu App ID y App Secret antes de conectar.' };
+    return { error: 'Faltan los datos de tu app de Meta: completalos antes de conectar.' };
   }
   // El state firma la cuenta para recuperarla en el callback sin sesión.
   // 30 min: el flujo de Meta (crear portfolio, añadir IG, permisos) es largo.
@@ -126,7 +181,7 @@ export async function manejarCallback(cuentaId: string, code: string): Promise<R
 
 async function callbackFacebook(cuentaId: string, code: string, appId: string, appSecret: string): Promise<Resultado> {
   // 1. code -> token de usuario (corto)
-  const r1 = await fetch(
+  const r1 = await http(
     `${FB_GRAPH}/oauth/access_token?client_id=${encodeURIComponent(appId)}` +
     `&client_secret=${encodeURIComponent(appSecret)}` +
     `&redirect_uri=${encodeURIComponent(redirectUri())}&code=${encodeURIComponent(code)}`,
@@ -137,7 +192,7 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   }
 
   // 2. token corto -> token de usuario largo (60 días)
-  const r2 = await fetch(
+  const r2 = await http(
     `${FB_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
     `&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(d1.access_token)}`,
     { signal: AbortSignal.timeout(15000) });
@@ -147,7 +202,7 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   const diag: Record<string, any> = {};
 
   // 3a. Vía Página (lo ideal: da token de Página y permite DMs).
-  const r3 = await fetch(
+  const r3 = await http(
     `${FB_GRAPH}/me/accounts?limit=100&fields=name,access_token,` +
     `instagram_business_account{id,username},connected_instagram_account{id,username}` +
     `&access_token=${encodeURIComponent(userToken)}`,
@@ -159,10 +214,12 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
     (p: any) => p.instagram_business_account || p.connected_instagram_account);
   if (pagina) {
     const ig = pagina.instagram_business_account ?? pagina.connected_instagram_account;
+    // El token de Página que sale de un token de usuario largo no vence.
     await guardarConexion(cuentaId, {
       tipo_login: 'facebook', user_token: userToken,
       page_id: pagina.id, page_token: pagina.access_token,
       ig_user_id: String(ig.id), username: ig.username ?? null,
+      token_expira_en: null,
     });
     return { ok: true, mensaje: `Instagram conectado como @${ig.username ?? ig.id}`, username: ig.username };
   }
@@ -172,12 +229,15 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   //     Se descubre el IG id desde el propio token con debug_token (granular_scopes),
   //     sin necesitar permisos de página ni de negocio.
   let igId: string | undefined, igName: string | undefined;
+  let expiraEn: string | null = null;
   try {
     const appToken = `${appId}|${appSecret}`;
-    const rd = await fetch(
+    const rd = await http(
       `${FB_GRAPH}/debug_token?input_token=${encodeURIComponent(userToken)}&access_token=${encodeURIComponent(appToken)}`,
       { signal: AbortSignal.timeout(15000) });
     const dd: any = await rd.json();
+    const exp = dd?.data?.expires_at;
+    if (typeof exp === 'number' && exp > 0) expiraEn = new Date(exp * 1000).toISOString();
     const scopes: any[] = dd?.data?.granular_scopes ?? [];
     diag.scopes = scopes.length;
     for (const s of scopes) {
@@ -198,7 +258,7 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
   if (igId) {
     // Nombre de usuario (best-effort)
     try {
-      const ru = await fetch(
+      const ru = await http(
         `${FB_GRAPH}/${igId}?fields=username&access_token=${encodeURIComponent(userToken)}`,
         { signal: AbortSignal.timeout(12000) });
       const du: any = await ru.json();
@@ -208,6 +268,7 @@ async function callbackFacebook(cuentaId: string, code: string, appId: string, a
     await guardarConexion(cuentaId, {
       tipo_login: 'facebook_directo', user_token: userToken,
       ig_user_id: igId, username: igName ?? null,
+      token_expira_en: expiraEn,
     });
     return {
       ok: true, username: igName,
@@ -227,7 +288,7 @@ async function callbackInstagram(cuentaId: string, code: string, appId: string, 
     client_id: appId, client_secret: appSecret, grant_type: 'authorization_code',
     redirect_uri: redirectUri(), code,
   });
-  const r1 = await fetch(IG_TOKEN, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
+  const r1 = await http(IG_TOKEN, { method: 'POST', body: form, signal: AbortSignal.timeout(15000) });
   const d1: any = await r1.json();
   const corto = d1.access_token ?? d1.data?.[0]?.access_token;
   const uid = d1.user_id ?? d1.data?.[0]?.user_id;
@@ -235,25 +296,56 @@ async function callbackInstagram(cuentaId: string, code: string, appId: string, 
     return err(`Instagram rechazó el código: ${d1.error_message ?? JSON.stringify(d1)}`);
   }
 
-  const r2 = await fetch(
+  const r2 = await http(
     `${IG_GRAPH}/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(appSecret)}&access_token=${encodeURIComponent(corto)}`,
     { signal: AbortSignal.timeout(15000) });
   const d2: any = await r2.json();
   const largo = d2.access_token ?? corto;
+  // El token largo de Instagram dura ~60 días: guardamos cuándo vence para
+  // renovarlo solo antes de que corte (renovarTokensPorVencer).
+  const vence = d2.access_token && Number(d2.expires_in) > 0
+    ? new Date(Date.now() + Number(d2.expires_in) * 1000).toISOString() : null;
 
-  const r3 = await fetch(
+  const r3 = await http(
     `${IG_GRAPH}/me?fields=user_id,username&access_token=${encodeURIComponent(largo)}`,
     { signal: AbortSignal.timeout(15000) });
   const d3: any = await r3.json();
   const username = d3.username ?? null;
+  const igId = String(d3.user_id ?? uid ?? '');
 
   await guardarConexion(cuentaId, {
     tipo_login: 'instagram',
     access_token: largo,
-    ig_user_id: String(d3.user_id ?? uid ?? ''),
+    ig_user_id: igId,
     username,
+    token_expira_en: vence,
   });
+  // Que Meta mande los DMs y comentarios de ESTA cuenta (con la app de la
+  // plataforma, los avisos se configuran una vez para todas las cuentas,
+  // pero cada cuenta se suscribe). Best-effort: no frena la conexión.
+  await suscribirAvisos(cuentaId, igId, largo).catch(() => null);
   return { ok: true, mensaje: `Instagram conectado como @${username ?? uid}`, username };
+}
+
+const CAMPOS_AVISOS = ['comments,messages,messaging_postbacks,message_reactions,messaging_referral', 'comments,messages'];
+
+/** Suscribe la cuenta de Instagram a los avisos de la app (DMs y comentarios al instante). */
+async function suscribirAvisos(cuentaId: string, igId: string, token: string) {
+  if (!igId) return false;
+  for (const campos of CAMPOS_AVISOS) {
+    const r = await http(
+      `${IG_GRAPH}/${V}/${encodeURIComponent(igId)}/subscribed_apps?subscribed_fields=${encodeURIComponent(campos)}` +
+      `&access_token=${encodeURIComponent(token)}`,
+      { method: 'POST', signal: AbortSignal.timeout(15000) });
+    const d: any = await r.json().catch(() => ({}));
+    if (r.ok && (d.success === true || d.success === undefined) && !d.error) {
+      await pool.query(
+        `UPDATE integraciones SET config = config || jsonb_build_object('avisos_suscritos', true)
+          WHERE cuenta_id = $1 AND tipo = 'instagram' AND activo`, [cuentaId]);
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------- Helpers ----------------
@@ -262,8 +354,10 @@ async function guardarConexion(cuentaId: string, cred: Record<string, any>) {
   const integ = await integracionInstagram(cuentaId);
   const json = JSON.stringify(cred);
   if (integ) {
+    // Conectar de nuevo limpia cualquier error anterior (también el de renovación).
     await pool.query(
       `UPDATE integraciones SET credenciales = credenciales || $2::jsonb,
+              config = config - 'renovacion',
               estado='conectado', ultimo_error=NULL WHERE id=$1`, [integ.id, json]);
   } else {
     await pool.query(
@@ -296,7 +390,7 @@ async function tokenLargo(cuentaId: string, token: string): Promise<{ token: str
   if (!appId || !appSecret) return { token, expiraEn: null };
   let final = token;
   try {
-    const r = await fetch(
+    const r = await http(
       `${FB_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${encodeURIComponent(appId)}` +
       `&client_secret=${encodeURIComponent(appSecret)}&fb_exchange_token=${encodeURIComponent(token)}`,
       { signal: AbortSignal.timeout(15_000) });
@@ -305,7 +399,7 @@ async function tokenLargo(cuentaId: string, token: string): Promise<{ token: str
   } catch { /* nos quedamos con el original */ }
   let expiraEn: string | null = null;
   try {
-    const r = await fetch(
+    const r = await http(
       `${FB_GRAPH}/debug_token?input_token=${encodeURIComponent(final)}` +
       `&access_token=${encodeURIComponent(`${appId}|${appSecret}`)}`,
       { signal: AbortSignal.timeout(15_000) });
@@ -325,7 +419,7 @@ async function tokenLargo(cuentaId: string, token: string): Promise<{ token: str
  */
 export async function conectarConToken(cuentaId: string, token: string, igId: string): Promise<Resultado> {
   try {
-    const r = await fetch(
+    const r = await http(
       `${FB_GRAPH}/${encodeURIComponent(igId)}?fields=username,name&access_token=${encodeURIComponent(token)}`,
       { signal: AbortSignal.timeout(15000) });
     const d: any = await r.json();
@@ -347,4 +441,106 @@ export async function conectarConToken(cuentaId: string, token: string, igId: st
   } catch (e: any) {
     return { ok: false, mensaje: `Error validando el token: ${e?.message ?? e}` };
   }
+}
+
+// =====================================================================
+// Renovación automática de la conexión
+// =====================================================================
+// El token largo de Instagram dura ~60 días. Antes de que venza (faltan
+// menos de 15 días) el proceso periódico del servidor lo renueva solo y
+// guarda el nuevo vencimiento. Solo si la renovación FALLA queda marcado
+// (config.renovacion.ok = false) para avisar al usuario con un Banner.
+// =====================================================================
+
+export const DIAS_PARA_RENOVAR = 15;
+/** Entre dos intentos fallidos se espera un rato (no martillar a Meta). */
+const HORAS_ENTRE_INTENTOS = 6;
+
+export type ResultadoRenovacion = { ok: boolean; renovado: boolean; mensaje: string; expiraEn?: string | null };
+
+async function anotarRenovacion(integId: string, r: { ok: boolean; error?: string }) {
+  await pool.query(
+    `UPDATE integraciones SET config = config || jsonb_build_object('renovacion', $2::jsonb) WHERE id = $1`,
+    [integId, JSON.stringify({ ok: r.ok, en: new Date().toISOString(), ...(r.error ? { error: r.error.slice(0, 300) } : {}) })]);
+}
+
+/**
+ * Renueva el token de UNA cuenta. Login de Instagram: refresh_access_token.
+ * Token de usuario de Facebook (conectado con token): se vuelve a canjear y
+ * solo cuenta como renovado si Meta da un vencimiento más lejano.
+ */
+export async function renovarTokenInstagram(cuentaId: string): Promise<ResultadoRenovacion> {
+  const integ = await integracionInstagram(cuentaId);
+  const cred = integ?.credenciales ?? {};
+  if (!integ || integ.estado !== 'conectado') return { ok: false, renovado: false, mensaje: 'Instagram no está conectado.' };
+  const antes = cred.token_expira_en ? new Date(cred.token_expira_en).getTime() : null;
+  try {
+    if (cred.tipo_login === 'instagram' && cred.access_token) {
+      const r = await http(
+        `${IG_GRAPH}/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(cred.access_token)}`,
+        { signal: AbortSignal.timeout(15000) });
+      const d: any = await r.json().catch(() => ({}));
+      if (!r.ok || d.error || !d.access_token) {
+        throw new Error(d?.error?.message ?? d?.error_message ?? `Meta respondió ${r.status}`);
+      }
+      const expiraEn = Number(d.expires_in) > 0 ? new Date(Date.now() + Number(d.expires_in) * 1000).toISOString() : null;
+      await pool.query(
+        `UPDATE integraciones SET credenciales = credenciales || $2::jsonb WHERE id = $1`,
+        [integ.id, JSON.stringify({ access_token: d.access_token, token_expira_en: expiraEn, renovado_en: new Date().toISOString() })]);
+      await anotarRenovacion(integ.id, { ok: true });
+      return { ok: true, renovado: true, mensaje: 'Conexión renovada.', expiraEn };
+    }
+    if (cred.tipo_login === 'facebook_directo' && cred.user_token) {
+      const largo = await tokenLargo(cuentaId, cred.user_token);
+      const despues = largo.expiraEn ? new Date(largo.expiraEn).getTime() : null;
+      if (despues === null && antes !== null) {
+        // Meta no informa vencimiento: lo damos por renovado solo si el token cambió.
+        if (largo.token === cred.user_token) throw new Error('Meta no deja renovar este tipo de conexión sola.');
+      } else if (antes !== null && despues !== null && despues <= antes + 86_400_000) {
+        throw new Error('Meta no deja renovar este tipo de conexión sola.');
+      }
+      await pool.query(
+        `UPDATE integraciones SET credenciales = credenciales || $2::jsonb WHERE id = $1`,
+        [integ.id, JSON.stringify({ user_token: largo.token, token_expira_en: largo.expiraEn, renovado_en: new Date().toISOString() })]);
+      await anotarRenovacion(integ.id, { ok: true });
+      return { ok: true, renovado: true, mensaje: 'Conexión renovada.', expiraEn: largo.expiraEn };
+    }
+    return { ok: true, renovado: false, mensaje: 'Esta conexión no vence.' };
+  } catch (e: any) {
+    const mensaje = String(e?.message ?? e);
+    await anotarRenovacion(integ.id, { ok: false, error: mensaje });
+    return { ok: false, renovado: false, mensaje };
+  }
+}
+
+/** ¿Toca intentar renovar? (vence en menos de 15 días y no se intentó hace poco) */
+export function tocaRenovar(integ: any, ahora = Date.now()): boolean {
+  const cred = integ?.credenciales ?? {};
+  if (!integ || integ.estado !== 'conectado' || !cred.token_expira_en) return false;
+  if (!['instagram', 'facebook_directo'].includes(cred.tipo_login)) return false;
+  const vence = new Date(cred.token_expira_en).getTime();
+  if (!(vence - ahora < DIAS_PARA_RENOVAR * 86_400_000)) return false;
+  const ultimo = integ.config?.renovacion?.en ? new Date(integ.config.renovacion.en).getTime() : 0;
+  return ahora - ultimo > HORAS_ENTRE_INTENTOS * 3_600_000;
+}
+
+/**
+ * Proceso periódico (lo llama el cron del servidor): renueva todas las
+ * conexiones de Instagram que vencen en menos de 15 días.
+ */
+export async function renovarTokensPorVencer(limite = 50) {
+  const filas = await query<any>(
+    `SELECT * FROM integraciones
+      WHERE tipo = 'instagram' AND activo AND estado = 'conectado'
+        AND credenciales ? 'token_expira_en' AND credenciales->>'token_expira_en' IS NOT NULL
+        AND (credenciales->>'token_expira_en')::timestamptz < now() + make_interval(days => $1)
+      ORDER BY (credenciales->>'token_expira_en')::timestamptz ASC
+      LIMIT $2`, [DIAS_PARA_RENOVAR, limite]);
+  let renovadas = 0; let fallidas = 0;
+  for (const integ of filas) {
+    if (!tocaRenovar(integ)) continue;
+    const r = await renovarTokenInstagram(integ.cuenta_id);
+    if (r.renovado) renovadas++; else if (!r.ok) fallidas++;
+  }
+  return { revisadas: filas.length, renovadas, fallidas };
 }

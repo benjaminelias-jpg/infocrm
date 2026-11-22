@@ -33,7 +33,7 @@ export function RangoFechas({
 }: { rango: Rango; setRango: (r: Rango) => void }) {
   return (
     <div
-      className="flex items-center gap-0.5 rounded-[12px] p-1"
+      className="flex items-center gap-0.5 rounded-lg p-1"
       style={{ background: 'var(--surface-2)' }}
       role="group"
       aria-label="Rango de fechas"
@@ -44,7 +44,7 @@ export function RangoFechas({
           type="button"
           onClick={() => setRango(o.valor)}
           aria-pressed={rango === o.valor}
-          className={`ui-foco h-8 rounded-[9px] px-3 text-[12px] font-semibold transition-colors md:h-7 ${
+          className={`ui-foco h-8 rounded-md px-3 text-[12px] font-semibold transition-colors md:h-7 ${
             rango === o.valor
               ? 'bg-[var(--surface-1)] text-[var(--text-primary)] shadow-sm'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'

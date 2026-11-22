@@ -444,8 +444,7 @@ export default function Pipeline() {
             return (
               <button key={e.id} type="button" data-chip={i} onClick={() => irAColumna(i)} role="tab" aria-selected={enVista}
                 aria-current={i === visibles[0] ? 'true' : undefined}
-                className={`ui-foco inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[10px] border px-3 text-[12px] transition-colors ${enVista ? 'border-transparent font-semibold' : 'border-[var(--border-hairline)] bg-[var(--surface-1)] font-medium text-[var(--text-secondary)] hover:bg-[var(--surface-2)]'}`}
-                style={enVista ? { background: 'var(--tint)', color: 'var(--tint-texto)' } : undefined}>
+                className={`ui-foco inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-3 text-[12px] transition-colors ${enVista ? 'border-[color-mix(in_srgb,var(--text-primary)_22%,transparent)] bg-[color-mix(in_srgb,var(--text-primary)_7%,var(--surface-1))] font-medium text-[var(--text-primary)]' : 'border-[var(--border-hairline)] text-[var(--text-secondary)] hover:bg-[var(--surface-1)]'}`}>
                 <span className="h-2 w-2 rounded-full" style={{ background: e.color }} aria-hidden />
                 {e.nombre}
                 <span className="cifras text-[10px] opacity-80">{fmtNum(n)}</span>
@@ -461,7 +460,7 @@ export default function Pipeline() {
         {!etapas ? (
           <div className="flex gap-3 overflow-hidden px-4 lg:px-8" aria-busy="true" aria-label="Cargando el pipeline">
             {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="w-[86vw] max-w-[340px] shrink-0 space-y-2 rounded-xl p-2 md:w-[288px]" style={{ background: 'color-mix(in srgb, var(--surface-2) 55%, var(--page-plane))' }}>
+              <div key={i} className="w-[86vw] max-w-[340px] shrink-0 space-y-2 rounded-xl p-2 md:w-[288px]" style={{ background: 'var(--page-plane)' }}>
                 <Esqueleto alto={14} ancho="60%" /><Esqueleto alto={64} /><Esqueleto alto={64} /><Esqueleto alto={64} />
               </div>
             ))}
@@ -473,12 +472,12 @@ export default function Pipeline() {
           <>
             {!movil && bordes.izq && (
               <button type="button" onClick={() => correr(-1)} aria-label="Ver etapas anteriores"
-                className="ui-foco absolute left-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full shadow-lg"
+                className="ui-foco absolute left-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md shadow-lg"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}><Icono nombre="volver" tam={18} /></button>
             )}
             {!movil && bordes.der && (
               <button type="button" onClick={() => correr(1)} aria-label="Ver más etapas"
-                className="ui-foco absolute right-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full shadow-lg"
+                className="ui-foco absolute right-1 top-1/2 z-10 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-md shadow-lg"
                 style={{ background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}><Icono nombre="siguiente" tam={18} /></button>
             )}
             <div ref={tablero} onScroll={alDesplazar} data-no-deslizar
@@ -499,7 +498,7 @@ export default function Pipeline() {
                     }}
                     className="relative flex w-[86vw] max-w-[340px] shrink-0 snap-start flex-col rounded-xl transition-colors md:w-[288px]"
                     style={{
-                      background: sobre === etapa.id ? 'var(--tint)' : 'color-mix(in srgb, var(--surface-2) 55%, var(--page-plane))',
+                      background: sobre === etapa.id ? 'color-mix(in srgb, var(--series-1) 8%, var(--page-plane))' : 'var(--page-plane)',
                       outline: sobre === etapa.id ? '2px dashed var(--series-1)' : resaltada === etapa.id ? '2px solid var(--series-1)' : 'none', outlineOffset: -2,
                       transition: 'outline-color .3s',
                     }}>
@@ -508,8 +507,8 @@ export default function Pipeline() {
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: etapa.color }} aria-hidden />
                         <span className="min-w-0 flex-1 truncate text-[12px] font-semibold uppercase tracking-wide">{etapa.nombre}</span>
                         {acciones.length > 0 && (
-                          <span className="inline-flex items-center gap-0.5 rounded-[6px] px-1.5 text-[11px] font-semibold"
-                            style={{ background: 'var(--tint)', color: 'var(--tint-texto)' }}>
+                          <span className="inline-flex items-center gap-0.5 rounded px-1.5 text-[11px] font-medium"
+                            style={{ background: 'var(--gridline)', color: 'var(--text-secondary)' }}>
                             ⚡{acciones.length}
                             <Ayuda titulo={`Al entrar a «${etapa.nombre}»`}>
                               <ul className="list-disc space-y-0.5 pl-4">{acciones.map((a, i) => <li key={i}>{resumirAccion(a)}</li>)}</ul>

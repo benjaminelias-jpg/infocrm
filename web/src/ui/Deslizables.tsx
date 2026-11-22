@@ -96,7 +96,7 @@ export function Pestanas<T extends string>({ pestanas, actual, onCambiar, classN
             {p.icono && <span className="text-[14px]">{p.icono}</span>}
             {p.etiqueta}
             {p.contador !== undefined && p.contador !== null && p.contador !== 0 && (
-              <span className="cifras rounded-[5px] px-1.5 text-[10px] font-semibold" style={{ background: activa ? 'var(--tint)' : 'var(--surface-2)', color: activa ? 'var(--tint-texto)' : 'var(--text-secondary)' }}>
+              <span className="cifras rounded px-1.5 text-[10px] font-medium" style={{ background: 'var(--gridline)', color: activa ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
                 {p.contador}
               </span>
             )}
@@ -328,7 +328,7 @@ export function FilaDeslizable({ children, acciones, accionesInicio = [], comple
         <div className="pointer-events-none absolute inset-y-0 right-2 hidden items-center gap-1 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 md:flex">
           {[...accionesInicio, ...acciones].map((a) => (
             <button key={a.etiqueta} type="button" onClick={(e) => { e.stopPropagation(); a.onClick(); }} title={a.etiqueta} aria-label={a.etiqueta}
-              className={`ui-foco flex h-7 items-center gap-1 rounded-[8px] text-[11px] font-semibold text-white shadow-sm ${compacto ? 'w-7 justify-center' : 'px-2'}`} style={{ background: a.color }}>
+              className={`ui-foco flex h-7 items-center gap-1 rounded-md text-[11px] font-semibold text-white shadow-sm ${compacto ? 'w-7 justify-center' : 'px-2'}`} style={{ background: a.color }}>
               {a.icono}{!compacto && <span className="hidden lg:inline">{a.etiqueta}</span>}
             </button>
           ))}

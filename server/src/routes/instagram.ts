@@ -6,6 +6,7 @@ import { query, queryOne } from '../db/pool.js';
 import { noEncontrado, peticionInvalida } from '../lib/errores.js';
 import {
   guardarApp, urlAutorizacion, manejarCallback, cuentaDeState, redirectUri, conectarConToken,
+  appPlataforma, guardarPasosInstagram, olvidarAppPropia, renovarTokensPorVencer, renovarTokenInstagram, tocaRenovar,
 } from '../modules/instagram_oauth.js';
 import {
   ejecutarFlujo, normalizarPasos, validarFlujo, validarFlujoDetallado, procesarEsperasVencidas, advertenciasFlujo,
@@ -109,26 +110,66 @@ export default async function rutasInstagram(app: FastifyInstance) {
   });
 
   app.get('/api/instagram/estado', async (req) => {
-    const integ = await integracionInstagram(req.sesion.cuentaId);
+    const c = req.sesion.cuentaId;
+    const [integ, dm] = await Promise.all([
+      integracionInstagram(c),
+      queryOne(
+        `SELECT COUNT(*)::int AS dms_7d, max(ocurrido_en) AS ultimo_dm_en FROM mensajes
+          WHERE cuenta_id = $1 AND direccion = 'entrante' AND canal = 'instagram_dm'
+            AND ocurrido_en > now() - interval '7 days'`, [c]),
+    ]);
     const cfg = integ?.config ?? {};
     const cred = integ?.credenciales ?? {};
     const conectado = integ?.estado === 'conectado'
       && Boolean(cred.access_token || cred.page_token || cred.user_token);
+    const propia = Boolean(cfg.app_id && cfg.app_secret);
+    const plataforma = !propia && Boolean(appPlataforma());
+    // Si vence pronto, se renueva en segundo plano (además del proceso
+    // periódico): así también anda en servidores sin cron.
+    if (conectado && tocaRenovar(integ)) void renovarTokenInstagram(c).catch(() => null);
+    const renov = cfg.renovacion ?? null;
     return {
       tiene_app: Boolean(cfg.app_id),
       app_id: cfg.app_id ?? null,
       config_id: cfg.config_id ?? null,
       ig_user_id: cfg.ig_user_id ?? null,
-      flujo: cfg.config_id ? 'facebook' : 'instagram',
+      flujo: (propia ? cfg.config_id : appPlataforma()?.configId) ? 'facebook' : 'instagram',
+      // App de Meta del CRM: el usuario solo toca "Conectar con Instagram".
+      app_de_plataforma: plataforma,
+      // Hay app del CRM aunque esta cuenta use la suya (para "Volver a la app de InfoCRM").
+      app_plataforma_disponible: Boolean(appPlataforma()),
+      puede_conectar: propia || plataforma,
       conectado,
       username: cred.username ?? null,
       token_expira_en: cred.token_expira_en ?? null,
-      // Para recibir DMs/comentarios en vivo: se pegan en Meta → Webhooks.
+      // El login de Instagram se renueva solo antes de vencer.
+      se_renueva_sola: conectado && (cred.tipo_login === 'instagram' || (cred.tipo_login === 'facebook' && !cred.token_expira_en)),
+      renovacion: renov ? { ok: Boolean(renov.ok), en: renov.en ?? null, error: renov.ok ? null : (renov.error ?? null) } : null,
+      // Confirmaciones de la guía guardadas en la cuenta (no en el navegador).
+      pasos: { profesional: Boolean(cfg.pasos?.profesional), permiso_mensajes: Boolean(cfg.pasos?.permiso_mensajes) },
+      avisos_suscritos: Boolean(cfg.avisos_suscritos),
+      ultimo_aviso_meta_en: integ?.ultimo_aviso_en ?? null,
+      dms_7d: Number(dm?.dms_7d ?? 0),
+      ultimo_dm_en: dm?.ultimo_dm_en ?? null,
+      // Para recibir DMs/comentarios en vivo con app propia: se pegan en Meta → Webhooks.
       webhook_url: `${config.apiUrl}/webhooks/instagram`,
       webhook_verify_token: verifyTokenMeta(),
       redirect_uri: redirectUri(),
       ultimo_error: integ?.ultimo_error ?? null,
     };
+  });
+
+  /** "Ya es profesional" / "Ya activé el permiso": quedan en la cuenta. */
+  app.patch('/api/instagram/pasos', async (req) => {
+    const d = z.object({ profesional: z.boolean().optional(), permiso_mensajes: z.boolean().optional() }).parse(req.body ?? {});
+    return { pasos: await guardarPasosInstagram(req.sesion.cuentaId, d) };
+  });
+
+  /** Dejar de usar la app propia de Meta y volver a la del CRM. */
+  app.delete('/api/instagram/app', async (req, reply) => {
+    if (!appPlataforma()) throw peticionInvalida('No hay una app de InfoCRM configurada: seguí usando tu propia app de Meta.');
+    await olvidarAppPropia(req.sesion.cuentaId);
+    return reply.code(204).send();
   });
 
   // Conexión directa con token a mano (SUAT) + IG id — sin OAuth.
@@ -314,6 +355,7 @@ export default async function rutasInstagram(app: FastifyInstance) {
       `SELECT cuenta_id FROM webhook_endpoints WHERE token=$1 AND fuente='instagram'`,
       [(req.params as any).token]);
     if (!ep) return reply.code(404).send({ error: 'desconocido' });
+    await marcarAvisoMeta(ep.cuenta_id);
 
     // Comentarios, DMs, respuestas a historias, menciones, reacciones,
     // botones, anuncios y los mensajes que la cuenta manda desde el celular.
@@ -364,6 +406,8 @@ export default async function rutasInstagram(app: FastifyInstance) {
         req.log.warn({ igId }, 'webhook de Instagram con firma inválida: ignorado');
         continue;
       }
+      // Para la guía: "los avisos de Meta ya llegan" (paso con app propia).
+      await marcarAvisoMeta(integ.cuenta_id);
       for (const ev of parsearWebhookInstagram({ entry: [entry] })) {
         const r = await procesarEventoInstagram(integ.cuenta_id, ev).catch((err) => {
           req.log.error({ err }, 'evento de Instagram');
@@ -385,6 +429,18 @@ export default async function rutasInstagram(app: FastifyInstance) {
       return reply.code(401).send({ error: 'no_autorizado' });
     }
     const reanudadas = await procesarEsperasVencidas(undefined, 50);
-    return { ok: true, reanudadas };
+    // De paso, renueva las conexiones de Instagram que vencen en < 15 días.
+    const instagram = await renovarTokensPorVencer().catch((err) => {
+      req.log.error({ err }, 'renovando conexiones de Instagram');
+      return null;
+    });
+    return { ok: true, reanudadas, instagram };
   });
+}
+
+/** Anota que llegó un aviso de Meta para la cuenta (último aviso). */
+async function marcarAvisoMeta(cuentaId: string) {
+  await query(
+    `UPDATE integraciones SET ultimo_aviso_en = now()
+      WHERE cuenta_id = $1 AND tipo = 'instagram' AND activo`, [cuentaId]).catch(() => null);
 }

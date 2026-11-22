@@ -12,7 +12,7 @@ const slug = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
  * movían nunca cuando el lead respondía o agendaba).
  */
 const ETAPAS_DEFECTO = [
-  { nombre: 'Interesado', tipo: 'abierta', color: '#6366f1', evento: 'lead_creado' },
+  { nombre: 'Interesado', tipo: 'abierta', color: '#2563eb', evento: 'lead_creado' },
   { nombre: 'En conversación', tipo: 'abierta', color: '#0ea5e9', evento: 'respondio_dm' },
   { nombre: 'Llamada agendada', tipo: 'abierta', color: '#f59e0b', evento: 'reunion_agendada', marca_reunion: true },
   { nombre: 'Cliente', tipo: 'ganada', color: '#10b981', evento: 'venta', marca_venta: true },
@@ -20,7 +20,7 @@ const ETAPAS_DEFECTO = [
 ];
 
 /** Colores para etapas nuevas: se usa el primero que el pipeline todavía no tenga. */
-export const PALETA_ETAPAS = ['#6366f1', '#0ea5e9', '#8b5cf6', '#f59e0b', '#14b8a6', '#ec4899', '#84cc16', '#f97316', '#64748b'];
+export const PALETA_ETAPAS = ['#2563eb', '#0ea5e9', '#0891b2', '#f59e0b', '#14b8a6', '#ec4899', '#84cc16', '#f97316', '#64748b'];
 
 async function nombreLibre(cuentaId: string, nombre: string, excepto?: string) {
   const otro = await queryOne(

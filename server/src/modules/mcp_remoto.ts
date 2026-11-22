@@ -160,7 +160,7 @@ export const HERRAMIENTAS: Herramienta[] = [
   },
   {
     name: 'crear_nota',
-    title: 'Añadir una nota a un lead',
+    title: 'Agregar una nota a un lead',
     description: 'Deja una nota en la ficha de un lead.',
     inputSchema: { type: 'object', properties: { lead_id: UUID, cuerpo: { type: 'string', minLength: 1 } }, required: ['lead_id', 'cuerpo'] },
     annotations: ESCRITURA,
@@ -190,11 +190,20 @@ function faltantes(h: Herramienta, args: Record<string, any>) {
   return (h.inputSchema.required ?? []).filter((k) => args[k] === undefined || args[k] === null || args[k] === '');
 }
 
+/** Opciones de la conexión: con soloLectura, Claude mira pero no toca nada. */
+export interface OpcionesMcp { soloLectura?: boolean }
+
+export const MENSAJE_SOLO_LECTURA =
+  'Esta conexión de Claude es de solo lectura: puede mirar tus números y leads, pero no hacer cambios. ' +
+  'Para permitirlo, en InfoCRM → Configuración → Tu Claude activá «Que también pueda hacer cambios».';
+
+const esLectura = (h: Herramienta) => h.annotations?.readOnlyHint === true;
+
 /**
  * Atiende UN mensaje JSON-RPC. Devuelve la respuesta, o null si era una
  * notificación o una respuesta del cliente (no llevan respuesta).
  */
-export async function atenderMensajeMcp(m: Mensaje, llamar: LlamarApi): Promise<object | null> {
+export async function atenderMensajeMcp(m: Mensaje, llamar: LlamarApi, opciones: OpcionesMcp = {}): Promise<object | null> {
   if (!m || typeof m !== 'object' || Array.isArray(m)) return fallo(null, -32600, 'Petición inválida');
   // Respuestas del cliente o notificaciones (sin id): no se contestan.
   if (m.method === undefined) return null;
@@ -208,19 +217,24 @@ export async function atenderMensajeMcp(m: Mensaje, llamar: LlamarApi): Promise<
         protocolVersion: VERSIONES_MCP.includes(pedida) ? pedida : VERSIONES_MCP[0],
         capabilities: { tools: { listChanged: false } },
         serverInfo: { name: 'infocrm', title: 'InfoCRM', version: '1.1.0' },
-        instructions: INSTRUCCIONES_MCP,
+        instructions: opciones.soloLectura
+          ? `${INSTRUCCIONES_MCP} Esta conexión es de solo lectura: no puede hacer cambios en el CRM.`
+          : INSTRUCCIONES_MCP,
       });
     }
     case 'ping':
       return respuesta(m.id, {});
     case 'tools/list':
       return respuesta(m.id, {
-        tools: HERRAMIENTAS.map(({ peticion: _p, ...h }) => h),
+        tools: HERRAMIENTAS.filter((h) => !opciones.soloLectura || esLectura(h)).map(({ peticion: _p, ...h }) => h),
       });
     case 'tools/call': {
       const nombre = String(m.params?.name ?? '');
       const h = HERRAMIENTAS.find((x) => x.name === nombre);
       if (!h) return fallo(m.id, -32602, `Herramienta desconocida: ${nombre}`);
+      if (opciones.soloLectura && !esLectura(h)) {
+        return respuesta(m.id, { content: [{ type: 'text', text: MENSAJE_SOLO_LECTURA }], isError: true });
+      }
       const args = (m.params?.arguments && typeof m.params.arguments === 'object') ? m.params.arguments : {};
       const sinDar = faltantes(h, args);
       if (sinDar.length) {

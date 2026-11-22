@@ -642,7 +642,7 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
   const chipRevision = (
     <Menu alinear="derecha" ancho={320} titulo={revision.problemas.length ? 'Para completar' : 'Avisos'} disparador={({ alternar, abierto }) => (
       <button type="button" onClick={totalRevision ? alternar : undefined} aria-expanded={abierto}
-        className="ui-foco inline-flex h-8 items-center gap-1 rounded-[10px] px-2.5 text-[12px] font-semibold"
+        className="ui-foco inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[12px] font-medium"
         style={revision.problemas.length
           ? { background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)' }
           : revision.advertencias.length
@@ -800,7 +800,7 @@ function PanelPrueba({ form, prueba, onProbar }: {
         if (esMensaje) {
           return (
             <div key={i} className="flex flex-col items-end gap-1">
-              <div className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md px-3 py-2 text-[13px] text-white" style={{ background: 'var(--series-1)' }}>
+              <div className="max-w-[85%] whitespace-pre-wrap rounded-xl rounded-br-md px-3 py-2 text-[13px] text-white" style={{ background: 'var(--series-1)' }}>
                 {conVariables(String(r.cuerpo ?? r.texto ?? '')).replace(/\[nombre\]|\[Nombre\]/g, 'Sofía')}
               </div>
               {nodo?.tipo === 'pregunta' && (
@@ -829,7 +829,7 @@ function PanelPrueba({ form, prueba, onProbar }: {
           );
         }
         if (r.paso === 'respuesta') {
-          return <div key={i} className="flex justify-start"><div className="max-w-[85%] rounded-2xl rounded-bl-md px-3 py-2 text-[13px]" style={{ background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}>{String(r.texto).replace(/^[^«]*«|»[^»]*$/g, '') || r.texto}</div></div>;
+          return <div key={i} className="flex justify-start"><div className="max-w-[85%] rounded-xl rounded-bl-md px-3 py-2 text-[13px]" style={{ background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}>{String(r.texto).replace(/^[^«]*«|»[^»]*$/g, '') || r.texto}</div></div>;
         }
         if (nodo?.tipo === 'esperar_respuesta' || r.paso === 'pausa') {
           return (

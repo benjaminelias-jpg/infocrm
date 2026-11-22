@@ -27,7 +27,7 @@ export const EVENTOS: Array<{ id: string; lead: string; corto: string }> = [
 ];
 export const textoEvento = (id?: string | null) => EVENTOS.find((e) => e.id === id)?.lead ?? id ?? '';
 
-export const PALETA = ['#6366f1', '#0ea5e9', '#8b5cf6', '#f59e0b', '#14b8a6', '#ec4899', '#84cc16', '#f97316', '#64748b', '#22c55e', '#ef4444', '#94a3b8'];
+export const PALETA = ['#2563eb', '#0ea5e9', '#0891b2', '#f59e0b', '#14b8a6', '#ec4899', '#84cc16', '#f97316', '#64748b', '#22c55e', '#ef4444', '#94a3b8'];
 
 /** Acciones de etapa, agrupadas como en el menú "+ Agregar acción". */
 export const GRUPOS_ACCION: Array<{ grupo: string; acciones: Array<{ tipo: string; icono: string; etiqueta: string; ayuda?: string }> }> = [

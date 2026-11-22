@@ -34,8 +34,8 @@ export default function TextoConVariables({
         : <AreaTexto ref={ref as any} value={valor} onChange={(e) => onCambio(e.target.value)} rows={filas} placeholder={placeholder} autoFocus={autoFoco}
             className="resize-y" invalido={invalido} onBlur={onBlur} aria-label={etiqueta} />}
       <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-[var(--text-muted)]">
-        <button type="button" onClick={() => insertar('{{nombre}}')} className="ui-foco min-h-[28px] rounded-[8px] px-2.5 font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]" style={{ background: 'var(--surface-2)' }}>+ Nombre</button>
-        <button type="button" onClick={() => insertar('{{usuario}}')} className="ui-foco min-h-[28px] rounded-[8px] px-2.5 font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]" style={{ background: 'var(--surface-2)' }}>+ @usuario</button>
+        <button type="button" onClick={() => insertar('{{nombre}}')} className="ui-foco min-h-[28px] rounded-md border border-[var(--border-hairline)] px-2.5 hover:bg-[var(--surface-1)]">+ Nombre</button>
+        <button type="button" onClick={() => insertar('{{usuario}}')} className="ui-foco min-h-[28px] rounded-md border border-[var(--border-hairline)] px-2.5 hover:bg-[var(--surface-1)]">+ @usuario</button>
         <span className="ml-auto cifras" style={{ color: largo > max ? 'var(--status-critical)' : undefined }}>{largo}/{max}</span>
       </div>
       {/\{\{\s*(nombre|usuario)\s*\}\}/i.test(valor) && (

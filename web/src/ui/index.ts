@@ -22,4 +22,4 @@ export { BarraProgreso, Banner } from './Progreso';
 export { useParamUrl } from './Url';
 export { useTema, aplicarTema, leerTema } from './Tema';
 export type { Tema } from './Tema';
-export type { EstadoPaso } from './Guias';
+export type { EstadoPaso, EstadoTarjeta } from './Guias';

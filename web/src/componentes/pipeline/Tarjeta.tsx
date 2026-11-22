@@ -24,7 +24,7 @@ export function fechaCorta(iso?: string | null) {
 
 function EtiquetaChica({ children, ancho = 'max-w-[45%]' }: { children: React.ReactNode; ancho?: string }) {
   return (
-    <span className={`${ancho} shrink-0 truncate rounded-[6px] px-1.5 py-px text-[11px] font-medium leading-[16px] text-[var(--text-secondary)]`} style={{ background: 'var(--surface-2)' }}>
+    <span className={`${ancho} shrink-0 truncate rounded border border-[var(--border-hairline)] px-1.5 py-px text-[11px] leading-[16px] text-[var(--text-secondary)]`}>
       {children}
     </span>
   );
@@ -53,8 +53,8 @@ export default function Tarjeta({ t, etapas, usuarios, onAbrir, onChat, onMover,
     <span className="flex shrink-0 items-center gap-1.5">
       {sinLeer > 0 && (
         <button type="button" onClick={(e) => { e.stopPropagation(); onChat(); }} aria-label={`${sinLeer} sin leer: abrir chat`}
-          className="ui-foco inline-flex h-6 items-center gap-1 rounded-[7px] px-2 text-[11px] font-semibold text-white"
-          style={{ background: 'var(--accion)' }}>
+          className="ui-foco inline-flex h-6 items-center gap-1 rounded px-2 text-[11px] font-semibold text-white"
+          style={{ background: 'var(--series-1)' }}>
           <Icono nombre="bandeja" tam={12} />{sinLeer > 99 ? '99+' : sinLeer}
         </button>
       )}

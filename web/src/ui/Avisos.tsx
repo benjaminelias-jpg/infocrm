@@ -38,8 +38,8 @@ export function ProveedorAvisos({ children }: { children: React.ReactNode }) {
         aria-live="polite">
         {avisos.map((a) => (
           <div key={a.id} role={a.tono === 'error' ? 'alert' : 'status'}
-            className="ui-aparecer pointer-events-auto flex items-start gap-2.5 rounded-[14px] px-3.5 py-3 text-[13px] font-medium"
-            style={{ background: 'var(--ink)', color: 'var(--on-ink)', boxShadow: 'var(--sombra-flotante)' }}>
+            className="ui-aparecer pointer-events-auto flex items-start gap-2.5 rounded-xl px-3.5 py-3 text-[13px] shadow-xl"
+            style={{ background: 'var(--text-primary)', color: 'var(--page-plane)' }}>
             <span className="mt-[1px] flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white" style={{ background: COLOR[a.tono] }}>{ICONO[a.tono]}</span>
             <div className="min-w-0 flex-1 leading-snug">{a.texto}</div>
             {a.accion && (

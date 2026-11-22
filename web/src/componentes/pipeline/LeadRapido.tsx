@@ -63,8 +63,8 @@ export default function LeadRapido({ etapa, pipelineId, onCerrar, onCreado, comp
         placeholder="@usuario de Instagram o nombre" aria-label="@usuario o nombre" autoComplete="off" autoCapitalize="none" />
       {texto.trim() && (
         <button type="button" onClick={() => base.usuario && setForzarNombre((f) => !f)} disabled={!base.usuario}
-          className="ui-foco inline-flex max-w-full items-center gap-1 truncate rounded-[8px] px-2 py-0.5 text-[11px]"
-          style={{ background: 'var(--surface-2)', color: 'var(--text-secondary)' }}>
+          className="ui-foco inline-flex max-w-full items-center gap-1 truncate rounded px-2 py-0.5 text-[11px]"
+          style={{ background: 'var(--page-plane)', border: '1px solid var(--border-hairline)', color: 'var(--text-secondary)' }}>
           {como.usuario
             ? <>Se carga como Instagram: <b style={{ color: 'var(--series-1)' }}>@{como.usuario}</b>{!valido && ' (usuario inválido)'}<span className="opacity-70"> · cambiar</span></>
             : <>Se carga como nombre: <b>{como.nombre}</b>{base.usuario ? <span className="opacity-70"> · cambiar</span> : <span className="opacity-70"> · para Instagram empezá con @</span>}</>}
