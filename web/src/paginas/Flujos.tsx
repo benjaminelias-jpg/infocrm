@@ -5,6 +5,7 @@ import Cabecera from '../componentes/Cabecera';
 import { DISPAROS, NODOS, arbolAGrafo, conVariables, uid, type Ctx, type Paso } from '../componentes/pizarra/modelo';
 import Automatizaciones from './Automatizaciones';
 import GuiaInstagram from '../componentes/integraciones/GuiaInstagram';
+import MenuChat from '../componentes/MenuChat';
 import Icono from '../componentes/Iconos';
 import {
   Banner, Boton, BotonFlotante, Buscador, Carrusel, Chip, Desplegable, Dialogo, Entrada, ErrorCarga, EsqueletoPantalla,
@@ -264,6 +265,7 @@ function ListaAutomensajes({ flujos, ctx, ig, bannerIg, borradores, onDescartarB
   borradores: Array<{ clave: string; nombre: string; en: number }>;
   onDescartarBorrador: (clave: string) => void; onNuevo: () => void; onCambio: () => Promise<void> | void;
 }) {
+  const [menuChat, setMenuChat] = useState(false);
   const navegar = useNavigate();
   const aviso = useAviso();
   const [filtro, setFiltro] = useState<'todos' | 'activos' | 'pausa'>('todos');
@@ -340,7 +342,10 @@ function ListaAutomensajes({ flujos, ctx, ig, bannerIg, borradores, onDescartarB
       ) : (
         <>
           <section>
-            <TituloSeccion titulo="Tus automensajes" subtitulo={`${plural(activos, 'activo')} de ${fmtNum(flujos.length)}`} onMas={onNuevo} textoMas="Nuevo" />
+            <TituloSeccion titulo="Tus automensajes" subtitulo={`${plural(activos, 'activo')} de ${fmtNum(flujos.length)}`} onMas={onNuevo} textoMas="Nuevo"
+              derecha={<Boton tamano="sm" variante="secundario" onClick={() => setMenuChat(true)}>☰ Menú del chat</Boton>} />
+            <MenuChat abierto={menuChat} onCerrar={() => setMenuChat(false)}
+              palabras={[...new Set(flujos.filter((f: any) => f.disparo === 'boton' && f.palabra_clave).flatMap((f: any) => String(f.palabra_clave).split(',').map((x: string) => x.trim().toUpperCase()).filter(Boolean)))]} />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <FilaChips>
                 <Chip activo={filtro === 'todos'} onClick={() => setFiltro('todos')} contador={flujos.length}>Todos</Chip>
@@ -525,6 +530,13 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
   const [editando, setEditando] = useState<string | null>(existente?.id ?? null);
   const [guardando, setGuardando] = useState(false);
   const [autoguardado, setAutoguardado] = useState<number | null>(null);
+  // Estadísticas por paso (últimos 30 días) de un automensaje ya guardado.
+  const [conteos, setConteos] = useState<Record<string, number> | null>(null);
+  useEffect(() => {
+    if (!editando) return;
+    api<{ total: number; nodos: Record<string, number> }>(`/ux/automensajes/${editando}/estadisticas?dias=30`)
+      .then((r) => setConteos(r.total > 0 ? { ...r.nodos, __total: r.total } : null)).catch(() => {});
+  }, [editando]);
   const [salir, setSalir] = useState(false);
   const [activar, setActivar] = useState(false);
   const [renombrar, setRenombrar] = useState(false);
@@ -747,7 +759,7 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
 
       <div className="min-h-0 flex-1">
         <Suspense fallback={<div className="flex h-full items-center justify-center gap-2 text-[13px] text-[var(--text-muted)]" aria-busy="true"><Girando /> Abriendo la pizarra…</div>}>
-          <Pizarra form={form} setForm={setForm} ctx={ctx} marcados={marcados} advertidos={advertidos} notas={notas}
+          <Pizarra form={form} setForm={setForm} ctx={ctx} marcados={marcados} advertidos={advertidos} notas={notas} conteos={conteos}
             recorrido={recorrido} enfocar={enfocar} />
         </Suspense>
       </div>

@@ -47,6 +47,8 @@ type DatosNodo = {
   paso: Paso; ctx: Ctx; disparo?: string;
   marcado: boolean; advertido: boolean; enRecorrido: boolean; suelto: boolean;
   conectadas: string[]; onMas: (salida: string) => void;
+  /** Estadística: a cuántas personas les pasó este paso (últimos 30 días). */
+  conteo?: number;
 };
 
 const estiloPunto = (color: string): React.CSSProperties => ({
@@ -63,13 +65,17 @@ function BotonMas({ onClick }: { onClick: () => void }) {
 
 function Caja({ d, selected, color, ancho = 260, children }: { d: DatosNodo; selected?: boolean; color: string; ancho?: number; children: React.ReactNode }) {
   return (
-    <div className="text-[12px]" style={{
+    <div className="relative text-[12px]" style={{
       width: ancho, background: 'var(--surface-1)', borderRadius: 12,
       border: `1.5px ${d.suelto ? 'dashed' : 'solid'} ${d.marcado ? 'var(--status-critical)' : d.advertido ? 'var(--status-warning)' : selected ? 'var(--series-1)' : 'var(--border-hairline)'}`,
       borderLeft: `5px solid ${color}`,
       boxShadow: d.enRecorrido ? '0 0 0 4px rgba(12,163,12,.30)' : selected ? '0 0 0 4px rgba(42,120,214,.18)' : '0 1px 3px rgba(0,0,0,.08)',
       opacity: d.suelto ? 0.55 : 1,
     }}>
+      {d.conteo !== undefined && (
+        <div className="absolute -top-2.5 right-2 rounded border border-[var(--border-hairline)] px-1.5 text-[10px] font-medium text-[var(--text-secondary)] cifras"
+          style={{ background: 'var(--surface-1)' }} title="Personas que pasaron por este paso (últimos 30 días)">👥 {d.conteo}</div>
+      )}
       {children}
       {d.suelto && <div className="px-3 pb-1.5 text-[10px] text-[var(--text-muted)]">Sin conectar: ninguna flecha llega acá, no se ejecuta</div>}
       {d.advertido && !d.marcado && <div className="px-3 pb-1.5 text-[10px]" style={{ color: 'var(--status-warning)' }}>⚠ Revisá este paso (tocalo para ver por qué)</div>}
@@ -239,6 +245,7 @@ export interface PropsPizarra {
   advertidos?: string[];
   /** Textos de los problemas y avisos por paso (se muestran al tocarlo). */
   notas?: Record<string, string[]>;
+  conteos?: Record<string, number> | null;
   /** Pedido de afuera para seleccionar y centrar un paso (n cambia en cada pedido). */
   enfocar?: { id: string; n: number } | null;
 }
@@ -263,7 +270,7 @@ function useModoColor() {
   return modo;
 }
 
-function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], notas = {}, enfocar }: PropsPizarra) {
+function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], notas = {}, enfocar, conteos }: PropsPizarra) {
   const rf = useReactFlow();
   const aviso = useAviso();
   const movil = useEsMovil(768);
@@ -325,7 +332,8 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
     suelto: n.tipo !== 'inicio' && !vivos.has(n.id),
     conectadas: conectadasDe.get(n.id) ?? [],
     onMas: (salida: string) => { setPaleta({ desde: { nodo: n.id, salida } }); setSel(null); },
-  }), [ctx, textoDisparo, marcadosSet, advertidosSet, enRecorrido, recorrido.length, vivos, conectadasDe]);
+    conteo: conteos ? (n.tipo === 'inicio' ? (conteos.__total ?? 0) : (conteos[n.id] ?? 0)) : undefined,
+  }), [ctx, textoDisparo, marcadosSet, advertidosSet, enRecorrido, recorrido.length, vivos, conectadasDe, conteos]);
 
   // Estado propio de React Flow (medidas, arrastre, selección) sincronizado
   // con los pasos del flujo, que son la fuente de verdad.

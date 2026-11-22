@@ -100,7 +100,7 @@ export async function cargarDemo(cuentaId: string, leads = 14): Promise<{ creado
     const entrada = new Date(ahora - entre(0, 40) * DIA - entre(0, 23) * 3_600_000);
 
     const identidad = {
-      igUsername: `${sinAc(nombre)}.${sinAc(apellido)}${entre(1, 999)}`,
+      igUsername: `${sinAc(nombre)}.${sinAc(apellido)}${entre(1, 999)}${String(i).padStart(2, "0")}${sufijo.slice(-3)}`,
       igUserId: `1784${sufijo}`.slice(0, 17), nombre, apellido,
       email: pasa(0.5) ? `${sinAc(nombre)}.${sinAc(apellido)}@gmail.com` : undefined,
     };
