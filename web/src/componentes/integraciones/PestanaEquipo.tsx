@@ -9,9 +9,8 @@ import Icono from '../Iconos';
 // Vite: si todavía no está, no rompe el build) y, si falla, queda un acceso a
 // Finanzas → Equipo.
 
-const modulos = import.meta.glob('../finanzas/Equipo.tsx');
-const cargar = modulos['../finanzas/Equipo.tsx'] as undefined | (() => Promise<{ default: ComponentType }>);
-const EquipoDeFinanzas = cargar ? lazy(cargar) : null;
+// El Equipo ya existe: import directo (funciona igual en Vite y en Next).
+const EquipoDeFinanzas = lazy(() => import('../finanzas/Equipo') as Promise<{ default: ComponentType }>);
 
 class SiFalla extends Component<{ children: ReactNode; respaldo: ReactNode }, { roto: boolean }> {
   state = { roto: false };

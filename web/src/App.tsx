@@ -108,8 +108,8 @@ function iniciales(nombre?: string) {
 function Login() {
   const navegar = useNavigate();
   const [params] = useSearchParams();
-  const [email, setEmail] = useState(import.meta.env.VITE_DEMO === '1' ? 'demo@infocrm.app' : '');
-  const [password, setPassword] = useState(import.meta.env.VITE_DEMO === '1' ? 'infocrm2026' : '');
+  const [email, setEmail] = useState((import.meta as any).env?.VITE_DEMO === '1' ? 'demo@infocrm.app' : '');
+  const [password, setPassword] = useState((import.meta as any).env?.VITE_DEMO === '1' ? 'infocrm2026' : '');
   const [ver, setVer] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
