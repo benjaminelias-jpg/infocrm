@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kunfu Apps · InfoCRM (simulación)</title>
+<style>
+:root{--bg:#f3f3f6;--card:#fff;--ink:#18181b;--muted:#6a6a73;--line:#e4e4ea;--violeta:#6b33f4}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--ink)}
+.app{display:flex;gap:16px;padding:16px;height:100vh}
+.rail{width:72px;background:var(--card);border-radius:24px;display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:10px}
+.logo{width:40px;height:40px;border-radius:10px;background:var(--violeta);color:#fff;font-weight:800;display:grid;place-items:center;margin-bottom:10px}
+.ico{width:44px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--muted);font-size:18px}
+.ico.on{background:var(--ink);color:#fff}
+.main{flex:1;display:flex;flex-direction:column;gap:12px;min-width:0}
+.top{display:flex;gap:12px;align-items:center}
+.buscar{flex:1;background:var(--card);border-radius:999px;padding:12px 18px;color:var(--muted);font-size:14px}
+.migas{font-size:13px;color:var(--muted);padding:0 4px}.migas b{color:var(--ink)}
+.marco{flex:1;background:var(--card);border-radius:20px;overflow:hidden;border:1px solid var(--line)}
+iframe{width:100%;height:100%;border:0;display:block}
+.aviso{font-size:11px;color:var(--muted);text-align:right}
+</style></head><body>
+<div class="app">
+  <nav class="rail" aria-label="Kunfupay">
+    <div class="logo">ku</div>
+    <div class="ico" title="Inicio">⌂</div><div class="ico" title="Wallet">▣</div><div class="ico" title="Tienda">◫</div>
+    <div class="ico" title="Funnels">⏷</div><div class="ico" title="Analíticas">▥</div><div class="ico on" title="Kunfu Apps">▦</div>
+  </nav>
+  <main class="main">
+    <div class="top"><div class="buscar">🔍 Buscar productos, movimientos, clientes…</div></div>
+    <div class="migas">Kunfu Apps / <b>InfoCRM — Kunfu DM</b></div>
+    <div class="marco"><iframe src="https://infocrm-two.vercel.app/" title="InfoCRM" allow="clipboard-write; microphone"></iframe></div>
+    <div class="aviso">Simulación local del embed (dev-kunfu-dm). La app real corre en infocrm-two.vercel.app.</div>
+  </main>
+</div></body></html>
