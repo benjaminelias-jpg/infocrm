@@ -97,7 +97,7 @@ export async function construirApp(): Promise<FastifyInstance> {
   // (se autentica con el token secreto de la URL).
   app.addHook('onRequest', async (req) => {
     if (!req.url.startsWith('/api/')) return;
-    if (req.url.startsWith('/api/auth/login') || req.url.startsWith('/api/auth/registro')) return;
+    if (req.url.startsWith('/api/auth/login') || req.url.startsWith('/api/auth/auto') || req.url.startsWith('/api/auth/registro')) return;
     req.sesion = await autenticar(req);
   });
 

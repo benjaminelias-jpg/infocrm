@@ -116,6 +116,13 @@ function Login() {
   const [olvido, setOlvido] = useState(false);
   const motivo = params.get('motivo');
   const volver = params.get('volver');
+  const [probandoAuto, setProbandoAuto] = useState(true);
+  // Si el servidor está en modo «sin login», entra directo.
+  useEffect(() => {
+    api<any>('/auth/auto', { method: 'POST' })
+      .then((r) => { guardarSesion(r.token, r.usuario, r.cuenta); navegar(volver && volver.startsWith('/') && !volver.startsWith('//') ? volver : '/', { replace: true }); })
+      .catch(() => setProbandoAuto(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -133,6 +140,7 @@ function Login() {
     }
   }
 
+  if (probandoAuto) return <div className="flex min-h-screen items-center justify-center text-[13px] text-[var(--text-muted)]">Entrando…</div>;
   return (
     <div className="flex min-h-screen items-center justify-center px-4" style={{ minHeight: '100dvh' }}>
       <form onSubmit={enviar} className="tarjeta w-full max-w-sm space-y-4 p-6">

@@ -21,6 +21,22 @@ const esquemaRegistro = z.object({
 });
 
 export default async function rutasAuth(app: FastifyInstance) {
+  // Modo «sin login» (SIN_LOGIN=1 en el servidor): entra directo como el dueño.
+  app.post('/auto', async (_req, reply) => {
+    if (process.env.SIN_LOGIN !== '1') return reply.code(404).send({ error: 'no_disponible' });
+    const usuario = await queryOne(
+      `SELECT u.*, c.nombre AS cuenta_nombre, c.moneda, c.zona_horaria
+         FROM usuarios u JOIN cuentas c ON c.id = u.cuenta_id
+        WHERE u.activo AND c.activo AND u.rol = 'owner' ORDER BY u.creado_en ASC LIMIT 1`, []);
+    if (!usuario) return reply.code(404).send({ error: 'no_disponible' });
+    const sesion = { usuarioId: usuario.id, cuentaId: usuario.cuenta_id, email: usuario.email, rol: usuario.rol, nombre: usuario.nombre };
+    return {
+      token: firmarToken(sesion),
+      usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol },
+      cuenta: { id: usuario.cuenta_id, nombre: usuario.cuenta_nombre, moneda: usuario.moneda, zona_horaria: usuario.zona_horaria },
+    };
+  });
+
   app.post('/login', async (req) => {
     const { email, password } = esquemaLogin.parse(req.body);
 
