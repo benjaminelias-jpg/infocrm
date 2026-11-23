@@ -251,7 +251,8 @@ function Marco({ children }: { children: React.ReactNode }) {
   const [buscar, setBuscar] = useState(false);
   useAtajoBuscar(useCallback(() => setBuscar(true), []));
   // Menú lateral angosto (solo íconos), como el riel de la referencia: más lugar para el tablero.
-  const [compacto, setCompacto] = useState(() => { try { return localStorage.getItem('infocrm_menu_compacto') === '1'; } catch { return false; } });
+  // Embebida dentro de otra app (ej. Kunfupay): el menú arranca achicado a íconos.
+  const [compacto, setCompacto] = useState(() => { try { if (window.self !== window.top) return true; return localStorage.getItem('infocrm_menu_compacto') === '1'; } catch { return true; } });
   const alternarCompacto = () => setCompacto((v) => { try { localStorage.setItem('infocrm_menu_compacto', v ? '0' : '1'); } catch { /* sin almacenamiento */ } return !v; });
   const visibles = permitidos(sesion?.usuario?.rol);
   const grupos = GRUPOS.map((g) => ({ ...g, items: g.items.filter((d) => visibles.includes(d)) })).filter((g) => g.items.length);
