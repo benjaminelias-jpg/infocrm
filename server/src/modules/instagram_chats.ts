@@ -15,13 +15,20 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
   const { base, token, igId } = credsUsables(integ?.credenciales ?? {});
   if (!integ || !token || !igId) return { ok: false, conversaciones: 0, mensajes: 0, leadsNuevos: 0, mensaje: 'Instagram no está conectado.' };
 
-  const campos = 'participants,updated_time,messages.limit(50){id,message,from,created_time}';
-  let url: string | null = `${base}/${igId}/conversations?platform=instagram&fields=${encodeURIComponent(campos)}&limit=25&access_token=${encodeURIComponent(token)}`;
+  // Meta corta con "reduce the amount of data" si pedimos mucho: páginas chicas y, si igual se queja, más chicas.
+  let porPagina = 10, porConv = 20;
+  const armar = () => `${base}/${igId}/conversations?platform=instagram&fields=${encodeURIComponent(`participants,updated_time,messages.limit(${porConv}){id,message,from,created_time}`)}&limit=${porPagina}&access_token=${encodeURIComponent(token)}`;
+  let url: string | null = armar();
   let conversaciones = 0, mensajes = 0, leadsNuevos = 0, paginas = 0;
-  while (url && paginas < Math.ceil((opts.limite ?? 100) / 25)) {
+  while (url && paginas < Math.ceil((opts.limite ?? 100) / 10) + 3) {
     paginas++;
     const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     const d: any = await r.json().catch(() => ({}));
+    if ((!r.ok || d.error) && /reduce the amount of data/i.test(d?.error?.message ?? '') && porPagina > 2) {
+      porPagina = Math.max(2, Math.floor(porPagina / 2)); porConv = Math.max(5, Math.floor(porConv / 2));
+      url = armar();
+      continue;
+    }
     if (!r.ok || d.error) {
       return { ok: false, conversaciones, mensajes, leadsNuevos, mensaje: `Instagram no devolvió tus chats: ${d?.error?.message ?? `HTTP ${r.status}`}` };
     }
