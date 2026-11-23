@@ -1,0 +1,5 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm --prefix ../server ci --include=dev && npm --prefix ../server run migrate && npm run build",
+  "crons": [{ "path": "/webhooks/cron/flujos", "schedule": "0 9 * * *" }]
+}

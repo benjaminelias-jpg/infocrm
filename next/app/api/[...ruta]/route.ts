@@ -2,6 +2,7 @@ import { manejar } from '../../../lib/crm-server.mjs';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
 
 // Todo /api/* (y, por los rewrites de next.config, /webhooks, /instagram,
 // /recursos/pub, /mcp y /salud) lo atiende el servidor del CRM.
