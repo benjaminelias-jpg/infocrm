@@ -4,3 +4,4 @@ dist/
 *.log
 api/_bundle.mjs
 /node_modules/
+InfoCRM-standalone.html
