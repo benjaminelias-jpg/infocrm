@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type ComponentType } from 'react';
 import {
-  BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation, useSearchParams,
+  BrowserRouter, HashRouter, Routes, Route, NavLink, Navigate, useNavigate, useLocation, useSearchParams,
 } from 'react-router-dom';
 import { api, cerrarSesion, guardarSesion, leerSesion, token, EVENTO_SESION_VENCIDA } from './api';
 import Icono from './componentes/Iconos';
@@ -427,10 +427,13 @@ function Protegida({ children }: { children: React.ReactNode }) {
   return <Marco>{children}</Marco>;
 }
 
+// En el HTML standalone (abierto como archivo) las rutas van con #.
+const Enrutador = (import.meta as any).env?.VITE_STANDALONE ? HashRouter : BrowserRouter;
+
 export default function App() {
   return (
     <ProveedorAvisos>
-    <BrowserRouter>
+    <Enrutador>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/" element={<Protegida><Panel /></Protegida>} />
@@ -449,7 +452,7 @@ export default function App() {
         <Route path="/conexiones" element={<Protegida><Conexiones /></Protegida>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Enrutador>
     </ProveedorAvisos>
   );
 }

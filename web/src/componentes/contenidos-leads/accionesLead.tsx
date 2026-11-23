@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api, token } from '../../api';
+import { API_BASE, api, token } from '../../api';
 import { useAviso } from '../../ui';
 import { DialogoPerdido, DialogoVenta } from '../pipeline/Dialogos';
 import { resumirAcciones, tieneExternas } from '../pipeline/acciones';
@@ -32,7 +32,7 @@ if (typeof window !== 'undefined') {
   window.addEventListener('pagehide', () => {
     for (const [opp, p] of pendientes) {
       window.clearTimeout(p.timer);
-      fetch(`/api/oportunidades/${opp}/etapa`, {
+      fetch(`${API_BASE}/api/oportunidades/${opp}/etapa`, {
         method: 'POST', keepalive: true,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${token() ?? ''}` },
         body: JSON.stringify({ etapa_id: p.etapaId }),

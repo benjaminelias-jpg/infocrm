@@ -1,3 +1,5 @@
+/** Base de la API: vacía en la app normal; en el HTML standalone apunta al servidor. */
+export const API_BASE: string = (import.meta as any).env?.VITE_API_BASE ?? '';
 const CLAVE_TOKEN = 'infocrm_token';
 const CLAVE_USUARIO = 'infocrm_usuario';
 
@@ -67,7 +69,7 @@ export async function api<T = any>(
 
   let res: Response;
   try {
-    res = await fetch(`/api${ruta}`, {
+    res = await fetch(`${API_BASE}/api${ruta}`, {
       ...resto,
       headers: cabeceras,
       body: json !== undefined ? JSON.stringify(json) : resto.body,

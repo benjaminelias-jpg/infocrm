@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, fmtDinero, fmtNum, plural, token } from '../api';
+import { API_BASE, api, fmtDinero, fmtNum, plural, token } from '../api';
 import ConfigPipelines from './ConfigPipelines';
 import {
   SelectorConMas, Buscador, BotonIcono, Boton, Dialogo, Chip, FilaChips, Ayuda, ErrorCarga, Vacio, Esqueleto,
@@ -166,7 +166,7 @@ export default function Pipeline() {
     const vaciar = () => {
       for (const [opp, p] of pendientes.current) {
         window.clearTimeout(p.timer);
-        fetch(`/api/oportunidades/${opp}/etapa`, {
+        fetch(`${API_BASE}/api/oportunidades/${opp}/etapa`, {
           method: 'POST', keepalive: true,
           headers: { 'content-type': 'application/json', authorization: `Bearer ${token() ?? ''}` },
           body: JSON.stringify({ etapa_id: p.etapaId }),
