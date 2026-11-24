@@ -272,9 +272,17 @@ export async function procesarEventoInstagram(cuentaId: string, ev: EventoIG): P
   const flujo = await elegirFlujo(cuentaId, ev);
   if (!flujo) return { leadId: lead.id, flujo: null };
 
-  // Anti-spam: el mismo flujo no se repite con el mismo lead en 24 h
-  // (en las pruebas en vivo no, para poder probar varias veces).
-  if (!ev.sinInstagram) {
+  // Anti-spam: el mismo flujo no se repite con el mismo lead en 24 h cuando
+  // salta «solo» (comentarios repetidos, flujos sin palabra clave). Si la
+  // persona escribe a propósito la palabra clave por DM, corre siempre.
+  const pidioAProposito = ev.tipo !== 'comentario' && String(flujo.palabra_clave ?? '').trim() !== '';
+  if (pidioAProposito && !ev.sinInstagram) {
+    // Arranca de nuevo: la vuelta anterior que quedó esperando se cierra.
+    await pool.query(
+      `UPDATE flujo_ejecuciones SET estado = 'cancelado', actualizado_en = now()
+        WHERE flujo_id = $1 AND lead_id = $2 AND estado = 'esperando'`, [flujo.id, lead.id]);
+  }
+  if (!ev.sinInstagram && !pidioAProposito) {
     const reciente = await queryOne(
       `SELECT 1 FROM flujo_ejecuciones
         WHERE flujo_id = $1 AND lead_id = $2 AND estado <> 'simulado'

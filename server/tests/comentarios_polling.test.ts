@@ -68,3 +68,24 @@ describe('DMs a buscar (sin avisos de Meta)', () => {
     expect(sal?.cuerpo).toBe('Te paso la info');
   });
 });
+
+describe('palabra clave por DM', () => {
+  it('si la vuelve a escribir, el automensaje corre de nuevo (no lo frena el anti-spam)', async () => {
+    const { importarConversaciones } = await import('../src/modules/instagram_chats.js');
+    const t = () => new Date().toISOString();
+    let n = 0;
+    vi.mocked(globalThis.fetch).mockImplementation(async (url: any) => {
+      if (String(url).includes('/conversations')) {
+        n++;
+        return new Response(JSON.stringify({ data: [{ id: 'conv2', updated_time: t(), participants: { data: [{ id: '999' }, { id: '778', username: 'otra.dm' }] },
+          messages: { data: [{ id: `mid-r${n}`, message: 'INFO', created_time: t(), from: { id: '778' } }] } }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message_id: `o${Math.random()}`, recipient_id: '778' }), { status: 200 });
+    });
+    await importarConversaciones(cuentaId, { limite: 10, maxPaginas: 1 });
+    await importarConversaciones(cuentaId, { limite: 10, maxPaginas: 1 });
+    const lead = await queryOne(`SELECT id FROM leads WHERE cuenta_id = $1 AND ig_user_id = '778'`, [cuentaId]);
+    const sal = await queryOne(`SELECT COUNT(*)::int AS n FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente'`, [lead.id]);
+    expect(sal.n).toBe(2);
+  });
+});
