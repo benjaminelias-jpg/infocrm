@@ -203,7 +203,7 @@ export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente
 const PAUSAN = new Set(['pregunta', 'esperar_respuesta', 'esperar']);
 
 export const ETIQUETA_PASO: Record<string, string> = {
-  enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso',
+  enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso', enviar_calendario: 'Mandar calendario',
   responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición', router: 'Router (repartir al azar)',
   esperar_respuesta: 'Esperar su respuesta', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
   quitar_etiqueta: 'Quitar etiqueta', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
@@ -438,6 +438,9 @@ export function validarFlujoDetallado(nodos: Paso[]): Array<{ nodo: string | nul
       case 'enviar_recurso':
         if (!p.recurso_id) mal('elegí qué audio o recurso mandar.');
         break;
+      case 'enviar_calendario':
+        if (!/^https?:\/\/\S+/i.test(String(p.url ?? '').trim())) mal('pegá el link de tu calendario (Calendly, Cal.com…).');
+        break;
       case 'responder_comentario':
         if (!String(p.texto ?? '').trim()) mal('escribí la respuesta al comentario.');
         break;
@@ -482,7 +485,7 @@ export function validarFlujo(nodos: Paso[]): string[] {
   return validarFlujoDetallado(nodos).map((p) => p.texto);
 }
 
-const MANDAN_MENSAJE = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+const MANDAN_MENSAJE = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'enviar_calendario', 'pregunta']);
 
 /**
  * Avisos (no errores: no frenan el guardado ni la activación) sobre cosas que
@@ -653,7 +656,7 @@ interface Corrida {
 }
 
 const MAX_ENVIOS_POR_CORRIDA = 15; // tope anti-spam por ejecución
-const ENVIAN = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+const ENVIAN = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'enviar_calendario', 'pregunta']);
 
 function anotar(c: Corrida, paso: string, texto: string, extra: Record<string, unknown> = {}) {
   c.resultados.push({ paso, texto, nodo: c.nodoActual, ...extra });
@@ -850,6 +853,16 @@ async function accion(c: Corrida, p: Paso) {
       const { mensaje, descripcion, cuerpo } = mensajeDeRecurso(rec);
       const salio = await enviar(c, mensaje, descripcion, cuerpo, rec.id);
       if (salio && !c.ctx.simular && c.ctx.leadId && esLinkDeAgenda(rec)) await marcarAgendaEnviada(c.cuentaId, c.ctx.leadId);
+      return;
+    }
+    case 'enviar_calendario': {
+      const url = String(p.url ?? '').trim();
+      if (!url) { anotar(c, p.tipo, '⚠ Falta el link del calendario: lo salteo'); return; }
+      const lead = await cargarLead(c.cuentaId, leadId);
+      const intro = rellenar(String(p.texto ?? ''), lead, c.ctx.simular).trim();
+      const texto = (intro ? `${intro}\n${url}` : url).slice(0, MAX_TEXTO_DM);
+      const salio = await enviar(c, { text: texto }, `📅 Calendario «${corto(texto)}»`, texto);
+      if (salio && !c.ctx.simular && leadId) await marcarAgendaEnviada(c.cuentaId, leadId);
       return;
     }
     case 'responder_comentario': {

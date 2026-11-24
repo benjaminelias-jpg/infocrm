@@ -28,6 +28,7 @@ function resumen(p: Paso, ctx: Ctx): string {
   switch (p.tipo) {
     case 'enviar_dm': case 'entregar_recurso': return conVariables(String(p.texto ?? p.recurso ?? '')) || 'Escribí el mensaje…';
     case 'responder_comentario': case 'notificar': return conVariables(String(p.texto ?? '')) || 'Escribí el texto…';
+    case 'enviar_calendario': return p.url ? `📅 ${String(p.url)}` : 'Falta el link del calendario…';
     case 'enviar_recurso': return p.recurso_id ? (ctx.recursos.find((r) => r.id === p.recurso_id)?.nombre ?? '⚠ Ese recurso ya no existe') : 'Falta elegir qué mandar…';
     case 'etiquetar': case 'quitar_etiqueta': return p.etiqueta ? `«${p.etiqueta}»` : 'Escribí la etiqueta…';
     case 'mover_etapa': return p.etapa_slug ? (ctx.etapas.find((e) => e.slug === p.etapa_slug)?.nombre ?? '⚠ Esa etapa ya no existe') : 'Elegí la etapa…';
@@ -754,7 +755,7 @@ function CampoRecurso({ p, ctx, onElegir }: { p: Paso; ctx: Ctx; onElegir: (id: 
   );
 }
 
-const MANDA = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'pregunta']);
+const MANDA = new Set(['enviar_dm', 'entregar_recurso', 'enviar_recurso', 'enviar_calendario', 'pregunta']);
 
 function CamposPaso({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => void; ctx: Ctx }) {
   return (
@@ -811,6 +812,17 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
         <Campo etiqueta="¿Qué tiene que saber el equipo?" ayuda="Aparece marcado en el Chat para que lo atiendan.">
           <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Quiere agendar llamada" autoFoco={foco} max={300} />
         </Campo>
+      );
+    case 'enviar_calendario':
+      return (
+        <div className="space-y-2">
+          <Campo etiqueta="Link de tu calendario" ayuda="Calendly, Cal.com, Google Calendar… Al mandarlo, el lead queda en rojo «Calendario enviado»; cuando agenda (webhook de Calendly) pasa a verde «Reunión agendada».">
+            <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://calendly.com/tu-usuario/llamada" autoFocus={foco} />
+          </Campo>
+          <Campo etiqueta="Mensaje antes del link (opcional)">
+            <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Elegí el horario que te quede cómodo 👇" max={500} />
+          </Campo>
+        </div>
       );
     case 'enviar_recurso':
       return <CampoRecurso p={p} ctx={ctx} onElegir={(id) => set('recurso_id', id)} />;

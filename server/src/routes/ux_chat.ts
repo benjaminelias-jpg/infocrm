@@ -41,6 +41,7 @@ const BANDEJA = `
   WITH base AS (
     SELECT l.id, l.nombre, l.apellido, l.ig_username, l.avatar_url, l.pais, l.email,
            ('Calendario enviado' = ANY(l.etiquetas)) AS calendario_enviado,
+           ('Reunión agendada' = ANY(l.etiquetas)) AS reunion_agendada,
            l.mensajes_sin_leer::int AS mensajes_sin_leer, l.propietario_id, l.creado_en,
            COALESCE(l.ultimo_mensaje_en, l.creado_en) AS actividad,
            u.nombre AS responsable,

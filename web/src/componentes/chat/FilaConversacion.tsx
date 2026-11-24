@@ -84,6 +84,10 @@ export const FilaConversacion = memo(function FilaConversacion({
                 <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Le mandaste el link de agenda y todavía no agendó"
                   style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)' }}>📅 Calendario enviado</span>
               )}
+              {!c.calendario_enviado && c.reunion_agendada && (
+                <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Agendó la reunión"
+                  style={{ background: 'color-mix(in srgb, #16a34a 12%, transparent)', color: '#16a34a' }}>✅ Reunión agendada</span>
+              )}
               {c.etapa && (
                 <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ background: c.etapa_color || 'var(--baseline)' }}
                   title={`Etapa: ${c.etapa}`} aria-label={`Etapa: ${c.etapa}`} role="img" />

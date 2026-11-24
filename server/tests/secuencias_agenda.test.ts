@@ -64,7 +64,9 @@ describe('link de agenda', () => {
     await pedir('POST', `/api/chat/${lead}/enviar`, { recurso_id: link.id });
     expect((await queryOne(`SELECT etiquetas FROM leads WHERE id = $1`, [lead])).etiquetas).toContain(ETIQUETA_AGENDA);
     await registrarEvento({ cuentaId, tipo: 'reunion_agendada', leadId: lead, fuente: 'calendly' });
-    expect((await queryOne(`SELECT etiquetas FROM leads WHERE id = $1`, [lead])).etiquetas).not.toContain(ETIQUETA_AGENDA);
+    const tras = (await queryOne(`SELECT etiquetas FROM leads WHERE id = $1`, [lead])).etiquetas;
+    expect(tras).not.toContain(ETIQUETA_AGENDA);
+    expect(tras).toContain('Reunión agendada');
     expect(await etapaDe(lead)).toBe('reunion-agendada');
   });
 
@@ -128,6 +130,17 @@ describe('router de la pizarra', () => {
 });
 
 describe('«Y también» en la pizarra', () => {
+  it('el paso «Mandar calendario» manda el link', async () => {
+    const pasos = [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'c' },
+      { id: 'c', tipo: 'enviar_calendario', texto: 'Elegí horario', url: 'https://calendly.com/yo/llamada', siguiente: null },
+    ];
+    const f = await pedir('POST', '/api/flujos', { nombre: 'Cal test', disparo: 'dm', palabra_clave: 'CALX', pasos });
+    expect(f.codigo).toBeLessThan(300);
+    const txt = JSON.stringify((await pedir('POST', `/api/flujos/${f.datos.id}/simular`, { texto: 'CALX' })).datos);
+    expect(txt).toContain('calendly.com/yo/llamada');
+  });
+
   it('desde el disparador hace esto Y esto', async () => {
     const pasos = [
       { id: 'inicio', tipo: 'inicio', siguiente: 'm1', tambien: ['t1'] },

@@ -9,6 +9,7 @@ export interface Conversacion {
   id: string;
   /** Se le mandó el link de agenda y todavía no agendó. */
   calendario_enviado?: boolean;
+  reunion_agendada?: boolean;
   nombre: string | null;
   apellido: string | null;
   ig_username: string | null;

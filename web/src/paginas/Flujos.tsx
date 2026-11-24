@@ -804,7 +804,7 @@ function Editor({ flujoId, flujos, ctx, ig, plantilla, probarAlAbrir, borradorAl
 // Prueba como un chat de Instagram
 // ---------------------------------------------------------------------
 
-const MANDA = new Set(['enviar_dm', 'enviar_recurso', 'pregunta', 'entregar_recurso']);
+const MANDA = new Set(['enviar_dm', 'enviar_recurso', 'enviar_calendario', 'pregunta', 'entregar_recurso']);
 
 function PanelPrueba({ form, prueba, onProbar }: {
   form: any;

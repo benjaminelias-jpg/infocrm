@@ -1,5 +1,5 @@
 import { fmtDinero } from '../../api';
-import { ETIQUETA_AGENDA, estiloEtiqueta } from '../../etiquetas';
+import { ETIQUETA_AGENDA, ETIQUETA_REUNION, estiloEtiqueta } from '../../etiquetas';
 import { Menu, ItemMenu, SeparadorMenu } from '../../ui';
 import Icono from '../Iconos';
 import { resumirAcciones } from './acciones';
@@ -71,7 +71,7 @@ export default function Tarjeta({ t, etapas, usuarios, onAbrir, onChat, onMover,
       onClick={onAbrir} role="button" tabIndex={0} aria-label={`${quien}${t.propietario_nombre ? `, lo atiende ${t.propietario_nombre}` : ''}`}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onAbrir(); } }}
       className="group ui-foco cursor-pointer rounded-lg border border-[var(--border-hairline)] px-3 py-2 transition-shadow hover:shadow-md"
-      style={{ background: 'var(--surface-1)', ...(etiquetas.includes(ETIQUETA_AGENDA) ? { borderLeft: '3px solid var(--status-critical)' } : {}) }}>
+      style={{ background: 'var(--surface-1)', ...(etiquetas.includes(ETIQUETA_AGENDA) ? { borderLeft: '3px solid var(--status-critical)' } : etiquetas.includes(ETIQUETA_REUNION) ? { borderLeft: '3px solid #16a34a' } : {}) }}>
       <div className="flex items-center justify-between gap-2 text-[12px]">
         {conDueno ? <span className="min-w-0 truncate text-[var(--text-primary)]">{t.propietario_nombre}</span> : nombreAzul}
         <span className="flex shrink-0 items-center gap-1">

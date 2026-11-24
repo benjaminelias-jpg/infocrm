@@ -13,6 +13,7 @@ export const MAX_TITULO = 20;
 export const NODOS: Record<string, { etiqueta: string; icono: string; color: string; grupo: 'Mensajes' | 'Lógica' | 'El lead'; ayuda: string }> = {
   enviar_dm: { etiqueta: 'Mandar mensaje', icono: '💬', color: '#2a78d6', grupo: 'Mensajes', ayuda: 'Un mensaje de texto por DM' },
   enviar_recurso: { etiqueta: 'Mandar audio o recurso', icono: '🎙️', color: '#0d9488', grupo: 'Mensajes', ayuda: 'Le llega como nota de voz / archivo' },
+  enviar_calendario: { etiqueta: 'Mandar calendario', icono: '📅', color: '#dc2626', grupo: 'Mensajes', ayuda: 'Manda tu link de agenda y marca al lead en rojo «Calendario enviado»' },
   responder_comentario: { etiqueta: 'Responder el comentario', icono: '💭', color: '#2a78d6', grupo: 'Mensajes', ayuda: 'Respuesta pública debajo del reel' },
   pregunta: { etiqueta: 'Pregunta con botones', icono: '❓', color: '#e76f51', grupo: 'Lógica', ayuda: 'Cada botón sale por su propia flecha' },
   condicion: { etiqueta: 'Condición (sí / no)', icono: '🔀', color: '#264653', grupo: 'Lógica', ayuda: 'Una flecha si se cumple y otra si no' },
