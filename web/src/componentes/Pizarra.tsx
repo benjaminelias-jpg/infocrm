@@ -1024,6 +1024,7 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
               <option value="email">¿Ya tenemos su email?</option>
               <option value="telefono">¿Ya tenemos su teléfono?</option>
               <option value="sigue">¿Te sigue en Instagram?</option>
+              <option value="agendo">¿Agendó la llamada? (Calendly)</option>
               <option value="campo">Un campo propio (ej. Nicho)…</option>
               <option value="horario">¿Es horario de atención?</option>
             </Seleccion>
@@ -1056,6 +1057,12 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
               </FilaChips>
               <p className="text-[11px] text-[var(--text-muted)]">Con la zona horaria de tu cuenta. «No» = fuera de horario (ej. «te respondemos mañana»).</p>
             </div>
+          )}
+          {p.campo === 'agendo' && (
+            <p className="text-[12px] text-[var(--text-muted)]">
+              «Sí» si ya agendó (llegó el aviso de Calendly o tiene «Reunión agendada»). Ideal después de «📅 Mandar calendario» + «⏳ Esperar»:
+              en «No», mandale un recordatorio.
+            </p>
           )}
           {p.campo === 'sigue' && (
             <p className="text-[12px] text-[var(--text-muted)]">

@@ -446,3 +446,27 @@ describe('Tu negocio', () => {
     expect((await send('PATCH', '/api/ux/integraciones/negocio', { comision_closer_pct: 120 })).statusCode).toBe(400);
   });
 });
+
+describe('Etiquetas automáticas por aviso (agenda)', () => {
+  it('agenda en Calendly con su @ → sale el rojo y entra la etiqueta elegida', async () => {
+    const ep = (await send('POST', '/api/ux/integraciones/fuente', { tipo: 'agenda' })).json();
+    expect(ep.fuente).toBe('calendly');
+    const lead = await queryOne<{ id: string }>(
+      `INSERT INTO leads (cuenta_id, ig_username, etiquetas) VALUES ($1, 'agenda.tag', ARRAY['Calendario enviado']) RETURNING id`, [cuentaId]);
+    const put = await app.inject({ method: 'PUT', url: `/api/ux/integraciones/fuente/${ep.id}/etiquetas`, headers: auth(),
+      payload: { reglas: [{ evento: 'reunion_agendada', poner: 'Llamada lista', quitar: 'Calendario enviado' }] } });
+    expect(put.statusCode).toBe(200);
+    expect((await get(`/api/ux/integraciones/fuente/${ep.id}/etiquetas`)).json().reglas[0].poner).toBe('Llamada lista');
+    const r = await app.inject({ method: 'POST', url: new URL(ep.url).pathname, payload: {
+      event: 'invitee.created',
+      payload: { email: 'agenda.tag@mail.com', name: 'Ag', uri: 'https://api.calendly.com/inv/tag1',
+        scheduled_event: { start_time: '2026-12-01T10:00:00Z' },
+        questions_and_answers: [{ question: '¿Cuál es tu Instagram?', answer: '@agenda.tag' }] },
+    } });
+    expect(r.statusCode).toBeLessThan(300);
+    const l = await queryOne<{ etiquetas: string[] }>(`SELECT etiquetas FROM leads WHERE id = $1`, [lead!.id]);
+    expect(l!.etiquetas).toContain('Llamada lista');
+    expect(l!.etiquetas).not.toContain('Calendario enviado');
+    expect(l!.etiquetas).not.toContain('Reunión agendada');
+  });
+});

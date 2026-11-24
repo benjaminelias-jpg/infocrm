@@ -223,6 +223,7 @@ export function describirCondicion(p: Paso) {
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor || '…'}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
+    case 'agendo': return '¿Agendó la llamada?';
     case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre || '…'}» es «${p.valor || '…'}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre || '…'}» dice «${p.valor || '…'}»?` : `¿Ya tenemos «${p.campo_nombre || '…'}»?`;
     case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple?';

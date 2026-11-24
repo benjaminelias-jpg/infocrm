@@ -5,6 +5,7 @@ import {
   Boton, BotonConfirmar, Campo, Chip, Entrada, EsqueletoPantalla, PasosGuiados, Verificacion, useAviso, useEsMovil,
 } from '../../ui';
 import PruebaEnVivo from './PruebaEnVivo';
+import EtiquetasPorAviso from './EtiquetasPorAviso';
 import { B, Bloque, Direccion, Instrucciones, UltimosLlegados, useFuente, usePaso, type Subpaso } from './comun';
 import { LogoApp, type App } from './LogoApp';
 import { useConexiones, recargarConexiones } from './useConexiones';
@@ -365,6 +366,7 @@ function ConDireccion({ prov, onCambio, onVerLead, onListo, onProgreso }: PropsP
                 onVerLead={onVerLead} onListo={onListo}
                 onOk={() => { setRefrescar((n) => n + 1); onCambio(); }} />
               <UltimosLlegados endpointId={fuente.id} refrescar={refrescar} onVerLead={onVerLead} />
+              <EtiquetasPorAviso endpointId={fuente.id} tipo={prov.tipo} />
             </div>
           ) : (
             <Boton onClick={() => ir(0)}>Primero pedí tu dirección</Boton>
@@ -447,6 +449,7 @@ function ConClave({ prov, onCambio, onVerLead, onListo, onProgreso }: PropsPasos
               onVerLead={onVerLead} onListo={onListo}
               onOk={() => { setRefrescar((n) => n + 1); onCambio(); }} />
             <UltimosLlegados endpointId={ep.id} refrescar={refrescar} onVerLead={onVerLead} />
+            <EtiquetasPorAviso endpointId={ep.id} tipo={prov.tipo} />
           </div>
         )}
         <div className="flex justify-end">

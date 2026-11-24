@@ -317,6 +317,34 @@ export default async function rutasUx_integraciones(app: FastifyInstance) {
   });
 
   /** ¿Llegó algo desde `desde`? (DMs de Instagram, webhooks de otras apps o uso de una llave) */
+  // Etiquetas que pone/quita cada aviso de este webhook (p. ej. Calendly: agendó → «Reunión agendada»).
+  app.get('/fuente/:id/etiquetas', async (req) => {
+    const { id } = req.params as { id: string };
+    const e = await queryOne<any>(`SELECT mapeo FROM webhook_endpoints WHERE cuenta_id = $1 AND id = $2`, [req.sesion.cuentaId, id]);
+    if (!e) throw noEncontrado('No encontramos esa conexión.');
+    return { reglas: e.mapeo?.opciones?.etiquetas ?? null };
+  });
+  app.put('/fuente/:id/etiquetas', async (req) => {
+    const { id } = req.params as { id: string };
+    const { reglas } = z.object({
+      reglas: z.array(z.object({
+        evento: z.string().min(1).max(60),
+        poner: z.string().max(60).optional(),
+        quitar: z.string().max(60).optional(),
+      })).max(20),
+    }).parse(req.body);
+    const e = await queryOne<any>(
+      `UPDATE webhook_endpoints
+          SET mapeo = base || jsonb_build_object('opciones', COALESCE(base->'opciones', '{}'::jsonb) || jsonb_build_object('etiquetas', $3::jsonb))
+         FROM (SELECT id AS bid, CASE WHEN mapeo ? 'campos' OR mapeo ? 'opciones' OR mapeo = '{}'::jsonb THEN mapeo
+                                      ELSE jsonb_build_object('campos', mapeo) END AS base
+                 FROM webhook_endpoints WHERE cuenta_id = $1 AND id = $2) b
+        WHERE webhook_endpoints.id = b.bid RETURNING mapeo`,
+      [req.sesion.cuentaId, id, JSON.stringify(reglas)]);
+    if (!e) throw noEncontrado('No encontramos esa conexión.');
+    return { reglas: e.mapeo?.opciones?.etiquetas ?? [] };
+  });
+
   app.get('/actividad', async (req) => {
     const q = z.object({
       desde: z.string().datetime(),

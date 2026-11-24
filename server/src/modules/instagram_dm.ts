@@ -610,6 +610,7 @@ export function describirCondicion(p: Paso): string {
     case 'telefono': return '¿Ya tenemos su teléfono?';
     case 'texto': return `¿Su mensaje dice «${p.valor}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
+    case 'agendo': return '¿Agendó la llamada?';
     case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre}» es «${p.valor}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre}» dice «${p.valor}»?` : `¿Ya tenemos «${p.campo_nombre}»?`;
     case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple la condición?';
@@ -694,6 +695,11 @@ async function evaluarCondicion(c: Corrida, p: Paso): Promise<boolean> {
       if (p.operador === 'igual') return normalizar(v) === normalizar(p.valor);
       if (p.operador === 'contiene') return !!String(p.valor ?? '').trim() && normalizar(v).includes(normalizar(p.valor));
       return v.trim() !== '';
+    }
+    case 'agendo': {
+      if ((lead.etiquetas ?? []).includes('Reunión agendada')) return true;
+      const ev = await queryOne(`SELECT 1 FROM eventos WHERE cuenta_id = $1 AND lead_id = $2 AND tipo = 'reunion_agendada' LIMIT 1`, [c.cuentaId, lead.id]);
+      return Boolean(ev);
     }
     case 'horario': return await enHorario(c.cuentaId, p);
     default: return false;

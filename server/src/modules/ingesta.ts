@@ -425,6 +425,8 @@ async function procesarBruto(
       origenToque: n.origenToque,
     });
 
+    if (res.leadId) await aplicarEtiquetasDelAviso(endpoint, n.tipo, res.leadId);
+
     await pool.query(
       `UPDATE webhook_eventos
           SET estado = 'procesado', procesado_en = now(), lead_id = $2, evento_id = $3,
@@ -487,4 +489,27 @@ export async function reprocesarErrores(cuentaId: string, limite = 100) {
 
 export async function endpointPorToken(token: string) {
   return queryOne(`SELECT * FROM webhook_endpoints WHERE token = $1 AND activo`, [token]);
+}
+
+
+/** Regla del usuario: cuando llega este evento por este webhook, poner/quitar etiquetas. */
+export interface ReglaEtiqueta { evento: string; poner?: string; quitar?: string }
+
+export function reglasEtiquetas(endpoint: { mapeo?: any }): ReglaEtiqueta[] {
+  const r = endpoint?.mapeo?.opciones?.etiquetas;
+  return Array.isArray(r) ? r.filter((x: any) => x && typeof x.evento === 'string') : [];
+}
+
+async function aplicarEtiquetasDelAviso(endpoint: any, tipo: string, leadId: string) {
+  const reglas = reglasEtiquetas(endpoint).filter((r) => r.evento === tipo);
+  if (!reglas.length) return;
+  const poner = reglas.map((r) => (r.poner ?? '').trim()).filter(Boolean);
+  const quitar = reglas.map((r) => (r.quitar ?? '').trim()).filter(Boolean);
+  // Si eligió otra etiqueta para «agendó», la verde automática no se queda.
+  if (tipo === 'reunion_agendada' && !poner.includes('Reunión agendada')) quitar.push('Reunión agendada');
+  await pool.query(
+    `UPDATE leads SET etiquetas = ARRAY(
+        SELECT DISTINCT x FROM unnest(etiquetas || $3::text[]) x WHERE NOT (x = ANY($4::text[])) OR x = ANY($3::text[]))
+      WHERE id = $1 AND cuenta_id = $2`,
+    [leadId, endpoint.cuenta_id, poner, quitar]);
 }
