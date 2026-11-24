@@ -256,9 +256,10 @@ export async function procesarEventoInstagram(cuentaId: string, ev: EventoIG): P
     }
   }
 
-  // 2b. Alguien del equipo le está respondiendo a mano: los automensajes no se meten.
+  // 2b. Alguien del equipo le está respondiendo a mano: los automensajes no se meten
+  // en esa charla. Un comentario nuevo en una publicación es un pedido nuevo: ese sí dispara.
   const pausa = await queryOne(`SELECT automensajes_pausados_hasta > now() AS pausado FROM leads WHERE id = $1`, [lead.id]);
-  if (pausa?.pausado && !ev.sinInstagram) return { leadId: lead.id, pausado: 'le está respondiendo una persona del equipo' };
+  if (pausa?.pausado && !ev.sinInstagram && ev.tipo !== 'comentario') return { leadId: lead.id, pausado: 'le está respondiendo una persona del equipo' };
 
   // 3. ¿Un flujo de este lead estaba esperando su respuesta? Se reanuda ahí.
   if (['dm', 'boton', 'historia', 'anuncio'].includes(ev.tipo)) {
