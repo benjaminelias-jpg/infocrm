@@ -167,12 +167,13 @@ export async function elegirFlujo(cuentaId: string, ev: EventoIG) {
       [cuentaId, tipo]);
     const texto = textoDisparo(ev, tipo);
     const validos = candidatos.filter((f: any) => {
-      if (f.contenido_id && f.ig_media_id) {
+      // «Solo en esta publicación» vale para comentarios (y respuestas a historias); un DM no viene de una publicación.
+      if (f.contenido_id && f.ig_media_id && (tipo === 'comentario' || tipo === 'historia')) {
         if (!ev.mediaId || String(f.ig_media_id) !== ev.mediaId) return false;
       }
       return coincidePalabra(texto, f.palabra_clave);
     });
-    const puntaje = (f: any) => (f.contenido_id ? 2 : 0) + (String(f.palabra_clave ?? '').trim() ? 1 : 0);
+    const puntaje = (f: any) => (f.contenido_id && (tipo === 'comentario' || tipo === 'historia') ? 2 : 0) + (String(f.palabra_clave ?? '').trim() ? 1 : 0);
     validos.sort((a: any, b: any) => puntaje(b) - puntaje(a));
     if (validos[0]) return validos[0];
   }

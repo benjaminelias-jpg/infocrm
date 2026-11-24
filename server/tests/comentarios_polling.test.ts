@@ -47,6 +47,9 @@ describe('DMs a buscar (sin avisos de Meta)', () => {
       `INSERT INTO flujos (cuenta_id, nombre, disparo, palabra_clave, activo, pasos)
        VALUES ($1, 'Info por DM', 'dm', 'info', true, $2::jsonb)`,
       [cuentaId, JSON.stringify([{ id: 'inicio', tipo: 'inicio', siguiente: 'm' }, { id: 'm', tipo: 'enviar_dm', texto: 'Te paso la info', siguiente: null }])]);
+    // Le quedó una publicación elegida de cuando era «por comentario»: en DM no debe importar.
+    const cont = await queryOne(`INSERT INTO contenidos (cuenta_id, ig_media_id, titulo) VALUES ($1, 'media-x', 'Reel') RETURNING id`, [cuentaId]);
+    await query(`UPDATE flujos SET contenido_id = $2 WHERE cuenta_id = $1 AND nombre = 'Info por DM'`, [cuentaId, cont.id]);
     const ahora = new Date().toISOString();
     vi.mocked(globalThis.fetch).mockImplementation(async (url: any) => {
       if (String(url).includes('/conversations')) {
