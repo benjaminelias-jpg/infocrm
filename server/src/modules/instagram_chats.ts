@@ -10,7 +10,12 @@ import { registrarEvento } from './eventos.js';
 
 export interface ResultadoChats { ok: boolean; conversaciones: number; mensajes: number; leadsNuevos: number; mensaje: string }
 
-export async function importarConversaciones(cuentaId: string, opts: { limite?: number } = {}): Promise<ResultadoChats> {
+/** Mensajes recientes (estos minutos) que todavía no pasaron por los automensajes. */
+const VENTANA_DISPARO_MS = 15 * 60_000;
+
+export async function importarConversaciones(cuentaId: string, opts: { limite?: number; maxPaginas?: number; disparar?: boolean } = {}): Promise<ResultadoChats> {
+  const disparar = opts.disparar ?? true;
+  const pendientes: Array<{ igUserId: string; username?: string; texto: string; mid: string; t: Date }> = [];
   const integ = await integracionInstagram(cuentaId);
   const { base, token, igId } = credsUsables(integ?.credenciales ?? {});
   if (!integ || !token || !igId) return { ok: false, conversaciones: 0, mensajes: 0, leadsNuevos: 0, mensaje: 'Instagram no está conectado.' };
@@ -20,7 +25,7 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
   const armar = () => `${base}/${igId}/conversations?platform=instagram&fields=${encodeURIComponent(`participants,updated_time,messages.limit(${porConv}){id,message,from,created_time}`)}&limit=${porPagina}&access_token=${encodeURIComponent(token)}`;
   let url: string | null = armar();
   let conversaciones = 0, mensajes = 0, leadsNuevos = 0, paginas = 0;
-  while (url && paginas < Math.ceil((opts.limite ?? 100) / 10) + 3) {
+  while (url && paginas < (opts.maxPaginas ?? Math.ceil((opts.limite ?? 100) / 10) + 3)) {
     paginas++;
     const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
     const d: any = await r.json().catch(() => ({}));
@@ -53,6 +58,16 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
       for (const m of c.messages?.data ?? []) {
         const entrante = String(m.from?.id) !== String(igId);
         const cuando = new Date(m.created_time);
+        // DM nuevo de estos minutos: lo procesa el mismo camino que el aviso de Meta
+        // (Chat + seguir un automensaje en pausa + disparar el que corresponda).
+        if (disparar && entrante && Date.now() - cuando.getTime() < VENTANA_DISPARO_MS) {
+          const ya = await queryOne(`SELECT 1 FROM mensajes WHERE cuenta_id = $1 AND externo_id = $2`, [cuentaId, m.id]);
+          if (!ya) {
+            pendientes.push({ igUserId: String(otro.id), username: otro.username ?? undefined, texto: m.message ?? '', mid: String(m.id), t: cuando });
+            if (!ultimo || cuando > ultimo) ultimo = cuando;
+            continue;
+          }
+        }
         const ins = await queryOne(
           `INSERT INTO mensajes (cuenta_id, lead_id, direccion, canal, cuerpo, estado, externo_id, ocurrido_en)
            VALUES ($1,$2,$3,'instagram_dm',$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING id`,
@@ -75,6 +90,15 @@ export async function importarConversaciones(cuentaId: string, opts: { limite?: 
     }
     url = d.paging?.next ?? null;
   }
+  // Los DMs nuevos, en orden, por el camino de los automensajes.
+  if (pendientes.length) {
+    const { procesarEventoInstagram } = await import('./instagram_eventos.js');
+    pendientes.sort((x, y) => x.t.getTime() - y.t.getTime());
+    for (const p of pendientes) {
+      const r: any = await procesarEventoInstagram(cuentaId, { tipo: 'dm', igUserId: p.igUserId, username: p.username, texto: p.texto, mid: p.mid, ocurridoEn: p.t }).catch(() => null);
+      if (r && !r.duplicado) mensajes++;
+    }
+  }
   return {
     ok: true, conversaciones, mensajes, leadsNuevos,
     mensaje: conversaciones
@@ -91,4 +115,17 @@ export async function importarSiToca(cuentaId: string): Promise<ResultadoChats |
   if (ahora - (ultimaVez.get(cuentaId) ?? 0) < 40_000) return { ok: true, omitido: true };
   ultimaVez.set(cuentaId, ahora);
   return importarConversaciones(cuentaId, { limite: 50 });
+}
+
+/** Reloj: DMs nuevos de todas las cuentas (solo la primera página: las charlas más recientes). */
+export async function revisarDMsDeTodas(): Promise<number> {
+  const { query } = await import('../db/pool.js');
+  const cuentas = await query<{ cuenta_id: string }>(
+    `SELECT DISTINCT cuenta_id FROM integraciones WHERE tipo = 'instagram' AND activo AND estado = 'conectado'`);
+  let n = 0;
+  for (const { cuenta_id } of cuentas) {
+    ultimaVez.set(cuenta_id, Date.now());
+    n += (await importarConversaciones(cuenta_id, { limite: 10, maxPaginas: 1 }).catch(() => ({ mensajes: 0 }))).mensajes;
+  }
+  return n;
 }

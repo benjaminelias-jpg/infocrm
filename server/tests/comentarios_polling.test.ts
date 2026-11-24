@@ -39,3 +39,29 @@ describe('comentarios a buscar (sin avisos de Meta)', () => {
     expect(otra.nuevos).toBe(0);
   });
 });
+
+describe('DMs a buscar (sin avisos de Meta)', () => {
+  it('un DM nuevo dispara su automensaje una sola vez', async () => {
+    const { importarConversaciones } = await import('../src/modules/instagram_chats.js');
+    await query(
+      `INSERT INTO flujos (cuenta_id, nombre, disparo, palabra_clave, activo, pasos)
+       VALUES ($1, 'Info por DM', 'dm', 'info', true, $2::jsonb)`,
+      [cuentaId, JSON.stringify([{ id: 'inicio', tipo: 'inicio', siguiente: 'm' }, { id: 'm', tipo: 'enviar_dm', texto: 'Te paso la info', siguiente: null }])]);
+    const ahora = new Date().toISOString();
+    vi.mocked(globalThis.fetch).mockImplementation(async (url: any) => {
+      if (String(url).includes('/conversations')) {
+        return new Response(JSON.stringify({ data: [{ id: 'conv1', updated_time: ahora, participants: { data: [{ id: '999' }, { id: '777', username: 'pepa.dm' }] },
+          messages: { data: [{ id: 'mid-1', message: 'info', created_time: ahora, from: { id: '777' } }] } }] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message_id: 'out1', recipient_id: '777' }), { status: 200 });
+    });
+    await importarConversaciones(cuentaId, { limite: 10, maxPaginas: 1 });
+    await importarConversaciones(cuentaId, { limite: 10, maxPaginas: 1 });
+    const lead = await queryOne(`SELECT id FROM leads WHERE cuenta_id = $1 AND ig_user_id = '777'`, [cuentaId]);
+    expect(lead).toBeTruthy();
+    const ej = await queryOne(`SELECT COUNT(*)::int AS n FROM flujo_ejecuciones e JOIN flujos f ON f.id = e.flujo_id WHERE f.cuenta_id = $1 AND f.nombre = 'Info por DM'`, [cuentaId]);
+    expect(ej.n).toBe(1);
+    const sal = await queryOne(`SELECT cuerpo FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente'`, [lead.id]);
+    expect(sal?.cuerpo).toBe('Te paso la info');
+  });
+});

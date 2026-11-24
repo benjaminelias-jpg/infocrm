@@ -15,6 +15,7 @@ import {
 } from '../modules/instagram_dm.js';
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
 import { revisarComentarios, revisarComentariosDeTodas } from '../modules/instagram_comentarios.js';
+import { revisarDMsDeTodas } from '../modules/instagram_chats.js';
 
 const ultimaRevision = new Map<string, number>();
 import { integracionInstagram } from '../modules/instagram.js';
@@ -459,12 +460,14 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const programados = await procesarEnviosProgramados(undefined, 100).catch(() => 0);
     // Comentarios nuevos de las publicaciones (por si Meta no manda los avisos).
     const comentarios = await revisarComentariosDeTodas().catch(() => 0);
+    // DMs nuevos (por si Meta no manda los avisos): disparan sus automensajes.
+    const dms = await revisarDMsDeTodas().catch(() => 0);
     // Una vez por hora: renueva las conexiones de Instagram que vencen en < 15 días.
     const instagram = turno.tokens ? await renovarTokensPorVencer().catch((err) => {
       req.log.error({ err }, 'renovando conexiones de Instagram');
       return null;
     }) : undefined;
-    return { ok: true, reanudadas, programados, comentarios, instagram };
+    return { ok: true, reanudadas, programados, comentarios, dms, instagram };
   });
 }
 
