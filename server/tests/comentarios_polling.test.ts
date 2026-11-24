@@ -1,0 +1,41 @@
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { closePool, query, queryOne } from '../src/db/pool.js';
+import { revisarComentarios } from '../src/modules/instagram_comentarios.js';
+import { cuentaDePrueba } from './ayuda.js';
+
+let cuentaId = '';
+beforeAll(async () => {
+  cuentaId = (await cuentaDePrueba('Comentarios')).cuenta.id;
+  const cred = JSON.stringify({ tipo_login: 'facebook', page_token: 'tok', ig_user_id: '999' });
+  const ya = await queryOne(`SELECT id FROM integraciones WHERE cuenta_id = $1 AND tipo = 'instagram'`, [cuentaId]);
+  if (ya) await query(`UPDATE integraciones SET estado = 'conectado', activo = true, credenciales = $2::jsonb WHERE id = $1`, [ya.id, cred]);
+  else await query(`INSERT INTO integraciones (cuenta_id, tipo, nombre, estado, activo, credenciales, config) VALUES ($1, 'instagram', 'Instagram', 'conectado', true, $2::jsonb, '{}'::jsonb)`, [cuentaId, cred]);
+  await query(
+    `INSERT INTO flujos (cuenta_id, nombre, disparo, palabra_clave, activo, pasos)
+     VALUES ($1, 'Todos los comentarios', 'comentario', NULL, true, $2::jsonb)`,
+    [cuentaId, JSON.stringify([{ id: 'inicio', tipo: 'inicio', siguiente: 'm' }, { id: 'm', tipo: 'enviar_dm', texto: 'Hola!', siguiente: null }])]);
+  // Que mandar el DM no salga a internet.
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ id: 'ok', message_id: 'm1' }), { status: 200 }));
+});
+afterAll(async () => { vi.restoreAllMocks(); await closePool(); });
+
+describe('comentarios a buscar (sin avisos de Meta)', () => {
+  it('procesa un comentario nuevo una sola vez y dispara el automensaje', async () => {
+    const ahora = new Date().toISOString();
+    const fetcher: any = async () => ({ ok: true, json: async () => ({ data: [{ id: 'media1', comments: { data: [
+      { id: 'c1', text: 'me interesa', timestamp: ahora, from: { id: '555', username: 'benjalegree' } },
+      { id: 'c0', text: 'viejo', timestamp: '2020-01-01T00:00:00Z', from: { id: '556', username: 'viejo' } },
+      { id: 'c2', text: 'yo respondo', timestamp: ahora, from: { id: '999', username: 'yo' } },
+    ] } }] }) });
+    const r = await revisarComentarios(cuentaId, fetcher);
+    expect(r.mensaje ?? '').toBe(''); expect(r.ok).toBe(true);
+    expect(r.nuevos).toBe(1);
+    const lead = await queryOne(`SELECT id FROM leads WHERE cuenta_id = $1 AND ig_username = 'benjalegree'`, [cuentaId]);
+    expect(lead).toBeTruthy();
+    expect(await queryOne(`SELECT id FROM leads WHERE cuenta_id = $1 AND ig_username = 'viejo'`, [cuentaId])).toBeNull();
+    const ej = await queryOne(`SELECT COUNT(*)::int AS n FROM flujo_ejecuciones WHERE cuenta_id = $1`, [cuentaId]);
+    expect(ej.n).toBe(1);
+    const otra = await revisarComentarios(cuentaId, fetcher);
+    expect(otra.nuevos).toBe(0);
+  });
+});

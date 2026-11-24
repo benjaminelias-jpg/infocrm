@@ -14,6 +14,9 @@ import {
   ejecutarFlujo, normalizarPasos, validarFlujo, validarFlujoDetallado, procesarEsperasVencidas, advertenciasFlujo,
 } from '../modules/instagram_dm.js';
 import { parsearWebhookInstagram, procesarEventoInstagram } from '../modules/instagram_eventos.js';
+import { revisarComentarios, revisarComentariosDeTodas } from '../modules/instagram_comentarios.js';
+
+const ultimaRevision = new Map<string, number>();
 import { integracionInstagram } from '../modules/instagram.js';
 
 const DISPAROS = ['comentario', 'dm', 'historia', 'mencion', 'reaccion', 'boton', 'anuncio', 'por_defecto'] as const;
@@ -192,7 +195,12 @@ export default async function rutasInstagram(app: FastifyInstance) {
     const integ = await queryOne(`SELECT 1 FROM integraciones WHERE cuenta_id = $1 AND tipo = 'instagram' AND estado = 'conectado'`, [req.sesion.cuentaId]);
     await procesarEnviosProgramados(req.sesion.cuentaId).catch(() => 0);
     if (!integ) return { ok: true, omitido: true };
-    return importarSiToca(req.sesion.cuentaId).catch(() => ({ ok: false }));
+    const cta = req.sesion.cuentaId;
+    if (Date.now() - (ultimaRevision.get(cta) ?? 0) > 30_000) {
+      ultimaRevision.set(cta, Date.now());
+      await revisarComentarios(cta).catch(() => null);
+    }
+    return importarSiToca(cta).catch(() => ({ ok: false }));
   });
 
   app.get('/api/instagram/oauth/start', async (req, reply) => {
@@ -449,12 +457,14 @@ export default async function rutasInstagram(app: FastifyInstance) {
     if (!turno) return { ok: true, omitido: 'muy seguido' };
     const reanudadas = await procesarEsperasVencidas(undefined, 50);
     const programados = await procesarEnviosProgramados(undefined, 100).catch(() => 0);
+    // Comentarios nuevos de las publicaciones (por si Meta no manda los avisos).
+    const comentarios = await revisarComentariosDeTodas().catch(() => 0);
     // Una vez por hora: renueva las conexiones de Instagram que vencen en < 15 días.
     const instagram = turno.tokens ? await renovarTokensPorVencer().catch((err) => {
       req.log.error({ err }, 'renovando conexiones de Instagram');
       return null;
     }) : undefined;
-    return { ok: true, reanudadas, programados, instagram };
+    return { ok: true, reanudadas, programados, comentarios, instagram };
   });
 }
 
