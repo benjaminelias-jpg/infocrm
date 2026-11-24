@@ -669,14 +669,16 @@ function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: 
         </div>
       </div>
       {disp.palabra && (
-        <Campo etiqueta={form.disparo === 'boton' ? 'Texto o código del botón' : form.disparo === 'anuncio' ? 'Referencia del anuncio (opcional)' : '¿Qué tiene que escribir? (palabra clave)'}
+        <Campo etiqueta={form.disparo === 'boton' ? 'Texto o código del botón' : form.disparo === 'anuncio' ? 'Referencia del anuncio (opcional)' : form.disparo === 'comentario' ? 'Palabra clave (opcional)' : '¿Qué tiene que escribir? (palabra clave)'}
           ayuda={disp.ayuda.replace('Vacío = ', 'Si lo dejás vacío: ')}>
           <Entrada value={form.palabra_clave ?? ''} onChange={(e) => setForm((f) => ({ ...f, palabra_clave: e.target.value }))} placeholder={disp.ph} />
         </Campo>
       )}
       {disp.palabra && !palabra && form.disparo === 'comentario' && (
-        <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: 'color-mix(in srgb, var(--status-warning) 12%, var(--surface-1))' }}>
-          ⚠ Sin palabra clave responde a <b>todos</b> los comentarios{form.contenido_id ? ' de esa publicación' : ' de todas tus publicaciones'}.
+        <div className="rounded-lg px-2.5 py-2 text-[12px]" style={{ background: `color-mix(in srgb, ${form.contenido_id ? 'var(--status-good)' : 'var(--status-warning)'} 12%, var(--surface-1))` }}>
+          {form.contenido_id
+            ? <>✅ Sin palabra clave: le llega a <b>todos los que comenten esa publicación</b>, escriban lo que escriban.</>
+            : <>⚠ Sin palabra clave y sin publicación elegida: le llega a <b>todos los que comenten cualquiera</b> de tus publicaciones. Elegí la publicación abajo.</>}
         </div>
       )}
       {conPublicacion && (

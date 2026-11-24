@@ -146,3 +146,12 @@ describe('flechas del disparador', () => {
     expect(validarFlujo(n)).toEqual([]);
   });
 });
+
+describe('comentario sin palabra clave', () => {
+  it('le llega a cualquiera que comente esa publicación', async () => {
+    const { coincidePalabra } = await import('../src/modules/instagram_dm.js');
+    expect(coincidePalabra('me encanta 🔥', '')).toBe(true);
+    expect(coincidePalabra('me encanta 🔥', null)).toBe(true);
+    expect(coincidePalabra('me encanta', 'GUIA')).toBe(false);
+  });
+});
