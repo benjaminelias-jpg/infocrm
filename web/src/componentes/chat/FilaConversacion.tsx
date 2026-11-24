@@ -80,17 +80,21 @@ export const FilaConversacion = memo(function FilaConversacion({
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-1.5">
               <span className={`min-w-0 shrink-[0.25] truncate text-[14px] md:text-[13px] ${pendiente || sinLeer ? 'font-semibold' : 'font-medium'}`}>{nombre}</span>
-              {c.calendario_enviado && (
+              {c.calendario_enviado && !/calendario enviado/i.test(c.etapa ?? '') && (
                 <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Le mandaste el link de agenda y todavía no agendó"
                   style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)' }}>📅 Calendario enviado</span>
               )}
-              {!c.calendario_enviado && c.reunion_agendada && (
+              {!c.calendario_enviado && c.reunion_agendada && !/reuni[oó]n agendada/i.test(c.etapa ?? '') && (
                 <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Agendó la reunión"
                   style={{ background: 'color-mix(in srgb, #16a34a 12%, transparent)', color: '#16a34a' }}>✅ Reunión agendada</span>
               )}
               {c.etapa && (
-                <span className="h-2 w-2 shrink-0 self-center rounded-full" style={{ background: c.etapa_color || 'var(--baseline)' }}
-                  title={`Etapa: ${c.etapa}`} aria-label={`Etapa: ${c.etapa}`} role="img" />
+                <span className="inline-flex max-w-[150px] shrink-0 items-center gap-1 self-center truncate rounded px-1.5 text-[10px] font-semibold leading-[16px]"
+                  title={`Etapa: ${c.etapa}`}
+                  style={{ background: `color-mix(in srgb, ${c.etapa_color || 'var(--baseline)'} 14%, transparent)`, color: c.etapa_color || 'var(--text-secondary)' }}>
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c.etapa_color || 'var(--baseline)' }} aria-hidden />
+                  <span className="truncate">{c.etapa}</span>
+                </span>
               )}
               {usuario && <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-muted)]">{usuario}</span>}
               <span className="ml-auto shrink-0 pl-1 text-[11px]"
