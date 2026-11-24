@@ -207,7 +207,7 @@ export const ETIQUETA_PASO: Record<string, string> = {
   enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso', enviar_calendario: 'Mandar calendario',
   responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición', router: 'Router (repartir al azar)',
   esperar_respuesta: 'Esperar su respuesta', esperar_agenda: 'Esperar a que agende', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
-  quitar_etiqueta: 'Quitar etiqueta', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
+  quitar_etiqueta: 'Quitar etiqueta', sumar: 'Sumar puntos', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
   notificar: 'Avisar al equipo', webhook: 'Avisar a otra app', inicio: 'Disparador',
 };
 
@@ -571,6 +571,57 @@ function corto(s: string, n = 60) {
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 }
 
+// ---------------------------------------------------------------------
+// Contadores del lead (se calculan con su historia: nada que configurar)
+// ---------------------------------------------------------------------
+export const CONTADORES: Record<string, string> = {
+  recursos: 'Recursos que recibió',
+  reels: 'Publicaciones distintas que comentó',
+  comentarios: 'Comentarios que hizo',
+  automensajes: 'Automensajes distintos que recorrió',
+  mensajes: 'Mensajes que te escribió',
+  calendarios: 'Veces que le mandaste el calendario',
+  reuniones: 'Reuniones que agendó',
+  puntos: 'Puntos (lead scoring)',
+  dias: 'Días desde que llegó',
+};
+
+export async function contadoresLead(cuentaId: string, leadId: string): Promise<Record<string, number>> {
+  const r = await queryOne<any>(
+    `SELECT
+       (SELECT COUNT(*) FROM mensajes m WHERE m.lead_id = l.id AND m.direccion = 'saliente' AND m.recurso_id IS NOT NULL)::int AS recursos,
+       (SELECT COUNT(DISTINCT e.contenido_id) FROM eventos e WHERE e.lead_id = l.id AND e.contenido_id IS NOT NULL
+           AND (e.tipo = 'comentario' OR e.payload->>'disparo' = 'comentario'))::int AS reels,
+       (SELECT COUNT(*) FROM eventos e WHERE e.lead_id = l.id
+           AND (e.tipo = 'comentario' OR e.payload->>'disparo' = 'comentario'))::int AS comentarios,
+       (SELECT COUNT(DISTINCT f.flujo_id) FROM flujo_ejecuciones f WHERE f.lead_id = l.id AND f.estado <> 'simulado')::int AS automensajes,
+       (SELECT COUNT(*) FROM mensajes m WHERE m.lead_id = l.id AND m.direccion = 'entrante')::int AS mensajes,
+       (SELECT COUNT(*) FROM invitaciones_agenda v WHERE v.lead_id = l.id)::int AS calendarios,
+       (SELECT COUNT(*) FROM reservas r WHERE r.lead_id = l.id AND r.estado = 'confirmada')::int AS reuniones,
+       COALESCE(NULLIF(l.campos->>'puntos', '')::numeric, 0) AS puntos,
+       floor(extract(epoch FROM now() - l.creado_en) / 86400)::int AS dias
+       FROM leads l WHERE l.cuenta_id = $1 AND l.id = $2`, [cuentaId, leadId]).catch(() => null);
+  const out: Record<string, number> = {};
+  for (const k of Object.keys(CONTADORES)) out[k] = Number(r?.[k] ?? 0) || 0;
+  return out;
+}
+
+/** {{contador.recursos}} etc. (async: necesita la historia del lead). */
+async function rellenarContadores(texto: string, c: Corrida): Promise<string> {
+  if (!/\{\{\s*contador\./i.test(texto)) return texto;
+  const n = c.ctx.leadId && !c.ctx.simular ? await contadoresLead(c.cuentaId, c.ctx.leadId) : null;
+  return texto.replace(/\{\{\s*contador\.([a-z_]+)\s*\}\}/gi, (_m, k) => (n ? String(n[k.toLowerCase()] ?? 0) : `[${k}]`));
+}
+
+function comparar(a: number, op: string, b: number) {
+  if (op === 'menor_igual' || op === '<=') return a <= b;
+  if (op === 'igual' || op === '=') return a === b;
+  if (op === 'menor' || op === '<') return a < b;
+  if (op === 'mayor' || op === '>') return a > b;
+  return a >= b; // mayor_igual (por defecto)
+}
+const OPS: Record<string, string> = { mayor_igual: '≥', menor_igual: '≤', igual: '=', mayor: '>', menor: '<' };
+
 function rellenar(texto: string, lead: any, simular = false): string {
   const nombre = (lead?.nombre ? String(lead.nombre).split(' ')[0] : '') || lead?.ig_username
     || (simular ? '[nombre]' : '');
@@ -615,7 +666,8 @@ export function describirCondicion(p: Paso): string {
     case 'texto': return `¿Su mensaje dice «${p.valor}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
     case 'agendo': return '¿Agendó la llamada?';
-    case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre}» es «${p.valor}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre}» dice «${p.valor}»?` : `¿Ya tenemos «${p.campo_nombre}»?`;
+    case 'contador': return `¿${CONTADORES[p.contador] ?? 'Contador'} ${OPS[p.operador ?? 'mayor_igual'] ?? '≥'} ${Number(p.valor) || 0}?`;
+    case 'campo': return OPS[p.operador] ? `¿«${p.campo_nombre}» ${OPS[p.operador]} ${Number(p.valor) || 0}?` : p.operador === 'igual' ? `¿«${p.campo_nombre}» es «${p.valor}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre}» dice «${p.valor}»?` : `¿Ya tenemos «${p.campo_nombre}»?`;
     case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple la condición?';
   }
@@ -696,9 +748,17 @@ async function evaluarCondicion(c: Corrida, p: Paso): Promise<boolean> {
     case 'sigue': return lead.ig_user_id ? (await sigueALaCuenta(c.cuentaId, String(lead.ig_user_id))) === true : false;
     case 'campo': {
       const v = String((lead.campos ?? {})[String(p.campo_nombre ?? '').trim()] ?? '');
+      if (['mayor_igual', 'menor_igual', 'mayor', 'menor'].includes(String(p.operador))) {
+        const num = Number(String(v).replace(',', '.'));
+        return Number.isFinite(num) && v.trim() !== '' && comparar(num, String(p.operador), Number(p.valor) || 0);
+      }
       if (p.operador === 'igual') return normalizar(v) === normalizar(p.valor);
       if (p.operador === 'contiene') return !!String(p.valor ?? '').trim() && normalizar(v).includes(normalizar(p.valor));
       return v.trim() !== '';
+    }
+    case 'contador': {
+      const n = await contadoresLead(c.cuentaId, lead.id);
+      return comparar(n[String(p.contador ?? 'recursos')] ?? 0, String(p.operador ?? 'mayor_igual'), Number(p.valor) || 0);
     }
     case 'agendo': {
       if ((lead.etiquetas ?? []).includes('Reunión agendada')) return true;
@@ -851,7 +911,7 @@ async function accion(c: Corrida, p: Paso) {
     case 'enviar_dm':
     case 'entregar_recurso': {
       const lead = await cargarLead(c.cuentaId, leadId);
-      const texto = rellenar(String(p.texto ?? p.recurso ?? ''), lead, c.ctx.simular).slice(0, MAX_TEXTO_DM);
+      const texto = rellenar(await rellenarContadores(String(p.texto ?? p.recurso ?? ''), c), lead, c.ctx.simular).slice(0, MAX_TEXTO_DM);
       if (!texto.trim()) { anotar(c, p.tipo, '⚠ Mensaje vacío: lo salteo'); return; }
       await enviar(c, { text: texto }, `💬 «${corto(texto)}»`, texto);
       return;
@@ -910,11 +970,38 @@ async function accion(c: Corrida, p: Paso) {
       anotar(c, p.tipo, r.ok ? `💭 Comentario respondido en público ✓` : `💭 No se pudo responder el comentario: ${r.error}`, { ok: r.ok });
       return;
     }
+    case 'sumar': {
+      const campo = String(p.campo ?? 'puntos').trim() || 'puntos';
+      const cant = Number(p.cantidad) || 0;
+      let total = cant;
+      if (!sim && leadId) {
+        const r = await queryOne<{ v: string }>(
+          `UPDATE leads SET campos = jsonb_set(COALESCE(campos, '{}'::jsonb), ARRAY[$2::text],
+                  to_jsonb((COALESCE(NULLIF(campos->>$2, '')::numeric, 0) + $3)::text))
+            WHERE id = $1 AND cuenta_id = $4 RETURNING campos->>$2 AS v`, [leadId, campo, cant, c.cuentaId]).catch(() => null);
+        total = Number(r?.v ?? cant);
+      }
+      anotar(c, p.tipo, `➕ ${cant >= 0 ? 'Sumar' : 'Restar'} ${Math.abs(cant)} a «${campo}»${sim ? ' (prueba)' : ` (queda en ${total})`}`);
+      return;
+    }
     case 'etiquetar':
     case 'quitar_etiqueta': {
-      const et = String(p.etiqueta ?? '').trim();
+      const molde = String(p.etiqueta ?? '').trim();
       const quitar = p.tipo === 'quitar_etiqueta';
-      if (!sim && leadId && et) await etiquetar(c.cuentaId, leadId, et, quitar);
+      // Etiqueta dinámica: «Recursos: {{contador.recursos}}» reemplaza a la anterior («Recursos: 4» → «Recursos: 5»).
+      const dinamica = /\{\{/.test(molde);
+      const et = dinamica ? rellenar(await rellenarContadores(molde, c), await cargarLead(c.cuentaId, leadId), sim).trim() : molde;
+      if (!sim && leadId && et) {
+        if (dinamica) {
+          const prefijo = molde.split('{{')[0];
+          if (prefijo.trim()) {
+            await pool.query(
+              `UPDATE leads SET etiquetas = ARRAY(SELECT x FROM unnest(etiquetas) x WHERE NOT (x LIKE $2 || '%') OR x = $3)
+                WHERE id = $1 AND cuenta_id = $4`, [leadId, prefijo, et, c.cuentaId]);
+          }
+        }
+        await etiquetar(c.cuentaId, leadId, et, quitar);
+      }
       anotar(c, p.tipo, `🏷️ ${quitar ? 'Quitar' : 'Poner'} etiqueta «${et}»${sim ? ' (prueba)' : ''}`);
       return;
     }

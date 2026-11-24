@@ -23,6 +23,7 @@ export const NODOS: Record<string, { etiqueta: string; icono: string; color: str
   esperar: { etiqueta: 'Esperar un tiempo', icono: '⏳', color: '#8d99ae', grupo: 'Lógica', ayuda: 'Sigue solo después de minutos, horas o días' },
   etiquetar: { etiqueta: 'Poner etiqueta', icono: '🏷️', color: '#f4a261', grupo: 'El lead', ayuda: 'Para filtrarlo después' },
   quitar_etiqueta: { etiqueta: 'Quitar etiqueta', icono: '🏷️', color: '#f4a261', grupo: 'El lead', ayuda: '' },
+  sumar: { etiqueta: 'Sumar puntos', icono: '➕', color: '#0d9488', grupo: 'El lead', ayuda: 'Lead scoring: suma (o resta) puntos al lead' },
   mover_etapa: { etiqueta: 'Mover de etapa', icono: '➡️', color: '#2a9d8f', grupo: 'El lead', ayuda: 'Lo mueve en tu pipeline' },
   asignar: { etiqueta: 'Asignar al equipo', icono: '👤', color: '#2a9d8f', grupo: 'El lead', ayuda: 'Al setter o closer con menos carga' },
   notificar: { etiqueta: 'Avisar al equipo', icono: '🔔', color: '#e9c46a', grupo: 'El lead', ayuda: 'Lo marca en el Chat para que lo atiendan' },
@@ -216,6 +217,20 @@ export function fmtMin(min: number) {
   return `${min} min`;
 }
 
+/** Contadores que el CRM lleva solo de cada lead (para condiciones y etiquetas dinámicas). */
+export const CONTADORES: Array<{ v: string; t: string }> = [
+  { v: 'recursos', t: 'Recursos que recibió' },
+  { v: 'reels', t: 'Publicaciones distintas que comentó' },
+  { v: 'comentarios', t: 'Comentarios que hizo' },
+  { v: 'automensajes', t: 'Automensajes distintos que recorrió' },
+  { v: 'mensajes', t: 'Mensajes que te escribió' },
+  { v: 'calendarios', t: 'Veces que le mandaste el calendario' },
+  { v: 'reuniones', t: 'Reuniones que agendó' },
+  { v: 'puntos', t: 'Puntos (lead scoring)' },
+  { v: 'dias', t: 'Días desde que llegó' },
+];
+export const OPERADORES: Record<string, string> = { mayor_igual: '≥', menor_igual: '≤', igual: '=', mayor: '>', menor: '<' };
+
 export function describirCondicion(p: Paso) {
   switch (p.campo) {
     case 'etiqueta': return `¿Tiene la etiqueta «${p.valor || '…'}»?`;
@@ -225,7 +240,8 @@ export function describirCondicion(p: Paso) {
     case 'texto': return `¿Su mensaje dice «${p.valor || '…'}»?`;
     case 'sigue': return '¿Te sigue en Instagram?';
     case 'agendo': return '¿Agendó la llamada?';
-    case 'campo': return p.operador === 'igual' ? `¿«${p.campo_nombre || '…'}» es «${p.valor || '…'}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre || '…'}» dice «${p.valor || '…'}»?` : `¿Ya tenemos «${p.campo_nombre || '…'}»?`;
+    case 'contador': return `¿${CONTADORES.find((x) => x.v === p.contador)?.t ?? 'Contador'} ${OPERADORES[p.operador ?? 'mayor_igual'] ?? '≥'} ${Number(p.valor) || 0}?`;
+    case 'campo': return OPERADORES[p.operador] ? `¿«${p.campo_nombre || '…'}» ${OPERADORES[p.operador]} ${Number(p.valor) || 0}?` : p.operador === 'igual' ? `¿«${p.campo_nombre || '…'}» es «${p.valor || '…'}»?` : p.operador === 'contiene' ? `¿«${p.campo_nombre || '…'}» dice «${p.valor || '…'}»?` : `¿Ya tenemos «${p.campo_nombre || '…'}»?`;
     case 'horario': return `¿Es horario de atención (${p.desde ?? '09:00'}–${p.hasta ?? '18:00'})?`;
     default: return '¿Se cumple?';
   }

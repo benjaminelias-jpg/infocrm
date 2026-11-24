@@ -89,3 +89,31 @@ describe('palabra clave por DM', () => {
     expect(sal.n).toBe(2);
   });
 });
+
+describe('contadores, puntos y etiquetas dinámicas', () => {
+  it('cuenta recursos, compara, suma puntos y actualiza «Recursos: N»', async () => {
+    const { ejecutarFlujo, contadoresLead } = await import('../src/modules/instagram_dm.js');
+    const lead = (await queryOne(`INSERT INTO leads (cuenta_id, ig_username, ig_user_id, etiquetas) VALUES ($1, 'cuenta.recursos', 'ig_cr', ARRAY['Recursos: 4']) RETURNING id`, [cuentaId])).id;
+    const rec = (await queryOne(`INSERT INTO recursos (cuenta_id, nombre, tipo) VALUES ($1, 'Guía', 'pdf') RETURNING id`, [cuentaId])).id;
+    for (let i = 0; i < 5; i++) {
+      await query(`INSERT INTO mensajes (cuenta_id, lead_id, direccion, canal, cuerpo, estado, recurso_id) VALUES ($1,$2,'saliente','instagram_dm','guía','enviado',$3)`, [cuentaId, lead, rec]);
+    }
+    expect((await contadoresLead(cuentaId, lead)).recursos).toBe(5);
+    const f = (await queryOne(
+      `INSERT INTO flujos (cuenta_id, nombre, disparo, palabra_clave, activo, pasos) VALUES ($1, 'Scoring', 'dm', 'scorex', true, $2::jsonb) RETURNING id`,
+      [cuentaId, JSON.stringify([
+        { id: 'inicio', tipo: 'inicio', siguiente: 'c' },
+        { id: 'c', tipo: 'condicion', campo: 'contador', contador: 'recursos', operador: 'mayor_igual', valor: 5, siguiente_si: 'e', siguiente_no: null },
+        { id: 'e', tipo: 'etiquetar', etiqueta: 'Recursos: {{contador.recursos}}', siguiente: 's' },
+        { id: 's', tipo: 'sumar', campo: 'puntos', cantidad: 10, siguiente: 'c2' },
+        { id: 'c2', tipo: 'condicion', campo: 'campo', campo_nombre: 'puntos', operador: 'mayor_igual', valor: 10, siguiente_si: 'z', siguiente_no: null },
+        { id: 'z', tipo: 'etiquetar', etiqueta: 'solo gratis', siguiente: null },
+      ])])).id;
+    await ejecutarFlujo(cuentaId, f, { leadId: lead, sinInstagram: true });
+    const l = await queryOne(`SELECT etiquetas, campos FROM leads WHERE id = $1`, [lead]);
+    expect(l.etiquetas).toContain('Recursos: 5');
+    expect(l.etiquetas).not.toContain('Recursos: 4');
+    expect(l.etiquetas).toContain('solo gratis');
+    expect(Number(l.campos.puntos)).toBe(10);
+  });
+});

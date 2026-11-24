@@ -20,7 +20,7 @@ import { api } from '../api';
 // =====================================================================
 
 import {
-  DISPAROS, GRUPOS, MAX_BOTONES, MAX_TEXTO, MAX_TITULO, NODOS, alcanzables, arbolAGrafo, conVariables, conectar, describirCondicion, fmtMin, lugarLibre, nuevoPaso, ordenar, quitarNodo, quitarYUnir, salidas, uid,
+  CONTADORES, OPERADORES, DISPAROS, GRUPOS, MAX_BOTONES, MAX_TEXTO, MAX_TITULO, NODOS, alcanzables, arbolAGrafo, conVariables, conectar, describirCondicion, fmtMin, lugarLibre, nuevoPaso, ordenar, quitarNodo, quitarYUnir, salidas, uid,
   type Ctx, type Paso,
   cadenaAgenda, sanear,
 } from './pizarra/modelo';
@@ -38,6 +38,7 @@ function resumen(p: Paso, ctx: Ctx): string {
     case 'webhook': return p.url ? String(p.url).replace(/^https?:\/\//, '').slice(0, 40) : 'Pegá la URL…';
     case 'esperar': return fmtMin(Number(p.minutos) || 0);
     case 'esperar_agenda': return 'Pausa hasta que agende en tu calendario';
+    case 'sumar': return `${Number(p.cantidad) >= 0 ? '+' : ''}${Number(p.cantidad) || 0} a «${p.campo || 'puntos'}»`;
     case 'esperar_respuesta': return p.guardar_en ? `y guardar como ${p.guardar_en}` : 'Pausa hasta que escriba';
     default: return '';
   }
@@ -828,9 +829,32 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
     case 'etiquetar':
     case 'quitar_etiqueta':
       return (
-        <Campo etiqueta={p.tipo === 'etiquetar' ? 'Etiqueta que le ponés' : 'Etiqueta que le sacás'}>
-          <Entrada value={p.etiqueta ?? ''} onChange={(e) => set('etiqueta', e.target.value)} list="etiquetas-existentes" placeholder="ej. pidió-guía" autoFocus={foco} />
-        </Campo>
+        <div className="space-y-2">
+          <Campo etiqueta={p.tipo === 'etiquetar' ? 'Etiqueta que le ponés' : 'Etiqueta que le sacás'}>
+            <Entrada value={p.etiqueta ?? ''} onChange={(e) => set('etiqueta', e.target.value)} list="etiquetas-existentes" placeholder="ej. pidió-guía" autoFocus={foco} />
+          </Campo>
+          {p.tipo === 'etiquetar' && (
+            <div>
+              <div className="mb-1 text-[11px] text-[var(--text-muted)]">Etiquetas que se actualizan solas (la nueva reemplaza a la anterior):</div>
+              <FilaChips>
+                {[['📦 Recursos: N', 'Recursos: {{contador.recursos}}'], ['🎬 Reels: N', 'Reels: {{contador.reels}}'], ['⭐ Puntos: N', 'Puntos: {{contador.puntos}}'], ['🤖 Automensajes: N', 'Automensajes: {{contador.automensajes}}']].map(([t, v]) => (
+                  <Chip key={v} activo={p.etiqueta === v} onClick={() => set('etiqueta', v)}>{t}</Chip>
+                ))}
+              </FilaChips>
+            </div>
+          )}
+        </div>
+      );
+    case 'sumar':
+      return (
+        <div className="space-y-2">
+          <Campo etiqueta="¿Cuánto?" ayuda="Negativo para restar. Ej.: +10 si pidió el calendario, −5 si solo pide cosas gratis.">
+            <Entrada type="number" value={p.cantidad ?? ''} onChange={(e) => set('cantidad', e.target.value === '' ? '' : Number(e.target.value))} placeholder="10" autoFocus={foco} />
+          </Campo>
+          <Campo etiqueta="¿A qué?" ayuda="Por defecto «puntos» (lead scoring). Lo usás en condiciones («Puntos ≥ 50») y en etiquetas («Puntos: N»).">
+            <Entrada value={p.campo ?? 'puntos'} onChange={(e) => set('campo', e.target.value.slice(0, 40))} list="campos-existentes" placeholder="puntos" />
+          </Campo>
+        </div>
       );
     case 'mover_etapa': {
       const pipes = [...new Set(ctx.etapas.map((e) => e.pipeline))];
@@ -1034,6 +1058,7 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
               <option value="telefono">¿Ya tenemos su teléfono?</option>
               <option value="sigue">¿Te sigue en Instagram?</option>
               <option value="agendo">¿Agendó la llamada? (Calendly)</option>
+              <option value="contador">Un contador (recursos, reels, puntos…)</option>
               <option value="campo">Un campo propio (ej. Nicho)…</option>
               <option value="horario">¿Es horario de atención?</option>
             </Seleccion>
@@ -1045,8 +1070,10 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
                 <option value="tiene">¿Ya lo tenemos? (tiene algo)</option>
                 <option value="contiene">¿Dice…? (contiene)</option>
                 <option value="igual">¿Es exactamente…?</option>
+                <option value="mayor_igual">Número ≥ (o más)</option>
+                <option value="menor_igual">Número ≤ (o menos)</option>
               </Seleccion>
-              {(p.operador === 'contiene' || p.operador === 'igual') && (
+              {p.operador && p.operador !== 'tiene' && (
                 <Entrada value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} placeholder="ej. fitness" aria-label="Valor" />
               )}
             </div>
@@ -1065,6 +1092,22 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
                 })}
               </FilaChips>
               <p className="text-[11px] text-[var(--text-muted)]">Con la zona horaria de tu cuenta. «No» = fuera de horario (ej. «te respondemos mañana»).</p>
+            </div>
+          )}
+          {p.campo === 'contador' && (
+            <div className="space-y-2">
+              <Seleccion value={p.contador ?? 'recursos'} onChange={(e) => set('contador', e.target.value)} aria-label="Qué contar">
+                {CONTADORES.map((x) => <option key={x.v} value={x.v}>{x.t}</option>)}
+              </Seleccion>
+              <div className="flex items-center gap-2">
+                <Seleccion value={p.operador ?? 'mayor_igual'} onChange={(e) => set('operador', e.target.value)} aria-label="Cómo compara" className="!w-40">
+                  <option value="mayor_igual">es {OPERADORES.mayor_igual} (o más)</option>
+                  <option value="menor_igual">es {OPERADORES.menor_igual} (o menos)</option>
+                  <option value="igual">es exactamente</option>
+                </Seleccion>
+                <Entrada type="number" value={p.valor ?? ''} onChange={(e) => set('valor', e.target.value)} placeholder="5" className="!w-24" aria-label="Número" />
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)]">El CRM los cuenta solo con la historia del lead. Ej.: «Recursos que recibió ≥ 5» → «Sí»: etiqueta «solo gratis» y no le mandes más.</p>
             </div>
           )}
           {p.campo === 'agendo' && (
