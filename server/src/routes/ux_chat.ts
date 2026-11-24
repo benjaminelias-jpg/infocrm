@@ -40,6 +40,7 @@ function leadIdDe(req: FastifyRequest): string {
 const BANDEJA = `
   WITH base AS (
     SELECT l.id, l.nombre, l.apellido, l.ig_username, l.avatar_url, l.pais, l.email,
+           l.etiquetas,
            ('Calendario enviado' = ANY(l.etiquetas)) AS calendario_enviado,
            ('Reunión agendada' = ANY(l.etiquetas)) AS reunion_agendada,
            l.mensajes_sin_leer::int AS mensajes_sin_leer, l.propietario_id, l.creado_en,
@@ -108,7 +109,7 @@ const CONDICION: Record<FiltroChat, string> = {
 const COLUMNAS = `id, nombre, apellido, ig_username, avatar_url, pais, mensajes_sin_leer, propietario_id, responsable,
   contenido, oportunidad_id, etapa_id, etapa, etapa_color, pipeline_id, ultimo_texto, ultimo_dir, ultimo_estado,
   ultimo_autor, ultimo_autor_nombre, ultimo_recurso_tipo, ultimo_en, actividad, ultimo_entrante, ventana_cierra_en,
-  ventana_abierta, flujo_esperando, archivado, con_conversacion, actividad_us`;
+  ventana_abierta, flujo_esperando, archivado, con_conversacion, actividad_us, etiquetas, calendario_enviado, reunion_agendada`;
 
 /**
  * "%olivia%" en minúsculas y sin tildes (así "tomas" encuentra a "Tomás"),

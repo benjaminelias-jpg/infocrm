@@ -3,6 +3,7 @@ import { Avatar, BotonIcono, FilaDeslizable, nombreVisible, type AccionFila } fr
 import { IconoChat } from './iconos';
 import { cuandoCorto, ventanaRestante, vistaPrevia } from './util';
 import type { Conversacion } from './tipos';
+import { estiloEtiqueta, iconoEtiqueta, ETIQUETA_AGENDA, ETIQUETA_REUNION } from '../../etiquetas';
 
 // Una conversación en la bandeja, como en WhatsApp: avatar, nombre y @usuario,
 // la hora a la derecha y, abajo, el último mensaje (o el borrador) con el
@@ -32,6 +33,10 @@ export const FilaConversacion = memo(function FilaConversacion({
   }, [resaltar]);
 
   const nombre = nombreVisible(c.nombre, c.ig_username);
+  // Las de agenda primero; sin repetir la que ya dice la etapa.
+  const etiquetas = [...(c.etiquetas ?? [])]
+    .filter((e) => e && e.trim().toLowerCase() !== String(c.etapa ?? '').trim().toLowerCase())
+    .sort((a, b) => Number([ETIQUETA_AGENDA, ETIQUETA_REUNION].includes(b)) - Number([ETIQUETA_AGENDA, ETIQUETA_REUNION].includes(a)));
   const usuario = c.nombre?.trim() && c.ig_username ? `@${c.ig_username}` : null;
   const sinLeer = Number(c.mensajes_sin_leer) || 0;
   const pendiente = c.ultimo_dir === 'entrante' && !c.archivado;
@@ -80,22 +85,6 @@ export const FilaConversacion = memo(function FilaConversacion({
           <span className="min-w-0 flex-1">
             <span className="flex items-baseline gap-1.5">
               <span className={`min-w-0 shrink-[0.25] truncate text-[14px] md:text-[13px] ${pendiente || sinLeer ? 'font-semibold' : 'font-medium'}`}>{nombre}</span>
-              {c.calendario_enviado && !/calendario enviado/i.test(c.etapa ?? '') && (
-                <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Le mandaste el link de agenda y todavía no agendó"
-                  style={{ background: 'color-mix(in srgb, var(--status-critical) 12%, transparent)', color: 'var(--status-critical)' }}>📅 Calendario enviado</span>
-              )}
-              {!c.calendario_enviado && c.reunion_agendada && !/reuni[oó]n agendada/i.test(c.etapa ?? '') && (
-                <span className="shrink-0 rounded px-1 text-[10px] font-semibold leading-[16px]" title="Agendó la reunión"
-                  style={{ background: 'color-mix(in srgb, #16a34a 12%, transparent)', color: '#16a34a' }}>✅ Reunión agendada</span>
-              )}
-              {c.etapa && (
-                <span className="inline-flex max-w-[150px] shrink-0 items-center gap-1 self-center truncate rounded px-1.5 text-[10px] font-semibold leading-[16px]"
-                  title={`Etapa: ${c.etapa}`}
-                  style={{ background: `color-mix(in srgb, ${c.etapa_color || 'var(--baseline)'} 14%, transparent)`, color: c.etapa_color || 'var(--text-secondary)' }}>
-                  <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: c.etapa_color || 'var(--baseline)' }} aria-hidden />
-                  <span className="truncate">{c.etapa}</span>
-                </span>
-              )}
               {usuario && <span className="min-w-0 flex-1 truncate text-[12px] text-[var(--text-muted)]">{usuario}</span>}
               <span className="ml-auto shrink-0 pl-1 text-[11px]"
                 style={{ color: sinLeer || pendiente ? 'var(--series-1)' : 'var(--text-muted)', fontWeight: sinLeer ? 600 : 400 }}>
@@ -127,6 +116,25 @@ export const FilaConversacion = memo(function FilaConversacion({
                 </span>
               )}
             </span>
+            {(c.etapa || etiquetas.length > 0) && (
+              <span className="mt-1.5 flex min-w-0 flex-wrap items-center gap-1 overflow-hidden" style={{ maxHeight: 40 }}>
+                {c.etapa && (
+                  <span className="inline-flex max-w-[160px] items-center gap-1 rounded px-1.5 text-[10.5px] font-semibold leading-[18px]"
+                    title={`Etapa: ${c.etapa}`}
+                    style={{ background: c.etapa_color || 'var(--baseline)', color: '#fff' }}>
+                    <span className="truncate">{c.etapa}</span>
+                  </span>
+                )}
+                {etiquetas.slice(0, 3).map((e) => (
+                  <span key={e} className="inline-flex max-w-[130px] items-center gap-0.5 rounded border px-1.5 text-[10.5px] leading-[16px]"
+                    title={`Etiqueta: ${e}`} style={estiloEtiqueta(e)}>
+                    {iconoEtiqueta(e) && <span aria-hidden>{iconoEtiqueta(e)}</span>}
+                    <span className="truncate">{e}</span>
+                  </span>
+                ))}
+                {etiquetas.length > 3 && <span className="text-[10.5px] text-[var(--text-muted)]" title={etiquetas.slice(3).join(', ')}>+{etiquetas.length - 3}</span>}
+              </span>
+            )}
           </span>
         </button>
   );

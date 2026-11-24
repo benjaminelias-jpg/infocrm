@@ -8,6 +8,7 @@ export type AutorTipo = 'lead' | 'yo' | 'equipo' | 'automatico';
 export interface Conversacion {
   id: string;
   /** Se le mandó el link de agenda y todavía no agendó. */
+  etiquetas?: string[];
   calendario_enviado?: boolean;
   reunion_agendada?: boolean;
   nombre: string | null;
