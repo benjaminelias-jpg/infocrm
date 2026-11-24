@@ -875,8 +875,26 @@ async function accion(c: Corrida, p: Paso) {
       const intro = rellenar(String(p.texto ?? ''), lead, c.ctx.simular).trim();
       const texto = (intro ? `${intro}\n${url}` : url).slice(0, MAX_TEXTO_DM);
       const salio = await enviar(c, { text: texto }, `📅 Calendario «${corto(texto)}»`, texto);
-      // Calendario nativo: la etiqueta la pone el nodo «Poner etiqueta» que se ve en la pizarra.
-      if (salio && !c.ctx.simular && leadId && !p.calendario_id) await marcarAgendaEnviada(c.cuentaId, leadId);
+      if (salio && !c.ctx.simular && leadId) {
+        // Si el automensaje tiene los pasos a la vista (generados para este calendario), los hacen ellos.
+        const conPasos = p.calendario_id && [...c.grafo.values()].some((n) => n.auto_de === p.id);
+        if (!conPasos) {
+          await marcarAgendaEnviada(c.cuentaId, leadId);
+          // Y si tu pipeline tiene la etapa «Calendario enviado», el lead pasa ahí.
+          const opp = await oportunidadAbierta(c.cuentaId, leadId, pool).catch(() => null);
+          if (opp) {
+            const etapa = await queryOne(
+              `SELECT id, orden FROM etapas WHERE pipeline_id = $1 AND (slug = 'calendario-enviado' OR lower(nombre) LIKE 'calendario enviado%') LIMIT 1`,
+              [opp.pipeline_id]);
+            const actual = await queryOne(`SELECT orden FROM etapas WHERE id = $1`, [opp.etapa_id]);
+            // Solo hacia adelante: no lo baja si ya estaba más avanzado.
+            if (etapa && (!actual || Number(actual.orden) < Number(etapa.orden))) {
+              await moverEtapa(c.cuentaId, opp.id, etapa.id, pool, { origen: 'regla' });
+              anotar(c, 'mover_etapa', '➡️ Pasó a la etapa «Calendario enviado»');
+            }
+          }
+        }
+      }
       return;
     }
     case 'responder_comentario': {
@@ -999,6 +1017,23 @@ async function pausar(
     [c.ejecucionId, tipo, nodoId, reanudarEn, JSON.stringify(c.resultados), JSON.stringify(contextoPersistible(c.ctx))]);
 }
 
+/** Arranca otro camino del mismo automensaje en paralelo (su propia ejecución). */
+async function bifurcar(c: Corrida, destino: string) {
+  const ctx: ContextoFlujo = { ...c.ctx, cola: [] };
+  const ej = await queryOne(
+    `INSERT INTO flujo_ejecuciones (cuenta_id, flujo_id, lead_id, estado, contexto)
+     VALUES ($1,$2,$3,'ok',$4::jsonb) RETURNING id`,
+    [c.cuentaId, c.flujo.id, ctx.leadId ?? null, JSON.stringify(contextoPersistible(ctx))]);
+  const hija: Corrida = {
+    cuentaId: c.cuentaId, flujo: c.flujo, grafo: c.grafo, ejecucionId: ej?.id ?? null, ctx,
+    resultados: [], fallos: 0, envios: c.envios, pasosCorridos: c.pasosCorridos, nodoActual: destino, demora: c.demora,
+  };
+  anotar(c, 'tambien', '➕ Y también (a la vez)…');
+  const fin = await correr(hija, destino);
+  c.envios = hija.envios; c.pasosCorridos = hija.pasosCorridos; c.demora = hija.demora;
+  await cerrar(hija, fin);
+}
+
 /** Recorre el grafo desde un paso hasta terminar o pausar. */
 async function correr(c: Corrida, desde: string | null | undefined): Promise<'fin' | 'pausa'> {
   let id: string | null = desde ?? null;
@@ -1019,7 +1054,17 @@ async function correr(c: Corrida, desde: string | null | undefined): Promise<'fi
       return 'fin';
     }
     c.nodoActual = p.id;
-    if (Array.isArray(p.tambien) && p.tambien.length) c.ctx.cola = [...p.tambien, ...(c.ctx.cola ?? [])];
+    if (Array.isArray(p.tambien) && p.tambien.length) {
+      if (c.ctx.simular || !c.ejecucionId) {
+        c.ctx.cola = [...p.tambien, ...(c.ctx.cola ?? [])];
+      } else {
+        // «Y también» de verdad a la vez: cada flecha extra corre como su propio camino
+        // (con sus propias esperas), sin esperar a que termine el camino principal.
+        for (const destino of p.tambien) {
+          if (c.grafo.has(destino)) await bifurcar(c, destino).catch((err) => anotar(c, 'tambien', `⚠ Error en «Y también»: ${String(err?.message ?? err)}`, { ok: false }));
+        }
+      }
+    }
     if (ENVIAN.has(p.tipo) && c.envios >= MAX_ENVIOS_POR_CORRIDA) {
       anotar(c, 'limite', `⚠ Ya se mandaron ${MAX_ENVIOS_POR_CORRIDA} mensajes seguidos: corté para no hacer spam.`);
       return 'fin';

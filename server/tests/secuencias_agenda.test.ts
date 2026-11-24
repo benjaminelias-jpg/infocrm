@@ -141,6 +141,26 @@ describe('«Y también» en la pizarra', () => {
     expect(txt).toContain('calendly.com/yo/llamada');
   });
 
+  it('«Y también» corre a la vez: no espera a que el otro camino termine su espera', async () => {
+    const { ejecutarFlujo } = await import('../src/modules/instagram_dm.js');
+    const pasos = [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'a', tambien: ['t'] },
+      { id: 'a', tipo: 'enviar_dm', texto: 'Primero', siguiente: 'w' },
+      { id: 'w', tipo: 'esperar', minutos: 60, siguiente: 'z' },
+      { id: 'z', tipo: 'enviar_dm', texto: 'Una hora después', siguiente: null },
+      { id: 't', tipo: 'etiquetar', etiqueta: 'a-la-vez', siguiente: 't2' },
+      { id: 't2', tipo: 'enviar_dm', texto: 'Al mismo tiempo', siguiente: null },
+    ];
+    const f = await pedir('POST', '/api/flujos', { nombre: 'Paralelo', disparo: 'dm', palabra_clave: 'PARALELOX', pasos });
+    const lead = await nuevoLead('paralelo.uno');
+    await ejecutarFlujo(cuentaId, f.datos.id, { leadId: lead, sinInstagram: true });
+    const msgs = (await query(`SELECT cuerpo FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente' ORDER BY ocurrido_en`, [lead])).map((m: any) => m.cuerpo);
+    expect(msgs).toContain('Primero');
+    expect(msgs).toContain('Al mismo tiempo');
+    expect(msgs).not.toContain('Una hora después');
+    expect((await queryOne(`SELECT etiquetas FROM leads WHERE id = $1`, [lead])).etiquetas).toContain('a-la-vez');
+  });
+
   it('desde el disparador hace esto Y esto', async () => {
     const pasos = [
       { id: 'inicio', tipo: 'inicio', siguiente: 'm1', tambien: ['t1'] },

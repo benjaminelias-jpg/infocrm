@@ -253,8 +253,11 @@ export function cadenaAgenda(nodos: Paso[], nodoId: string, etapas: Array<{ slug
   const verde = nuevoPaso('etiquetar', { etiqueta: 'Reunión agendada', auto_de: nodoId, x: x + 1360, y: y - 60, siguiente: fin?.id ?? despues });
   const sacar = nuevoPaso('quitar_etiqueta', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 1020, y: y - 60, siguiente: verde.id });
   const espera = nuevoPaso('esperar_agenda', { limite_min: 120, siguiente_sin_respuesta: null, auto_de: nodoId, x: x + 680, y, siguiente: sacar.id });
-  const roja = nuevoPaso('etiquetar', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 340, y, siguiente: espera.id });
-  return [...nodos.map((m) => (m.id === nodoId ? { ...m, siguiente: roja.id } : m)), roja, espera, sacar, verde, ...(fin ? [fin] : [])];
+  const etapaEnviado = etapas.find((e) => /calendario/i.test(`${e.slug} ${e.nombre}`));
+  const aEnviado = etapaEnviado ? nuevoPaso('mover_etapa', { etapa_slug: etapaEnviado.slug, auto_de: nodoId, x: x + 340, y: y + 110, siguiente: espera.id }) : null;
+  const roja = nuevoPaso('etiquetar', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 340, y, siguiente: aEnviado?.id ?? espera.id });
+  if (aEnviado) espera.x = x + 680;
+  return [...nodos.map((m) => (m.id === nodoId ? { ...m, siguiente: roja.id } : m)), roja, ...(aEnviado ? [aEnviado] : []), espera, sacar, verde, ...(fin ? [fin] : [])];
 }
 
 /**

@@ -6,7 +6,7 @@ import {
   ErrorAgenda, calendarioPorSlug, cancelarReserva, feedIcs, huecos, leerCalendly, reservar, slugDe, urlPublica,
   type Calendario,
 } from '../modules/calendarios.js';
-import { paginaAgenda } from './pagina_agenda.js';
+import { paginaAgenda, paginaGracias, paginaMensaje } from './pagina_agenda.js';
 
 const HORA = z.string().regex(/^\d{2}:\d{2}$/);
 const esquema = z.object({
@@ -101,14 +101,48 @@ export default async function rutasCalendarios(app: FastifyInstance) {
     const { token } = req.params as { token: string };
     const r = await cancelarReserva(token);
     return reply.header('content-type', 'text/html; charset=utf-8')
-      .send(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:-apple-system,system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;color:#111"><p>${r ? 'Listo, tu reunión quedó cancelada.' : 'Esta reunión ya estaba cancelada.'}</p></body>`);
+      .send(r ? paginaMensaje('Tu reunión quedó cancelada', 'Si querés, podés volver a agendar cuando te quede mejor.')
+        : paginaMensaje('Esta reunión ya estaba cancelada', 'No hace falta hacer nada más.', false));
+  });
+
+  // Página de «¡Reunión confirmada!» y su archivo .ics.
+  app.get('/agendar/r/:archivo', async (req, reply) => {
+    const { archivo } = req.params as { archivo: string };
+    const token = archivo.replace(/\.ics$/, '');
+    const r = await queryOne<any>(`SELECT * FROM reservas WHERE token = $1`, [token]);
+    if (!r) return reply.code(404).header('content-type', 'text/html; charset=utf-8').send(paginaMensaje('No encontramos esa reunión', 'Revisá el link.', false));
+    const cal = await queryOne<Calendario>(`SELECT * FROM calendarios WHERE id = $1`, [r.calendario_id]);
+    if (!cal) return reply.code(404).send('no encontrado');
+    const anfitrion = await anfitrionDe(cal.cuenta_id);
+    const cancelar = `${urlPublica('cancelar')}/${r.token}`;
+    if (archivo.endsWith('.ics')) {
+      const f = (d: Date) => new Date(d).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+      const e = (x: string) => String(x ?? '').replace(/[\\;,]/g, (m) => `\\${m}`).replace(/\n/g, '\\n');
+      const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//InfoCRM//Agenda//ES', 'METHOD:PUBLISH', 'BEGIN:VEVENT', `UID:${r.id}@infocrm`, `DTSTAMP:${f(new Date())}`,
+        `DTSTART:${f(r.inicio)}`, `DTEND:${f(r.fin)}`, `SUMMARY:${e(`${cal.nombre}${anfitrion ? ` · ${anfitrion}` : ''}`)}`,
+        `DESCRIPTION:${e(`Para cancelar: ${cancelar}`)}`, ...(cal.ubicacion ? [`LOCATION:${e(cal.ubicacion)}`] : []),
+        'BEGIN:VALARM', 'TRIGGER:-PT30M', 'ACTION:DISPLAY', 'DESCRIPTION:Recordatorio', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+      return reply.header('content-type', 'text/calendar; charset=utf-8').header('content-disposition', 'attachment; filename="reunion.ics"').send(ics);
+    }
+    return reply.header('content-type', 'text/html; charset=utf-8').send(paginaGracias(cal, r, {
+      anfitrion, urlIcs: `${urlPublica('r')}/${r.token}.ics`, urlCancelar: cancelar, urlOtra: urlPublica(cal.slug),
+    }));
   });
 
   app.get('/agendar/:slug', async (req, reply) => {
     const { slug } = req.params as { slug: string };
+    const { i } = (req.query ?? {}) as { i?: string };
     const cal = await calendarioPorSlug(slug);
-    if (!cal) return reply.code(404).header('content-type', 'text/html; charset=utf-8').send('<!doctype html><meta charset="utf-8"><p style="font-family:system-ui;padding:40px">Este calendario no existe o está pausado.</p>');
-    return reply.header('content-type', 'text/html; charset=utf-8').send(paginaAgenda(cal));
+    if (!cal) return reply.code(404).header('content-type', 'text/html; charset=utf-8').send(paginaMensaje('Este calendario no está disponible', 'Puede que lo hayan pausado o que el link esté mal.', false));
+    // Link personal: ya sabemos quién es, se completa solo.
+    const lead = i ? await queryOne<any>(
+      `SELECT l.nombre, l.apellido, l.email, l.ig_username FROM invitaciones_agenda v JOIN leads l ON l.id = v.lead_id
+        WHERE v.token = $1 AND v.calendario_id = $2`, [String(i).slice(0, 60), cal.id]) : null;
+    const nombre = lead ? [lead.nombre, lead.apellido].filter(Boolean).join(' ') : '';
+    return reply.header('content-type', 'text/html; charset=utf-8').send(paginaAgenda(cal, {
+      anfitrion: await anfitrionDe(cal.cuenta_id),
+      prefill: lead ? { nombre, email: lead.email, ig: lead.ig_username } : undefined,
+    }));
   });
 
   app.get('/agendar/:slug/huecos', async (req, reply) => {
@@ -137,7 +171,13 @@ export default async function rutasCalendarios(app: FastifyInstance) {
     }
     try {
       const r = await reservar(cal as Calendario, { ...d, email: d.email || undefined });
-      return reply.code(201).send({ ok: true, inicio: r.inicio, fin: r.fin, cancelar: `${urlPublica('cancelar')}/${r.token}` });
+      return reply.code(201).send({ ok: true, inicio: r.inicio, fin: r.fin, cancelar: `${urlPublica('cancelar')}/${r.token}`, gracias: `${urlPublica('r')}/${r.token}` });
     } catch (e) { throw traducir(e); }
   });
+}
+
+/** Nombre que se muestra como anfitrión: el del negocio (Tu negocio) o el de la cuenta. */
+async function anfitrionDe(cuentaId: string): Promise<string | null> {
+  const c = await queryOne<{ nombre: string }>(`SELECT nombre FROM cuentas WHERE id = $1`, [cuentaId]);
+  return c?.nombre ?? null;
 }
