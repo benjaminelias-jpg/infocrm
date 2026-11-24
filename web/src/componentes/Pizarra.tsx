@@ -587,9 +587,12 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
             {seleccionado.tipo === 'inicio'
               ? <CamposDisparador form={form} setForm={setForm} ctx={ctx} />
               : <CamposPaso p={seleccionado} onChange={actualizar} ctx={{ ...ctx, generarAgenda: (id) => setNodos((ns) => cadenaAgenda(ns, id, ctx.etapas)) }} />}
-            <SiguientePaso p={seleccionado} nodos={nodos} ctx={ctx}
-              onConectar={(salida, destino) => setNodos((ns) => conectar(ns, seleccionado.id, salida, destino))}
-              onNuevo={(salida) => { setPaleta({ desde: { nodo: seleccionado.id, salida } }); setSel(null); }} />
+            {/* En compu las flechas se hacen en el lienzo; los desplegables solo en el celular (ahí no se puede arrastrar bien). */}
+            {movil && (
+              <SiguientePaso p={seleccionado} nodos={nodos} ctx={ctx}
+                onConectar={(salida, destino) => setNodos((ns) => conectar(ns, seleccionado.id, salida, destino))}
+                onNuevo={(salida) => { setPaleta({ desde: { nodo: seleccionado.id, salida } }); setSel(null); }} />
+            )}
             {seleccionado.tipo !== 'inicio' && (
               <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border-hairline)] pt-3">
                 <button onClick={() => duplicar(seleccionado.id)} className="ui-foco h-9 rounded-lg border border-[var(--border-hairline)] px-3 text-[12px] hover:bg-[var(--surface-1)]">⧉ Duplicar</button>
@@ -598,7 +601,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
             )}
             {!movil && (
               <p className="mt-3 text-[11px] text-[var(--text-muted)]">
-                También podés unir arrastrando desde el punto ● de la derecha de un paso hasta otro. Para quitar una flecha, tocala y apretá ✕.
+                Para unir pasos, arrastrá desde el punto ● de la derecha de un paso hasta otro. Para quitar una flecha, tocala y apretá ✕.
               </p>
             )}
           </div>
