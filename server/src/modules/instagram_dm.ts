@@ -201,22 +201,22 @@ export async function registrarSaliente(
 export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente?: string | null; [k: string]: any };
 
 /** Pasos que pausan la ejecución (cortan cualquier círculo). */
-const PAUSAN = new Set(['pregunta', 'esperar_respuesta', 'esperar']);
+const PAUSAN = new Set(['pregunta', 'esperar_respuesta', 'esperar', 'esperar_agenda']);
 
 export const ETIQUETA_PASO: Record<string, string> = {
   enviar_dm: 'Mandar mensaje', entregar_recurso: 'Mandar mensaje', enviar_recurso: 'Mandar audio o recurso', enviar_calendario: 'Mandar calendario',
   responder_comentario: 'Responder el comentario', pregunta: 'Pregunta con botones', condicion: 'Condición', router: 'Router (repartir al azar)',
-  esperar_respuesta: 'Esperar su respuesta', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
+  esperar_respuesta: 'Esperar su respuesta', esperar_agenda: 'Esperar a que agende', esperar: 'Esperar un tiempo', etiquetar: 'Poner etiqueta',
   quitar_etiqueta: 'Quitar etiqueta', mover_etapa: 'Mover de etapa', asignar: 'Asignar al equipo',
   notificar: 'Avisar al equipo', webhook: 'Avisar a otra app', inicio: 'Disparador',
 };
 
 /** Ids a los que apunta un paso. */
 export function salidas(n: Paso): Array<string | null | undefined> {
-  const sin = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta') && n.limite_min ? [n.siguiente_sin_respuesta] : [];
+  const sin = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta' || n.tipo === 'esperar_agenda') && n.limite_min ? [n.siguiente_sin_respuesta] : [];
   if (n.tipo === 'pregunta') return [...(n.opciones ?? []).map((o: any) => o.siguiente), ...sin];
   if (n.tipo === 'condicion') return [n.siguiente_si, n.siguiente_no];
-  if (n.tipo === 'esperar_respuesta') return [n.siguiente, ...sin, ...(Array.isArray(n.tambien) ? n.tambien : [])];
+  if (n.tipo === 'esperar_respuesta' || n.tipo === 'esperar_agenda') return [n.siguiente, ...sin, ...(Array.isArray(n.tambien) ? n.tambien : [])];
   const extra = Array.isArray(n.tambien) ? n.tambien : [];
   if (n.tipo === 'router') return [...(n.ramas ?? []).map((r: any) => r.siguiente), ...extra];
   return [n.siguiente, ...extra];
@@ -361,9 +361,9 @@ export function normalizarFlujo(pasos: any): Paso[] {
       m.siguiente = ok(m.siguiente);
     }
     // «Si no responde en X»: salida de seguimiento (pregunta y esperar respuesta).
-    if (m.tipo === 'pregunta' || m.tipo === 'esperar_respuesta') {
+    if (m.tipo === 'pregunta' || m.tipo === 'esperar_respuesta' || m.tipo === 'esperar_agenda') {
       const lim = Math.round(Number(m.limite_min) || 0);
-      if (lim > 0) { m.limite_min = Math.min(lim, 7 * 1440); m.siguiente_sin_respuesta = ok(m.siguiente_sin_respuesta); }
+      if (lim > 0) { m.limite_min = Math.min(lim, (m.tipo === 'esperar_agenda' ? 30 : 7) * 1440); m.siguiente_sin_respuesta = ok(m.siguiente_sin_respuesta); }
       else { delete m.limite_min; delete m.siguiente_sin_respuesta; }
     }
     // «Y también»: otros pasos que arrancan desde acá además del siguiente.
@@ -500,7 +500,7 @@ export function advertenciasFlujo(nodos: Paso[]): Array<{ nodo: string | null; t
   const mapa = new Map(nodos.map((n) => [n.id, n]));
   const out: Array<{ nodo: string | null; texto: string }> = [];
   for (const p of nodos) {
-    const conLimite = (p.tipo === 'esperar_respuesta' || p.tipo === 'pregunta') && Number(p.limite_min) > 0;
+    const conLimite = (p.tipo === 'esperar_respuesta' || p.tipo === 'pregunta' || p.tipo === 'esperar_agenda') && Number(p.limite_min) > 0;
     const min = conLimite ? Number(p.limite_min) : Number(p.minutos) || 0;
     if ((p.tipo !== 'esperar' && !conLimite) || min < 23 * 60) continue;
     const pila: Array<string | null | undefined> = [conLimite ? p.siguiente_sin_respuesta : p.siguiente];
@@ -873,7 +873,8 @@ async function accion(c: Corrida, p: Paso) {
       const intro = rellenar(String(p.texto ?? ''), lead, c.ctx.simular).trim();
       const texto = (intro ? `${intro}\n${url}` : url).slice(0, MAX_TEXTO_DM);
       const salio = await enviar(c, { text: texto }, `📅 Calendario «${corto(texto)}»`, texto);
-      if (salio && !c.ctx.simular && leadId) await marcarAgendaEnviada(c.cuentaId, leadId);
+      // Calendario nativo: la etiqueta la pone el nodo «Poner etiqueta» que se ve en la pizarra.
+      if (salio && !c.ctx.simular && leadId && !p.calendario_id) await marcarAgendaEnviada(c.cuentaId, leadId);
       return;
     }
     case 'responder_comentario': {
@@ -984,7 +985,7 @@ async function accion(c: Corrida, p: Paso) {
 }
 
 async function pausar(
-  c: Corrida, nodoId: string, tipo: 'respuesta' | 'tiempo', reanudarEn: Date | null, texto: string,
+  c: Corrida, nodoId: string, tipo: 'respuesta' | 'tiempo' | 'agenda', reanudarEn: Date | null, texto: string,
 ) {
   anotar(c, 'pausa', texto);
   if (!c.ejecucionId) return;
@@ -1083,6 +1084,18 @@ async function correr(c: Corrida, desde: string | null | undefined): Promise<'fi
           lim > 0 ? `⏸ Esperando su respuesta (si no responde en ${fmtMin(lim)}, sigue por «No respondió»)` : '⏸ Esperando la respuesta del lead');
         return 'pausa';
       }
+      if (p.tipo === 'esperar_agenda') {
+        const lim = Number(p.limite_min) || 0;
+        if (c.ctx.simular) {
+          const no = c.ctx.respuestas?.[p.id] === 'sin' && lim > 0;
+          anotar(c, 'esperar', no ? `⏰ (prueba) no agendó en ${fmtMin(lim)}` : '📅 (prueba) agenda la llamada');
+          id = (no ? p.siguiente_sin_respuesta : p.siguiente) ?? null;
+          continue;
+        }
+        await pausar(c, p.id, 'agenda', lim > 0 ? new Date(Date.now() + lim * 60_000) : null,
+          lim > 0 ? `📅 Esperando a que agende (si no agenda en ${fmtMin(lim)}, sigue por «No agendó»)` : '📅 Esperando a que agende');
+        return 'pausa';
+      }
       if (p.tipo === 'esperar') {
         const min = Math.max(0, Math.round(Number(p.minutos) || 0));
         if (c.ctx.simular || min === 0) {
@@ -1166,7 +1179,8 @@ export async function ejecutarFlujo(cuentaId: string, flujoId: string, ctx: Cont
 type Entrada =
   | { tipo: 'opcion'; opcionId: string }
   | { tipo: 'respuesta'; texto: string }
-  | { tipo: 'tiempo' };
+  | { tipo: 'tiempo' }
+  | { tipo: 'agenda' };
 
 /** Reclama una ejecución en pausa (atómico: nunca se reanuda dos veces). */
 async function reclamar(cuentaId: string, ejecucionId: number, nodoId: string) {
@@ -1213,6 +1227,12 @@ async function reanudar(fila: any, entrada: Entrada) {
     siguiente = nodo.siguiente ?? null;
   } else if (entrada.tipo === 'tiempo' && (nodo.tipo === 'esperar_respuesta' || nodo.tipo === 'pregunta')) {
     anotar(c, 'esperar', `⏰ No respondió en ${fmtMin(Number(nodo.limite_min) || 0)}: sigo con el seguimiento`);
+    siguiente = nodo.siguiente_sin_respuesta ?? null;
+  } else if (entrada.tipo === 'agenda' && nodo.tipo === 'esperar_agenda') {
+    anotar(c, 'respuesta', '📅 Agendó la llamada');
+    siguiente = nodo.siguiente ?? null;
+  } else if (entrada.tipo === 'tiempo' && nodo.tipo === 'esperar_agenda') {
+    anotar(c, 'esperar', `⏰ No agendó en ${fmtMin(Number(nodo.limite_min) || 0)}: sigo con el seguimiento`);
     siguiente = nodo.siguiente_sin_respuesta ?? null;
   } else if (entrada.tipo === 'tiempo' && nodo.tipo === 'esperar') {
     anotar(c, 'esperar', '⏰ Terminó la espera, sigo');
@@ -1268,6 +1288,28 @@ export async function reanudarPorMensaje(
   return false;
 }
 
+/** ¿Hay un automensaje de este lead esperando a que agende? */
+export async function hayEsperaDeAgenda(cuentaId: string, leadId: string): Promise<boolean> {
+  return Boolean(await queryOne(
+    `SELECT 1 FROM flujo_ejecuciones WHERE cuenta_id = $1 AND lead_id = $2 AND estado = 'esperando' AND esperando = 'agenda' LIMIT 1`,
+    [cuentaId, leadId]));
+}
+
+/** Agendó: sigue cada automensaje que lo esperaba por la salida «Si agenda». */
+export async function reanudarPorAgenda(cuentaId: string, leadId: string): Promise<number> {
+  const filas = await query(
+    `SELECT id, nodo_id FROM flujo_ejecuciones
+      WHERE cuenta_id = $1 AND lead_id = $2 AND estado = 'esperando' AND esperando = 'agenda'`, [cuentaId, leadId]);
+  let n = 0;
+  for (const fila of filas) {
+    const f = await reclamar(cuentaId, fila.id, fila.nodo_id);
+    if (!f) continue;
+    await reanudar(f, { tipo: 'agenda' }).catch(() => {});
+    n++;
+  }
+  return n;
+}
+
 /**
  * Reanuda las esperas por tiempo que ya vencieron. Se llama en cada webhook
  * de Instagram, al abrir el Chat y desde el cron, así no hace falta un
@@ -1280,7 +1322,7 @@ export async function procesarEsperasVencidas(cuentaId?: string, limite = 10): P
     `UPDATE flujo_ejecuciones SET estado = 'ok', actualizado_en = now()
       WHERE id IN (
         SELECT id FROM flujo_ejecuciones
-         WHERE estado = 'esperando' AND esperando IN ('tiempo', 'respuesta') AND reanudar_en <= now()
+         WHERE estado = 'esperando' AND esperando IN ('tiempo', 'respuesta', 'agenda') AND reanudar_en <= now()
            ${cuentaId ? 'AND cuenta_id = $2' : ''}
          ORDER BY reanudar_en ASC LIMIT $1
          FOR UPDATE SKIP LOCKED)

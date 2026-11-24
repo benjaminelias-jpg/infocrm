@@ -3,6 +3,7 @@ import { construirApp } from '../src/app.js';
 import { closePool, queryOne } from '../src/db/pool.js';
 import { registrarEvento } from '../src/modules/eventos.js';
 import { aInstante, desfaseMin, leerCalendly, linkPersonal, parsearIcs } from '../src/modules/calendarios.js';
+import { ejecutarFlujo } from '../src/modules/instagram_dm.js';
 import { cuentaDePrueba } from './ayuda.js';
 
 let app: any; let token = ''; let cuentaId = '';
@@ -95,5 +96,41 @@ describe('migrador desde Calendly', () => {
     expect(r.preguntas[0]).toEqual({ nombre: 'Tu Instagram', obligatoria: true });
     expect(r.horario?.['1']).toEqual([['10:00', '17:00']]);
     expect(r.dias_max).toBeGreaterThanOrEqual(29);
+  });
+});
+
+describe('calendario nativo dentro de un automensaje (todo a la vista en la pizarra)', () => {
+  it('manda el link, espera, y al agendar sigue por «Si agenda» con sus propios nodos', async () => {
+    const todos = Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((d) => [String(d), [['09:00', '12:00']]]));
+    const cal = (await pedir('POST', '/api/calendarios', { nombre: 'Diagnóstico flujo', horario: todos, antelacion_min: 0, zona_horaria: 'Europe/Madrid' })).datos;
+    const f = (await pedir('POST', '/api/flujos', { nombre: 'Agenda nativa', disparo: 'dm', palabra_clave: 'AGENDAX', pasos: [
+      { id: 'inicio', tipo: 'inicio', siguiente: 'cal' },
+      { id: 'cal', tipo: 'enviar_calendario', calendario_id: cal.id, texto: 'Elegí horario', siguiente: 'roja' },
+      { id: 'roja', tipo: 'etiquetar', etiqueta: 'Calendario enviado', siguiente: 'esp' },
+      { id: 'esp', tipo: 'esperar_agenda', limite_min: 120, siguiente: 'verde', siguiente_sin_respuesta: null },
+      { id: 'verde', tipo: 'etiquetar', etiqueta: 'Agendó por flujo', siguiente: null },
+    ] })).datos;
+    expect(f.id).toBeTruthy();
+    const lead = (await registrarEvento({ cuentaId, tipo: 'lead_creado', identidad: { igUsername: 'flujo.agenda', igUserId: 'ig_fa' }, fuente: 'manual' })).leadId;
+    await ejecutarFlujo(cuentaId, f.id, { leadId: lead, sinInstagram: true });
+
+    const msg = await queryOne<{ cuerpo: string }>(`SELECT cuerpo FROM mensajes WHERE lead_id = $1 AND direccion = 'saliente' ORDER BY ocurrido_en DESC LIMIT 1`, [lead]);
+    const link = /https?:\/\/\S+\/agendar\/\S+/.exec(msg!.cuerpo)![0];
+    expect((await queryOne<{ etiquetas: string[] }>(`SELECT etiquetas FROM leads WHERE id = $1`, [lead]))!.etiquetas).toEqual(['Calendario enviado']);
+    const espera = await queryOne(`SELECT esperando FROM flujo_ejecuciones WHERE lead_id = $1 AND estado = 'esperando'`, [lead]);
+    expect(espera?.esperando).toBe('agenda');
+
+    const url = new URL(link);
+    const h = await pedir('GET', `${url.pathname}/huecos?desde=${manana()}&dias=1`, undefined, false);
+    const ok = await pedir('POST', `${url.pathname}/reservar`, { inicio: h.datos.dias[0].huecos[0], nombre: 'Flu Jo', email: 'fj@mail.com', invitacion: url.searchParams.get('i') }, false);
+    expect(ok.codigo).toBe(201);
+
+    const l = await queryOne<{ etiquetas: string[] }>(`SELECT etiquetas FROM leads WHERE id = $1`, [lead]);
+    expect(l!.etiquetas).toContain('Agendó por flujo');
+    expect(l!.etiquetas).toContain('Calendario enviado'); // el flujo no tenía «quitar»: no se toca solo
+    expect(l!.etiquetas).not.toContain('Reunión agendada');
+    const etapa = await queryOne(`SELECT e.marca_reunion FROM oportunidades o JOIN etapas e ON e.id = o.etapa_id WHERE o.lead_id = $1 AND o.estado = 'abierta'`, [lead]);
+    expect(etapa?.marca_reunion).toBeFalsy(); // sin «Mover de etapa» en la pizarra, no se mueve solo
+    expect(await queryOne(`SELECT 1 FROM flujo_ejecuciones WHERE lead_id = $1 AND estado = 'esperando'`, [lead])).toBeNull();
   });
 });

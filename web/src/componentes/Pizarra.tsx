@@ -22,6 +22,7 @@ import { api } from '../api';
 import {
   DISPAROS, GRUPOS, MAX_BOTONES, MAX_TEXTO, MAX_TITULO, NODOS, alcanzables, arbolAGrafo, conVariables, conectar, describirCondicion, fmtMin, lugarLibre, nuevoPaso, ordenar, quitarNodo, quitarYUnir, salidas, uid,
   type Ctx, type Paso,
+  cadenaAgenda,
 } from './pizarra/modelo';
 export * from './pizarra/modelo';
 
@@ -36,6 +37,7 @@ function resumen(p: Paso, ctx: Ctx): string {
     case 'asignar': return p.rol === 'closer' ? 'A un closer' : p.rol === 'setter' ? 'A un setter' : 'A quien tenga menos leads';
     case 'webhook': return p.url ? String(p.url).replace(/^https?:\/\//, '').slice(0, 40) : 'Pegá la URL…';
     case 'esperar': return fmtMin(Number(p.minutos) || 0);
+    case 'esperar_agenda': return 'Pausa hasta que agende en tu calendario';
     case 'esperar_respuesta': return p.guardar_en ? `y guardar como ${p.guardar_en}` : 'Pausa hasta que escriba';
     default: return '';
   }
@@ -135,15 +137,16 @@ const NodoEspera = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
   const d = data;
   const p = d.paso;
   if (!p.limite_min) return <NodoPaso data={data} selected={selected} {...({} as any)} />;
-  const m = NODOS.esperar_respuesta;
+  const m = NODOS[p.tipo] ?? NODOS.esperar_respuesta;
+  const agenda = p.tipo === 'esperar_agenda';
   return (
     <div className="relative">
       <Handle type="target" position={Position.Left} id="in" style={estiloPunto('var(--baseline)')} />
       <Caja d={d} selected={selected} color={m.color}>
         <Titulo p={p} />
         <div className="px-3 pb-2 pt-1 text-[11px] text-[var(--text-secondary)]">{resumen(p, d.ctx)}</div>
-        <FilaSalida d={d} id="out" color="var(--status-good)">✍️ Si responde</FilaSalida>
-        <FilaSalida d={d} id="sin" color="var(--status-warning)">⏰ Si no responde en {fmtMin(Number(p.limite_min))}</FilaSalida>
+        <FilaSalida d={d} id="out" color="var(--status-good)">{agenda ? '📅 Si agenda' : '✍️ Si responde'}</FilaSalida>
+        <FilaSalida d={d} id="sin" color="var(--status-warning)">⏰ Si no {agenda ? 'agenda' : 'responde'} en {fmtMin(Number(p.limite_min))}</FilaSalida>
       </Caja>
     </div>
   );
@@ -231,7 +234,7 @@ const NodoRouter = memo(({ data, selected }: NodeProps<Node<DatosNodo>>) => {
 
 const TIPOS_NODO = { inicio: NodoInicio, paso: NodoPaso, pregunta: NodoPregunta, condicion: NodoCondicion, router: NodoRouter, espera: NodoEspera };
 const TIPOS_FLECHA = { borrable: FlechaBorrable };
-const tipoNodo = (t: string) => (t === 'esperar_respuesta' ? 'espera' : t === 'inicio' || t === 'pregunta' || t === 'condicion' || t === 'router' ? t : 'paso');
+const tipoNodo = (t: string) => (t === 'esperar_respuesta' || t === 'esperar_agenda' ? 'espera' : t === 'inicio' || t === 'pregunta' || t === 'condicion' || t === 'router' ? t : 'paso');
 
 // ---------------------------------------------------------------------
 // Pizarra
@@ -580,7 +583,7 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
             )}
             {seleccionado.tipo === 'inicio'
               ? <CamposDisparador form={form} setForm={setForm} ctx={ctx} />
-              : <CamposPaso p={seleccionado} onChange={actualizar} ctx={ctx} />}
+              : <CamposPaso p={seleccionado} onChange={actualizar} ctx={{ ...ctx, generarAgenda: (id) => setNodos((ns) => cadenaAgenda(ns, id, ctx.etapas)) }} />}
             <SiguientePaso p={seleccionado} nodos={nodos} ctx={ctx}
               onConectar={(salida, destino) => setNodos((ns) => conectar(ns, seleccionado.id, salida, destino))}
               onNuevo={(salida) => { setPaleta({ desde: { nodo: seleccionado.id, salida } }); setSel(null); }} />
@@ -815,7 +818,7 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
         </Campo>
       );
     case 'enviar_calendario':
-      return <CampoCalendario p={p} set={set} foco={foco} />;
+      return <CampoCalendario p={p} set={set} foco={foco} generarAgenda={ctx.generarAgenda} />;
     case 'enviar_recurso':
       return <CampoRecurso p={p} ctx={ctx} onElegir={(id) => set('recurso_id', id)} />;
     case 'etiquetar':
@@ -908,6 +911,16 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
         </div>
       );
     }
+    case 'esperar_agenda':
+      return (
+        <div className="space-y-3">
+          <p className="text-[12px] text-[var(--text-muted)]">
+            El automensaje se pausa hasta que el lead agende en tu calendario (con el link personal de «📅 Mandar calendario»).
+            Sale por «📅 Si agenda» al instante; si no, por el seguimiento.
+          </p>
+          <LimiteRespuesta p={p} onChange={onChange} que="agenda" />
+        </div>
+      );
     case 'esperar_respuesta':
       return (
         <div className="space-y-3">
@@ -1099,8 +1112,8 @@ function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
         : p.tipo === 'router'
           ? (p.ramas ?? []).map((r: any, j: number) => ({ salida: `ra:${r.id}`, etiqueta: `Rama ${r.nombre || j + 1} (${porcentajes(p)[j]} %)`, destino: r.siguiente }))
         : [{ salida: 'out', etiqueta: p.tipo === 'inicio' ? 'Primer paso' : 'Después', destino: p.siguiente }];
-  if ((p.tipo === 'pregunta' || p.tipo === 'esperar_respuesta') && p.limite_min) {
-    filas.push({ salida: 'sin', etiqueta: `Si no ${p.tipo === 'pregunta' ? 'toca nada' : 'responde'} en ${fmtMin(Number(p.limite_min))}`, destino: p.siguiente_sin_respuesta });
+  if ((p.tipo === 'pregunta' || p.tipo === 'esperar_respuesta' || p.tipo === 'esperar_agenda') && p.limite_min) {
+    filas.push({ salida: 'sin', etiqueta: `Si no ${p.tipo === 'pregunta' ? 'toca nada' : p.tipo === 'esperar_agenda' ? 'agenda' : 'responde'} en ${fmtMin(Number(p.limite_min))}`, destino: p.siguiente_sin_respuesta });
   }
   if (p.tipo !== 'pregunta' && p.tipo !== 'condicion') {
     for (const d of (p.tambien ?? []) as string[]) filas.push({ salida: `y:${d}`, etiqueta: 'Y también', destino: d });
@@ -1135,7 +1148,7 @@ function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
 
 
 /** «Mandar calendario»: tu calendario del CRM (link personal por lead) o un link externo. */
-function CampoCalendario({ p, set, foco }: { p: Paso; set: (k: string, v: any) => void; foco?: boolean }) {
+function CampoCalendario({ p, set, foco, generarAgenda }: { p: Paso; set: (k: string, v: any) => void; foco?: boolean; generarAgenda?: (id: string) => void }) {
   const [cals, setCals] = useState<Array<{ id: string; nombre: string }> | null>(null);
   useEffect(() => { api<{ calendarios: any[] }>('/calendarios').then((r) => setCals(r.calendarios)).catch(() => setCals([])); }, []);
   const externo = !p.calendario_id && (p.url || (cals && !cals.length));
@@ -1144,12 +1157,18 @@ function CampoCalendario({ p, set, foco }: { p: Paso; set: (k: string, v: any) =
       <Campo etiqueta="¿Qué calendario?" ayuda="Con tu calendario del CRM cada lead recibe su link personal: si agenda, pasa solo a verde «Reunión agendada». Al mandarlo queda en rojo «Calendario enviado».">
         <Seleccion value={p.calendario_id ?? (externo ? '_link' : '')} onChange={(e) => {
           const v = e.target.value; set('calendario_id', v && v !== '_link' ? v : undefined);
+          if (v && v !== '_link') generarAgenda?.(p.id);
         }}>
           <option value="">Elegí…</option>
           {(cals ?? []).map((c) => <option key={c.id} value={c.id}>📅 {c.nombre} (mi calendario)</option>)}
           <option value="_link">🔗 Un link externo (Calendly, Cal.com…)</option>
         </Seleccion>
       </Campo>
+      {p.calendario_id && (
+        <p className="text-[11px] text-[var(--text-muted)]">
+          Al elegir tu calendario se agregan solos, a la vista, los pasos «🏷️ Calendario enviado» → «📅 Esperar a que agende» → (si agenda) quitar el rojo, poner «Reunión agendada» y mover de etapa. Borrá o cambiá los que no quieras.
+        </p>
+      )}
       {cals && !cals.length && (
         <p className="text-[11px] text-[var(--text-muted)]">Todavía no tenés calendario propio: crealo (o clonalo de Calendly) en <a className="underline" href="/conexiones?tab=calendario" target="_blank" rel="noreferrer">Configuración → Calendario</a>.</p>
       )}

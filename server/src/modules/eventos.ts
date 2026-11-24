@@ -58,6 +58,8 @@ export interface EntradaEvento {
   pipelineId?: string;
   /** No ejecutar el motor de reglas (se usa al sembrar datos) */
   sinReglas?: boolean;
+  /** Agendó y lo maneja un automensaje (nodos visibles en la pizarra): sin cambio automático de etiqueta ni de etapa. */
+  sinEfectosAgenda?: boolean;
 }
 
 export interface ResultadoEvento {
@@ -307,11 +309,11 @@ export async function registrarEvento(entrada: EntradaEvento): Promise<Resultado
     }
 
     // 7b. Agendó: ya no está «esperando con el calendario».
-    if (entrada.tipo === 'reunion_agendada' && leadId) await quitarAgendaEnviada(c, leadId);
+    if (entrada.tipo === 'reunion_agendada' && leadId && !entrada.sinEfectosAgenda) await quitarAgendaEnviada(c, leadId);
 
     // 8. Movimiento de etapa según el mapeo evento -> etapa
     let etapaMovida: { desde: string | null; hasta: string } | null = null;
-    const destino = await etapaParaEvento(opp.pipeline_id, entrada.tipo, c);
+    const destino = entrada.sinEfectosAgenda && entrada.tipo === 'reunion_agendada' ? null : await etapaParaEvento(opp.pipeline_id, entrada.tipo, c);
     if (destino) {
       const { rows: actualRows } = await c.query(
         `SELECT e.orden FROM oportunidades o JOIN etapas e ON e.id = o.etapa_id WHERE o.id = $1`,

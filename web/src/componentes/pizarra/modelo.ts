@@ -3,7 +3,7 @@
 // automensajes no descarga React Flow; el lienzo se baja al abrir uno.
 
 export type Paso = { id: string; tipo: string; x?: number; y?: number; siguiente?: string | null; [k: string]: any };
-export interface Ctx { recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[]; campos?: string[]; recargarRecursos?: () => Promise<any[]> }
+export interface Ctx { generarAgenda?: (nodoId: string) => void; recursos: any[]; etapas: any[]; etiquetas: string[]; contenidos: any[]; campos?: string[]; recargarRecursos?: () => Promise<any[]> }
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
 export const MAX_TEXTO = 1000;
@@ -18,6 +18,7 @@ export const NODOS: Record<string, { etiqueta: string; icono: string; color: str
   pregunta: { etiqueta: 'Pregunta con botones', icono: '❓', color: '#e76f51', grupo: 'Lógica', ayuda: 'Cada botón sale por su propia flecha' },
   condicion: { etiqueta: 'Condición (sí / no)', icono: '🔀', color: '#264653', grupo: 'Lógica', ayuda: 'Una flecha si se cumple y otra si no' },
   router: { etiqueta: 'Router (repartir al azar)', icono: '🎲', color: '#5c6b7a', grupo: 'Lógica', ayuda: 'Manda a cada uno por una rama distinta, al azar o con el % que elijas' },
+  esperar_agenda: { etiqueta: 'Esperar a que agende', icono: '📅', color: '#16a34a', grupo: 'Lógica', ayuda: 'Pausa hasta que agende en tu calendario (y si no, sigue por el seguimiento)' },
   esperar_respuesta: { etiqueta: 'Esperar su respuesta', icono: '✍️', color: '#8d99ae', grupo: 'Lógica', ayuda: 'Pausa hasta que escriba (y guarda lo que dice)' },
   esperar: { etiqueta: 'Esperar un tiempo', icono: '⏳', color: '#8d99ae', grupo: 'Lógica', ayuda: 'Sigue solo después de minutos, horas o días' },
   etiquetar: { etiqueta: 'Poner etiqueta', icono: '🏷️', color: '#f4a261', grupo: 'El lead', ayuda: 'Para filtrarlo después' },
@@ -46,9 +47,9 @@ export const DISPAROS: Array<{ v: string; t: string; icono: string; palabra: boo
 
 /** Salidas de un paso: [id de la salida, paso al que apunta]. */
 export function salidas(n: Paso): Array<[string, string | null | undefined]> {
-  const sin: Array<[string, string]> = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta') && n.limite_min ? [['sin', n.siguiente_sin_respuesta]] : [];
+  const sin: Array<[string, string]> = (n.tipo === 'pregunta' || n.tipo === 'esperar_respuesta' || n.tipo === 'esperar_agenda') && n.limite_min ? [['sin', n.siguiente_sin_respuesta]] : [];
   if (n.tipo === 'pregunta') return [...(n.opciones ?? []).map((o: any) => [`op:${o.id}`, o.siguiente] as [string, string]), ...sin];
-  if (n.tipo === 'esperar_respuesta') {
+  if (n.tipo === 'esperar_respuesta' || n.tipo === 'esperar_agenda') {
     return [['out', n.siguiente], ...sin, ...(Array.isArray(n.tambien) ? n.tambien : []).map((d: string) => [`y:${d}`, d] as [string, string])];
   }
   if (n.tipo === 'condicion') return [['si', n.siguiente_si], ['no', n.siguiente_no]];
@@ -133,7 +134,7 @@ export function nuevoPaso(tipo: string, datos: Record<string, any> = {}): Paso {
     base.ramas = [{ id: uid(), nombre: 'A', peso: 50, siguiente: null }, { id: uid(), nombre: 'B', peso: 50, siguiente: null }];
   }
   // Esperar su respuesta: viene con seguimiento (2 h) ya activado.
-  if (tipo === 'esperar_respuesta' && base.limite_min === undefined) { base.limite_min = 120; base.siguiente_sin_respuesta = null; }
+  if ((tipo === 'esperar_respuesta' || tipo === 'esperar_agenda') && base.limite_min === undefined) { base.limite_min = 120; base.siguiente_sin_respuesta = null; }
   if (tipo === 'condicion') { base.campo = base.campo ?? 'etiqueta'; base.siguiente_si = null; base.siguiente_no = null; }
   else if (tipo !== 'pregunta' && tipo !== 'router' && !('siguiente' in base)) base.siguiente = null;
   return base;
@@ -235,3 +236,23 @@ export function conVariables(t: string) {
   return t.replace(/\{\{\s*nombre\s*\}\}/gi, '[Nombre]').replace(/\{\{\s*usuario\s*\}\}/gi, '[@usuario]');
 }
 
+
+/**
+ * Calendario nativo: después de «Mandar calendario» crea los pasos visibles
+ * (y borrables) que antes pasaban por detrás: etiqueta roja al mandarlo,
+ * esperar a que agende y, si agenda, sacar la roja + poner la verde + mover
+ * de etapa. Lo que seguía después del calendario queda tras «Si agenda».
+ */
+export function cadenaAgenda(nodos: Paso[], nodoId: string, etapas: Array<{ slug: string; nombre: string }>): Paso[] {
+  const n = nodos.find((x) => x.id === nodoId);
+  if (!n || nodos.some((x) => x.auto_de === nodoId)) return nodos;
+  const x = n.x ?? 0, y = n.y ?? 0;
+  const etapa = etapas.find((e) => /reuni|agend|llamada/i.test(`${e.slug} ${e.nombre}`));
+  const despues = n.siguiente ?? null;
+  const fin = etapa ? nuevoPaso('mover_etapa', { etapa_slug: etapa.slug, auto_de: nodoId, x: x + 1700, y: y - 60, siguiente: despues }) : null;
+  const verde = nuevoPaso('etiquetar', { etiqueta: 'Reunión agendada', auto_de: nodoId, x: x + 1360, y: y - 60, siguiente: fin?.id ?? despues });
+  const sacar = nuevoPaso('quitar_etiqueta', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 1020, y: y - 60, siguiente: verde.id });
+  const espera = nuevoPaso('esperar_agenda', { limite_min: 120, siguiente_sin_respuesta: null, auto_de: nodoId, x: x + 680, y, siguiente: sacar.id });
+  const roja = nuevoPaso('etiquetar', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 340, y, siguiente: espera.id });
+  return [...nodos.map((m) => (m.id === nodoId ? { ...m, siguiente: roja.id } : m)), roja, espera, sacar, verde, ...(fin ? [fin] : [])];
+}

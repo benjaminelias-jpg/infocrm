@@ -1,6 +1,7 @@
 import { pool, query, queryOne } from '../db/pool.js';
 import { config } from '../config.js';
 import { registrarEvento } from './eventos.js';
+import { hayEsperaDeAgenda, reanudarPorAgenda } from './instagram_dm.js';
 
 // Calendario propio del CRM: el lead agenda desde un link (personal si se lo
 // mandó la pizarra) y queda marcado solo, sin depender de Calendly.
@@ -187,14 +188,18 @@ export async function reservar(cal: Calendario, d: {
     throw e;
   }
   const [nombre, ...resto] = d.nombre.trim().split(/\s+/);
+  // Si un automensaje lo estaba esperando, los cambios (etiquetas, etapa) los hacen
+  // sus nodos visibles en la pizarra; si no, se aplican los automáticos.
+  const loManejaUnFlujo = leadId ? await hayEsperaDeAgenda(cal.cuenta_id, leadId) : false;
   const ev = await registrarEvento({
-    cuentaId: cal.cuenta_id, tipo: 'reunion_agendada', fuente: 'agenda',
+    cuentaId: cal.cuenta_id, tipo: 'reunion_agendada', fuente: 'agenda', sinEfectosAgenda: loManejaUnFlujo,
     leadId, identidad: leadId ? undefined : { email: d.email?.toLowerCase() || undefined, igUsername: ig, nombre, apellido: resto.join(' ') || undefined, telefono: d.telefono || undefined },
     titulo: cal.nombre, ocurridoEn: new Date(t), idempotencyKey: `agenda:${reserva.id}`,
     payload: { reserva_id: reserva.id, calendario: cal.nombre, inicio: new Date(t).toISOString(), respuestas: d.respuestas ?? {} },
   });
   await pool.query(`UPDATE reservas SET lead_id = $2 WHERE id = $1`, [reserva.id, ev.leadId]);
   if (d.invitacion) await pool.query(`UPDATE invitaciones_agenda SET usado_en = now() WHERE token = $1`, [d.invitacion]);
+  if (loManejaUnFlujo) await reanudarPorAgenda(cal.cuenta_id, ev.leadId).catch(() => 0);
   return { ...reserva, lead_id: ev.leadId };
 }
 
