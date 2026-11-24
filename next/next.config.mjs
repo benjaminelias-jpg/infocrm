@@ -1,7 +1,7 @@
 import path from 'node:path';
 const aqui = path.dirname(new URL(import.meta.url).pathname);
 /** @type {import('next').NextConfig} */
-const PREFIJOS = ['webhooks', 'instagram', 'recursos/pub', 'mcp', 'salud'];
+const PREFIJOS = ['webhooks', 'instagram', 'recursos/pub', 'mcp', 'salud', 'agendar'];
 export default {
   experimental: { externalDir: true },
   outputFileTracingRoot: path.join(aqui, '..'),

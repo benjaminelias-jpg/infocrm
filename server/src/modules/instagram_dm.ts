@@ -3,6 +3,7 @@ import { config } from '../config.js';
 import { integracionInstagram, credsUsables } from './instagram.js';
 import { moverEtapa, oportunidadAbierta } from './pipeline.js';
 import { esLinkDeAgenda, marcarAgendaEnviada } from './agenda.js';
+import { linkPersonal } from './calendarios.js';
 
 // =====================================================================
 // "ManyChat propio": envío de mensajes por Instagram + motor de flujos.
@@ -439,7 +440,8 @@ export function validarFlujoDetallado(nodos: Paso[]): Array<{ nodo: string | nul
         if (!p.recurso_id) mal('elegí qué audio o recurso mandar.');
         break;
       case 'enviar_calendario':
-        if (!/^https?:\/\/\S+/i.test(String(p.url ?? '').trim())) mal('pegá el link de tu calendario (Calendly, Cal.com…).');
+        if (p.calendario_id) break;
+        if (!/^https?:\/\/\S+/i.test(String(p.url ?? '').trim())) mal('elegí tu calendario o pegá el link (Calendly, Cal.com…).');
         break;
       case 'responder_comentario':
         if (!String(p.texto ?? '').trim()) mal('escribí la respuesta al comentario.');
@@ -862,8 +864,11 @@ async function accion(c: Corrida, p: Paso) {
       return;
     }
     case 'enviar_calendario': {
-      const url = String(p.url ?? '').trim();
-      if (!url) { anotar(c, p.tipo, '⚠ Falta el link del calendario: lo salteo'); return; }
+      // Calendario propio: link personal para este lead (al agendar queda marcado solo).
+      const url = p.calendario_id
+        ? (sim ? `[link personal de agenda]` : (await linkPersonal(c.cuentaId, String(p.calendario_id), leadId)) ?? '')
+        : String(p.url ?? '').trim();
+      if (!url) { anotar(c, p.tipo, '⚠ Falta el calendario (¿lo borraron?): lo salteo'); return; }
       const lead = await cargarLead(c.cuentaId, leadId);
       const intro = rellenar(String(p.texto ?? ''), lead, c.ctx.simular).trim();
       const texto = (intro ? `${intro}\n${url}` : url).slice(0, MAX_TEXTO_DM);

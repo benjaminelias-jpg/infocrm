@@ -20,6 +20,7 @@ import rutasUx_chat from './routes/ux_chat.js';
 import rutasUx_leads from './routes/ux_leads.js';
 import rutasUx_pipeline from './routes/ux_pipeline.js';
 import rutasUx_integraciones from './routes/ux_integraciones.js';
+import rutasCalendarios from './routes/calendarios.js';
 import rutasUx_panel from './routes/ux_panel.js';
 import rutasUx_finanzas from './routes/ux_finanzas.js';
 import rutasUx_automensajes from './routes/ux_automensajes.js';
@@ -154,6 +155,8 @@ export async function construirApp(): Promise<FastifyInstance> {
   // Conector MCP remoto: Claude se conecta pegando una URL (público, se
   // autentica con la clave de API que va en la URL o en una cabecera).
   await app.register(rutasMcp);
+  // Calendario propio: /api/calendarios (con sesión) y /agendar/* (público).
+  await app.register(rutasCalendarios);
   // Rutas de mejoras de UX, una por zona de la app.
   await app.register(rutasUx_chat, { prefix: '/api/ux/chat' });
   await app.register(rutasUx_leads, { prefix: '/api/ux/leads' });
@@ -176,7 +179,7 @@ export async function construirApp(): Promise<FastifyInstance> {
     // Fallback SPA: cualquier ruta que no sea API/webhooks devuelve index.html
     app.setNotFoundHandler((req, reply) => {
       if (req.method === 'GET' && !req.url.startsWith('/api/') &&
-          !req.url.startsWith('/webhooks') && !req.url.startsWith('/salud')) {
+          !req.url.startsWith('/webhooks') && !req.url.startsWith('/salud') && !req.url.startsWith('/agendar')) {
         return reply.sendFile('index.html');
       }
       return reply.code(404).send({ error: 'no_encontrado', mensaje: 'Ruta no encontrada' });

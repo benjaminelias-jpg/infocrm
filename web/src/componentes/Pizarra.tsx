@@ -8,6 +8,7 @@ import '@xyflow/react/dist/style.css';
 import { AreaTexto, Boton, BotonConfirmar, Campo, Chip, Dialogo, Entrada, FilaChips, Interruptor, Seleccion, useAviso, useEsMovil } from '../ui';
 import { FormNuevo, type TipoNuevo } from './GestorRecursos';
 import TextoConVariables from './TextoConVariables';
+import { api } from '../api';
 
 // =====================================================================
 // Pizarra libre de automensajes, estilo n8n: lienzo infinito punteado,
@@ -28,7 +29,7 @@ function resumen(p: Paso, ctx: Ctx): string {
   switch (p.tipo) {
     case 'enviar_dm': case 'entregar_recurso': return conVariables(String(p.texto ?? p.recurso ?? '')) || 'Escribí el mensaje…';
     case 'responder_comentario': case 'notificar': return conVariables(String(p.texto ?? '')) || 'Escribí el texto…';
-    case 'enviar_calendario': return p.url ? `📅 ${String(p.url)}` : 'Falta el link del calendario…';
+    case 'enviar_calendario': return p.calendario_id ? '📅 Mi calendario (link personal)' : p.url ? `📅 ${String(p.url)}` : 'Falta elegir el calendario…';
     case 'enviar_recurso': return p.recurso_id ? (ctx.recursos.find((r) => r.id === p.recurso_id)?.nombre ?? '⚠ Ese recurso ya no existe') : 'Falta elegir qué mandar…';
     case 'etiquetar': case 'quitar_etiqueta': return p.etiqueta ? `«${p.etiqueta}»` : 'Escribí la etiqueta…';
     case 'mover_etapa': return p.etapa_slug ? (ctx.etapas.find((e) => e.slug === p.etapa_slug)?.nombre ?? '⚠ Esa etapa ya no existe') : 'Elegí la etapa…';
@@ -814,16 +815,7 @@ function CamposPasoBase({ p, onChange, ctx }: { p: Paso; onChange: (p: Paso) => 
         </Campo>
       );
     case 'enviar_calendario':
-      return (
-        <div className="space-y-2">
-          <Campo etiqueta="Link de tu calendario" ayuda="Calendly, Cal.com, Google Calendar… Al mandarlo, el lead queda en rojo «Calendario enviado»; cuando agenda (webhook de Calendly) pasa a verde «Reunión agendada».">
-            <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://calendly.com/tu-usuario/llamada" autoFocus={foco} />
-          </Campo>
-          <Campo etiqueta="Mensaje antes del link (opcional)">
-            <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Elegí el horario que te quede cómodo 👇" max={500} />
-          </Campo>
-        </div>
-      );
+      return <CampoCalendario p={p} set={set} foco={foco} />;
     case 'enviar_recurso':
       return <CampoRecurso p={p} ctx={ctx} onElegir={(id) => set('recurso_id', id)} />;
     case 'etiquetar':
@@ -1137,6 +1129,38 @@ function SiguientePaso({ p, nodos, ctx, onConectar, onNuevo }: {
           </Seleccion>
         </label>
       ))}
+    </div>
+  );
+}
+
+
+/** «Mandar calendario»: tu calendario del CRM (link personal por lead) o un link externo. */
+function CampoCalendario({ p, set, foco }: { p: Paso; set: (k: string, v: any) => void; foco?: boolean }) {
+  const [cals, setCals] = useState<Array<{ id: string; nombre: string }> | null>(null);
+  useEffect(() => { api<{ calendarios: any[] }>('/calendarios').then((r) => setCals(r.calendarios)).catch(() => setCals([])); }, []);
+  const externo = !p.calendario_id && (p.url || (cals && !cals.length));
+  return (
+    <div className="space-y-2">
+      <Campo etiqueta="¿Qué calendario?" ayuda="Con tu calendario del CRM cada lead recibe su link personal: si agenda, pasa solo a verde «Reunión agendada». Al mandarlo queda en rojo «Calendario enviado».">
+        <Seleccion value={p.calendario_id ?? (externo ? '_link' : '')} onChange={(e) => {
+          const v = e.target.value; set('calendario_id', v && v !== '_link' ? v : undefined);
+        }}>
+          <option value="">Elegí…</option>
+          {(cals ?? []).map((c) => <option key={c.id} value={c.id}>📅 {c.nombre} (mi calendario)</option>)}
+          <option value="_link">🔗 Un link externo (Calendly, Cal.com…)</option>
+        </Seleccion>
+      </Campo>
+      {cals && !cals.length && (
+        <p className="text-[11px] text-[var(--text-muted)]">Todavía no tenés calendario propio: crealo (o clonalo de Calendly) en <a className="underline" href="/conexiones?tab=calendario" target="_blank" rel="noreferrer">Configuración → Calendario</a>.</p>
+      )}
+      {!p.calendario_id && (
+        <Campo etiqueta="Link de tu calendario">
+          <Entrada value={p.url ?? ''} onChange={(e) => set('url', e.target.value)} placeholder="https://calendly.com/tu-usuario/llamada" autoFocus={foco} />
+        </Campo>
+      )}
+      <Campo etiqueta="Mensaje antes del link (opcional)">
+        <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Elegí el horario que te quede cómodo 👇" max={500} />
+      </Campo>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import GuiaClaude from '../componentes/integraciones/GuiaClaude';
 import ParaTecnicos from '../componentes/integraciones/ParaTecnicos';
 import Negocio from '../componentes/integraciones/Negocio';
 import PestanaEquipo from '../componentes/integraciones/PestanaEquipo';
+import Calendarios from '../componentes/integraciones/Calendarios';
 import { LogoApp, LogosApilados, type App } from '../componentes/integraciones/LogoApp';
 import { useGuiaUrl } from '../componentes/integraciones/useGuiaUrl';
 import { useConexiones, esAgenda, type ClaveApp, type EstadoApp } from '../componentes/integraciones/useConexiones';
@@ -24,9 +25,10 @@ import { useConexiones, esAgenda, type ClaveApp, type EstadoApp } from '../compo
 // la red: nunca "Sin conectar" por un error) y la acción justa. Tocarla abre
 // una guía paso a paso (en la URL: Atrás la cierra, recargar la mantiene).
 
-type Tab = 'conexiones' | 'equipo' | 'negocio' | 'tecnicos';
+type Tab = 'conexiones' | 'calendario' | 'equipo' | 'negocio' | 'tecnicos';
 const TABS: Array<{ id: Tab; etiqueta: string }> = [
   { id: 'conexiones', etiqueta: 'Conexiones' },
+  { id: 'calendario', etiqueta: 'Calendario' },
   { id: 'equipo', etiqueta: 'Equipo' },
   { id: 'negocio', etiqueta: 'Tu negocio' },
   { id: 'tecnicos', etiqueta: 'Para técnicos' },
@@ -250,6 +252,7 @@ export default function Conexiones() {
 
       <ContenidoDeslizable pestanas={TABS} actual={tab} onCambiar={setTab} className="mt-4">
         {tab === 'conexiones' && contenidoConexiones}
+        {tab === 'calendario' && <Calendarios />}
         {tab === 'equipo' && <PestanaEquipo />}
         {tab === 'negocio' && <Negocio />}
         {tab === 'tecnicos' && (
