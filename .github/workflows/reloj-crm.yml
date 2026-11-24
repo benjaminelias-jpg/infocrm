@@ -1,0 +1,17 @@
+# Reloj del CRM: despierta las esperas de los automensajes («Esperar 5 min»,
+# «si no responde»…) y los envíos programados. GitHub lo corre cada ~5 min
+# (puede atrasarse unos minutos). Para cada minuto exacto: cron-job.org con la
+# misma dirección. El CRM frena las llamadas muy seguidas (máx. 1 cada 20 s).
+name: Reloj del CRM
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+jobs:
+  tic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Despertar al CRM
+        run: curl -fsS --max-time 60 https://infocrm-two.vercel.app/webhooks/cron/flujos || true

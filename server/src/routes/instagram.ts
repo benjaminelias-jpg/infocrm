@@ -440,14 +440,21 @@ export default async function rutasInstagram(app: FastifyInstance) {
     if (secreto && req.headers.authorization !== `Bearer ${secreto}`) {
       return reply.code(401).send({ error: 'no_autorizado' });
     }
+    // Freno: aunque lo llamen cada pocos segundos, trabaja como mucho cada 20 s.
+    const turno = await queryOne<{ tokens: boolean }>(
+      `UPDATE cron_estado SET ultimo = now(), vueltas = vueltas + 1,
+              ultimo_tokens = CASE WHEN ultimo_tokens < now() - interval '1 hour' THEN now() ELSE ultimo_tokens END
+        WHERE id = 1 AND ultimo < now() - interval '20 seconds'
+        RETURNING (ultimo_tokens = now()) AS tokens`);
+    if (!turno) return { ok: true, omitido: 'muy seguido' };
     const reanudadas = await procesarEsperasVencidas(undefined, 50);
-    await procesarEnviosProgramados(undefined, 100).catch(() => 0);
-    // De paso, renueva las conexiones de Instagram que vencen en < 15 días.
-    const instagram = await renovarTokensPorVencer().catch((err) => {
+    const programados = await procesarEnviosProgramados(undefined, 100).catch(() => 0);
+    // Una vez por hora: renueva las conexiones de Instagram que vencen en < 15 días.
+    const instagram = turno.tokens ? await renovarTokensPorVencer().catch((err) => {
       req.log.error({ err }, 'renovando conexiones de Instagram');
       return null;
-    });
-    return { ok: true, reanudadas, instagram };
+    }) : undefined;
+    return { ok: true, reanudadas, programados, instagram };
   });
 }
 

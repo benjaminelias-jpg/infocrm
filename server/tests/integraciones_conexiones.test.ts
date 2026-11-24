@@ -172,9 +172,13 @@ describe('Instagram con la app de la plataforma', () => {
     const integ2 = await queryOne(`SELECT * FROM integraciones WHERE cuenta_id = $1 AND tipo = 'instagram'`, [cuentaId]);
     expect(tocaRenovar(integ2)).toBe(false);
     // El cron del servidor también la intenta (y responde aunque falle).
+    await query(`UPDATE cron_estado SET ultimo = 'epoch', ultimo_tokens = 'epoch' WHERE id = 1`);
     const cron = await app.inject({ method: 'GET', url: '/webhooks/cron/flujos' });
     expect(cron.statusCode).toBe(200);
     expect(cron.json().instagram).toBeTruthy();
+    // Si lo llaman enseguida otra vez, no trabaja (freno de 20 s).
+    const otra = await app.inject({ method: 'GET', url: '/webhooks/cron/flujos' });
+    expect(otra.json().omitido).toBeTruthy();
   });
 });
 
