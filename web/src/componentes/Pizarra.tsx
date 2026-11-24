@@ -22,7 +22,7 @@ import { api } from '../api';
 import {
   DISPAROS, GRUPOS, MAX_BOTONES, MAX_TEXTO, MAX_TITULO, NODOS, alcanzables, arbolAGrafo, conVariables, conectar, describirCondicion, fmtMin, lugarLibre, nuevoPaso, ordenar, quitarNodo, quitarYUnir, salidas, uid,
   type Ctx, type Paso,
-  cadenaAgenda,
+  cadenaAgenda, sanear,
 } from './pizarra/modelo';
 export * from './pizarra/modelo';
 
@@ -287,7 +287,9 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
   const [paleta, setPaleta] = useState<null | { desde?: { nodo: string; salida: string }; pos?: { x: number; y: number } }>(null);
   const nodos: Paso[] = form.pasos;
 
-  const setNodos = useCallback((f: (n: Paso[]) => Paso[]) => setForm((x: any) => ({ ...x, pasos: f(x.pasos) })), [setForm]);
+  const setNodos = useCallback((f: (n: Paso[]) => Paso[]) => setForm((x: any) => ({ ...x, pasos: sanear(f(x.pasos)) })), [setForm]);
+  // Flujos guardados con flechas rotas (p. ej. a un paso borrado): se arreglan al abrir.
+  useEffect(() => { if (sanear(nodos) !== nodos) setNodos((ns) => ns); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const disp = DISPAROS.find((d) => d.v === form.disparo) ?? DISPAROS[0];
   const textoDisparo = `${disp.icono} ${disp.t}${disp.palabra && form.palabra_clave ? ` «${form.palabra_clave}»` : ''}`;
@@ -448,7 +450,8 @@ function Lienzo({ form, setForm, ctx, marcados, recorrido, advertidos = [], nota
     setNodos((ns) => {
       const origen = ns.find((n) => n.id === c.source);
       // Ya sale una flecha de ese punto: la nueva se suma («hace esto Y esto»), no reemplaza.
-      if (c.sourceHandle === 'out' && origen?.siguiente && origen.siguiente !== c.target) return conectar(ns, c.source!, 'mas', c.target);
+      // (Si apuntaba a un paso que ya no existe, la nueva la reemplaza.)
+      if (c.sourceHandle === 'out' && origen?.siguiente && origen.siguiente !== c.target && ns.some((n) => n.id === origen.siguiente)) return conectar(ns, c.source!, 'mas', c.target);
       return conectar(ns, c.source!, c.sourceHandle!, c.target);
     });
   }, [setNodos]);

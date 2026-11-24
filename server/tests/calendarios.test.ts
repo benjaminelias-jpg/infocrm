@@ -134,3 +134,15 @@ describe('calendario nativo dentro de un automensaje (todo a la vista en la piza
     expect(await queryOne(`SELECT 1 FROM flujo_ejecuciones WHERE lead_id = $1 AND estado = 'esperando'`, [lead])).toBeNull();
   });
 });
+
+describe('flechas del disparador', () => {
+  it('si el disparador solo tiene «Y también», esa pasa a ser el primer paso', async () => {
+    const { normalizarFlujo, validarFlujo } = await import('../src/modules/instagram_dm.js');
+    const n = normalizarFlujo([
+      { id: 'inicio', tipo: 'inicio', siguiente: 'borrado', tambien: ['q'] },
+      { id: 'q', tipo: 'enviar_dm', texto: 'Hola', siguiente: null },
+    ] as any);
+    expect(n.find((x: any) => x.id === 'inicio')!.siguiente).toBe('q');
+    expect(validarFlujo(n)).toEqual([]);
+  });
+});

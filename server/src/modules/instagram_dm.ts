@@ -371,6 +371,8 @@ export function normalizarFlujo(pasos: any): Paso[] {
     else {
       const t = [...new Set((Array.isArray(m.tambien) ? m.tambien : []).map(ok).filter(Boolean) as string[])]
         .filter((x) => x !== m.siguiente).slice(0, 10);
+      // Sin flecha principal pero con «Y también»: la primera pasa a ser la principal.
+      if (!m.siguiente && t.length && m.tipo !== 'router') m.siguiente = t.shift();
       if (t.length) m.tambien = t; else delete m.tambien;
     }
     limpio.push(m);

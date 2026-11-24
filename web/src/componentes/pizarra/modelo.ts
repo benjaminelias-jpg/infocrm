@@ -256,3 +256,32 @@ export function cadenaAgenda(nodos: Paso[], nodoId: string, etapas: Array<{ slug
   const roja = nuevoPaso('etiquetar', { etiqueta: 'Calendario enviado', auto_de: nodoId, x: x + 340, y, siguiente: espera.id });
   return [...nodos.map((m) => (m.id === nodoId ? { ...m, siguiente: roja.id } : m)), roja, espera, sacar, verde, ...(fin ? [fin] : [])];
 }
+
+/**
+ * Deja el grafo sano: borra flechas a pasos que ya no existen y, si un paso
+ * se quedó sin «siguiente» pero tiene flechas «Y también», la primera pasa a
+ * ser la principal (así el disparador nunca queda «sin conectar» con una
+ * flecha dibujada).
+ */
+export function sanear(nodos: Paso[]): Paso[] {
+  const ids = new Set(nodos.map((n) => n.id));
+  const ok = (v: any) => (v && ids.has(v) ? v : null);
+  let cambio = false;
+  const r = nodos.map((n) => {
+    const m: Paso = { ...n };
+    const fijar = (k: string) => { if (k in m && m[k] !== ok(m[k])) { m[k] = ok(m[k]); cambio = true; } };
+    fijar('siguiente'); fijar('siguiente_si'); fijar('siguiente_no'); fijar('siguiente_sin_respuesta');
+    if (Array.isArray(m.opciones)) m.opciones = m.opciones.map((o: any) => (o.siguiente && !ids.has(o.siguiente) ? ((cambio = true), { ...o, siguiente: null }) : o));
+    if (Array.isArray(m.ramas)) m.ramas = m.ramas.map((o: any) => (o.siguiente && !ids.has(o.siguiente) ? ((cambio = true), { ...o, siguiente: null }) : o));
+    if (Array.isArray(m.tambien)) {
+      const t = m.tambien.filter((x: string) => ids.has(x) && x !== m.siguiente);
+      if (t.length !== m.tambien.length) cambio = true;
+      m.tambien = t;
+      if (!m.siguiente && t.length && m.tipo !== 'pregunta' && m.tipo !== 'condicion' && m.tipo !== 'router') {
+        m.siguiente = t[0]; m.tambien = t.slice(1); cambio = true;
+      }
+    }
+    return m;
+  });
+  return cambio ? r : nodos;
+}
