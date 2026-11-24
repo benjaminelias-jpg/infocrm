@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { query, queryOne } from '../db/pool.js';
 import { conflicto, noEncontrado } from '../lib/errores.js';
 import {
-  listarContenidos, sincronizarInstagram, probarConexion, guardarCredenciales, integracionInstagram, credsUsables,
+  listarContenidos, sincronizarInstagram, completarPublicaciones, probarConexion, guardarCredenciales, integracionInstagram, credsUsables,
 } from '../modules/instagram.js';
 import { reatribuir } from '../modules/atribucion.js';
 import { calidadAtribucion, rendimientoPorContenido } from '../modules/analitica.js';
@@ -270,6 +270,9 @@ export default async function rutasContenidos(app: FastifyInstance) {
    * sin jerga): `motivo` le dice a la pantalla qué ofrecer (conectar o
    * revisar la conexión) y `detalle` guarda lo técnico por si hace falta.
    */
+  // Miniatura + texto de las publicaciones (para elegirlas viéndolas en la pizarra).
+  app.post('/contenidos/completar', async (req) => completarPublicaciones(req.sesion.cuentaId));
+
   app.post('/instagram/sincronizar', async (req) => {
     const limite = Math.min(Math.max(Number((req.query as any)?.limite ?? 50) || 50, 1), 100);
     const r = await sincronizarInstagram(req.sesion.cuentaId, { limite });

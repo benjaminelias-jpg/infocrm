@@ -648,7 +648,6 @@ function Paleta({ titulo, alElegir, alCerrar }: { titulo: string; alElegir: (t: 
 
 function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: any) => any) => void; ctx: Ctx }) {
   const disp = DISPAROS.find((d) => d.v === form.disparo) ?? DISPAROS[0];
-  const conPublicacion = (form.disparo === 'comentario' || form.disparo === 'historia') && ctx.contenidos.some((c: any) => c.ig_media_id);
   const palabra = String(form.palabra_clave ?? '').trim();
   return (
     <div className="space-y-3">
@@ -681,12 +680,9 @@ function CamposDisparador({ form, setForm, ctx }: { form: any; setForm: (f: (x: 
             : <>⚠ Sin palabra clave y sin publicación elegida: le llega a <b>todos los que comenten cualquiera</b> de tus publicaciones. Elegí la publicación abajo.</>}
         </div>
       )}
-      {conPublicacion && (
+      {(form.disparo === 'comentario' || form.disparo === 'historia') && (
         <Campo etiqueta="¿En qué publicación?">
-          <Seleccion value={form.contenido_id ?? ''} onChange={(e) => setForm((f) => ({ ...f, contenido_id: e.target.value }))}>
-            <option value="">En cualquiera</option>
-            {ctx.contenidos.filter((c: any) => c.ig_media_id).map((c: any) => <option key={c.id} value={c.id}>Solo en: {String(c.titulo).slice(0, 60)}</option>)}
-          </Seleccion>
+          <SelectorPublicacion valor={form.contenido_id ?? ''} inicial={ctx.contenidos} onElegir={(id) => setForm((f) => ({ ...f, contenido_id: id }))} />
         </Campo>
       )}
       {!disp.palabra && <div className="text-[12px] text-[var(--text-muted)]">{disp.ayuda}</div>}
@@ -1188,6 +1184,63 @@ function CampoCalendario({ p, set, foco, generarAgenda }: { p: Paso; set: (k: st
       <Campo etiqueta="Mensaje antes del link (opcional)">
         <TextoConVariables valor={String(p.texto ?? '')} onCambio={(v) => set('texto', v)} linea placeholder="Elegí el horario que te quede cómodo 👇" max={500} />
       </Campo>
+    </div>
+  );
+}
+
+
+/** Elegir la publicación viéndola: miniatura, texto y fecha (no un número imposible de reconocer). */
+function SelectorPublicacion({ valor, inicial, onElegir }: { valor: string; inicial: any[]; onElegir: (id: string) => void }) {
+  const [lista, setLista] = useState<any[]>(inicial);
+  const [cargando, setCargando] = useState(true);
+  const [todas, setTodas] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    api('/contenidos/completar', { method: 'POST' }).catch(() => null)
+      .then(() => api<any>('/contenidos'))
+      .then((r) => { if (vivo) setLista(Array.isArray(r) ? r : r?.contenidos ?? []); })
+      .catch(() => {})
+      .finally(() => { if (vivo) setCargando(false); });
+    return () => { vivo = false; };
+  }, []);
+  const pubs = lista.filter((c: any) => c.ig_media_id)
+    .sort((a: any, b: any) => String(b.publicado_en ?? b.creado_en ?? '').localeCompare(String(a.publicado_en ?? a.creado_en ?? '')));
+  const elegida = pubs.find((c: any) => c.id === valor);
+  const visibles = todas ? pubs : pubs.slice(0, 9);
+  const fecha = (c: any) => (c.publicado_en ? new Date(c.publicado_en).toLocaleDateString([], { day: 'numeric', month: 'short' }) : '');
+  const texto = (c: any) => String(c.caption || c.titulo || '').replace(/\s+/g, ' ').trim();
+  const Tarjeta = ({ c }: { c: any }) => {
+    const on = c.id === valor;
+    return (
+      <button type="button" onClick={() => onElegir(on ? '' : c.id)} aria-pressed={on} title={texto(c)}
+        className="ui-foco overflow-hidden rounded-lg border text-left"
+        style={{ borderColor: on ? 'var(--series-1)' : 'var(--border-hairline)', boxShadow: on ? '0 0 0 2px var(--series-1)' : undefined, background: 'var(--surface-1)' }}>
+        <div className="relative aspect-square w-full bg-[var(--surface-2,#eee)]">
+          {c.thumbnail_url
+            ? <img src={c.thumbnail_url} alt="" loading="lazy" className="h-full w-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+            : <div className="grid h-full place-items-center text-[20px]">{c.tipo === 'reel' ? '🎬' : '🖼️'}</div>}
+          {on && <span className="absolute right-1 top-1 rounded bg-[var(--series-1)] px-1 text-[10px] font-semibold text-white">✓</span>}
+          {c.tipo === 'reel' && <span className="absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] text-white">Reel</span>}
+        </div>
+        <div className="p-1.5">
+          <div className="line-clamp-2 text-[11px] leading-tight">{texto(c) || 'Sin texto'}</div>
+          <div className="mt-0.5 text-[10px] text-[var(--text-muted)]">{fecha(c)}</div>
+        </div>
+      </button>
+    );
+  };
+  return (
+    <div className="space-y-2">
+      <button type="button" onClick={() => onElegir('')} aria-pressed={!valor}
+        className="ui-foco w-full rounded-lg border px-2.5 py-2 text-left text-[12px]"
+        style={{ borderColor: !valor ? 'var(--series-1)' : 'var(--border-hairline)', background: 'var(--surface-1)' }}>
+        {!valor ? '✓ ' : ''}En cualquier publicación
+      </button>
+      {elegida && <div className="text-[11px] text-[var(--text-muted)]">Elegida: <b>{texto(elegida).slice(0, 60) || 'publicación'}</b> · {fecha(elegida)}{elegida.permalink && <> · <a className="underline" href={elegida.permalink} target="_blank" rel="noreferrer">verla en Instagram</a></>}</div>}
+      {cargando && !pubs.length ? <div className="text-[12px] text-[var(--text-muted)]">Trayendo tus publicaciones…</div> : null}
+      {!cargando && !pubs.length && <div className="text-[12px] text-[var(--text-muted)]">No encontramos publicaciones de Instagram. Conectá Instagram en Configuración.</div>}
+      <div className="grid grid-cols-3 gap-1.5">{visibles.map((c: any) => <Tarjeta key={c.id} c={c} />)}</div>
+      {pubs.length > 9 && <button type="button" className="text-[12px] underline" onClick={() => setTodas((x) => !x)}>{todas ? 'Ver menos' : `Ver todas (${pubs.length})`}</button>}
     </div>
   );
 }

@@ -258,3 +258,48 @@ export async function listarContenidos(cuentaId: string, filtros: { q?: string; 
     [cuentaId, filtros.q ?? null, filtros.tipo ?? null],
   );
 }
+
+/**
+ * Trae de Instagram (una sola llamada, sin métricas) la miniatura, el texto y
+ * la fecha de las últimas publicaciones, para poder elegirlas viéndolas.
+ * También completa las que se crearon solas por un comentario («Contenido 1815…»).
+ */
+export async function completarPublicaciones(cuentaId: string, limite = 50): Promise<{ ok: boolean; completadas: number }> {
+  const integ = await integracionInstagram(cuentaId);
+  const { base, token, igId } = credsUsables(integ?.credenciales ?? {});
+  if (!integ || !token || !igId) return { ok: false, completadas: 0 };
+  const campos = 'id,caption,media_type,media_product_type,permalink,thumbnail_url,media_url,timestamp';
+  const guardar = async (m: any) => {
+    const tipo = m.media_product_type === 'REELS' ? 'reel' : m.media_type === 'CAROUSEL_ALBUM' ? 'carrusel' : m.media_type === 'VIDEO' ? 'reel' : 'post';
+    const titulo = (m.caption ?? '').split('\n')[0].slice(0, 120) || `Publicación del ${m.timestamp ? new Date(m.timestamp).toLocaleDateString('es') : ''}`.trim();
+    await pool.query(
+      `INSERT INTO contenidos (cuenta_id, ig_media_id, tipo, titulo, caption, permalink, thumbnail_url, publicado_en)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       ON CONFLICT (cuenta_id, ig_media_id) WHERE ig_media_id IS NOT NULL
+       DO UPDATE SET
+         titulo = CASE WHEN contenidos.titulo LIKE 'Contenido %' THEN EXCLUDED.titulo ELSE contenidos.titulo END,
+         caption = COALESCE(EXCLUDED.caption, contenidos.caption),
+         permalink = COALESCE(EXCLUDED.permalink, contenidos.permalink),
+         thumbnail_url = COALESCE(EXCLUDED.thumbnail_url, contenidos.thumbnail_url),
+         publicado_en = COALESCE(EXCLUDED.publicado_en, contenidos.publicado_en)`,
+      [cuentaId, String(m.id), tipo, titulo, m.caption ?? null, m.permalink ?? null, m.thumbnail_url ?? m.media_url ?? null, m.timestamp ? new Date(m.timestamp) : null]);
+  };
+  let n = 0;
+  try {
+    const r = await fetch(`${base}/${igId}/media?fields=${campos}&limit=${limite}&access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(20_000) });
+    const d: any = await r.json();
+    for (const m of d?.data ?? []) { await guardar(m); n++; }
+  } catch { /* sin red: seguimos con lo que haya */ }
+  // Las que quedaron sin datos (más viejas que las últimas 50): de a una, hasta 15.
+  const faltan = await query<{ ig_media_id: string }>(
+    `SELECT ig_media_id FROM contenidos WHERE cuenta_id = $1 AND ig_media_id IS NOT NULL
+        AND (thumbnail_url IS NULL OR titulo LIKE 'Contenido %') ORDER BY creado_en DESC LIMIT 15`, [cuentaId]);
+  for (const f of faltan) {
+    try {
+      const r = await fetch(`${base}/${f.ig_media_id}?fields=${campos}&access_token=${encodeURIComponent(token)}`, { signal: AbortSignal.timeout(10_000) });
+      const m: any = await r.json();
+      if (m?.id) { await guardar(m); n++; }
+    } catch { /* sigue */ }
+  }
+  return { ok: true, completadas: n };
+}
