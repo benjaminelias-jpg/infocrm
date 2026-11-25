@@ -112,17 +112,6 @@ export default function Panel() {
     return () => document.removeEventListener('visibilitychange', f);
   }, [cargado, actualizar]);
 
-  // Barra de arriba fija: con sombra cuando el contenido pasa por debajo.
-  const centinela = useRef<HTMLDivElement>(null);
-  const [pegado, setPegado] = useState(false);
-  useEffect(() => {
-    const el = centinela.current;
-    if (!el || typeof IntersectionObserver === 'undefined') return;
-    const io = new IntersectionObserver(([e]) => setPegado(!e.isIntersecting));
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
   const [editandoObjetivo, setEditandoObjetivo] = useState(false);
   const [verMudos, setVerMudos] = useState(false);
   const [verDetalle, setVerDetalle] = useState<null | 'evolucion' | 'contenido' | 'analisis'>(null);
@@ -142,9 +131,8 @@ export default function Panel() {
 
   const encabezado = (
     <>
-      <div ref={centinela} className="h-px" aria-hidden />
-      <header className={`sticky top-0 z-20 -mx-4 mb-3 px-4 transition-shadow lg:-mx-8 lg:px-8 ${pegado ? 'border-b border-[var(--border-hairline)] shadow-sm' : ''}`}
-        style={{ background: FONDO }}>
+      {/* El saludo se va con el scroll (no queda fijo arriba). */}
+      <header className="mb-3">
         <div className="flex items-center justify-between gap-3 py-2.5 md:py-3">
           <div className="min-w-0">
             <h1 className="mt-0.5 text-[22px] font-semibold tracking-tight sm:text-[28px]">{saludo()}{primerNombre ? `, ${primerNombre}` : ''}</h1>
