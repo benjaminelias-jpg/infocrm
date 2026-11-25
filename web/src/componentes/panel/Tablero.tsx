@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fmtDinero, fmtNum, fmtPct, plural } from '../../api';
-import { Avatar, Dialogo, nombreVisible, useEsMovil } from '../../ui';
+import { Avatar, Dialogo, ItemMenu, Menu, nombreVisible, useEsMovil } from '../../ui';
 import { calcularDelta } from '../Graficas';
 import { IconoPanel } from './iconos';
 import { ritmoDelMes } from './Objetivo';
@@ -99,22 +99,50 @@ export function FilaNumeros({ k, anterior }: { k: Kpis; anterior: Kpis | null })
 }
 
 // ---------------------------------------------------------------------
-// Barras «Rendimiento»
+// Barras «Rendimiento» (réplica del diseño de referencia)
 // ---------------------------------------------------------------------
+// Cada columna tiene dos barras en el MISMO eje: atrás, clara, el mismo tramo
+// del período anterior; adelante, este período. La destacada (la mayor, o la
+// que tenés debajo del mouse) va en azul rayado con un punto arriba y su globo.
 type Metrica = 'ingresos' | 'leads' | 'reuniones' | 'ventas';
 const METRICAS: Array<{ v: Metrica; t: string }> = [
   { v: 'ingresos', t: 'Ingresos' }, { v: 'leads', t: 'Leads' }, { v: 'reuniones', t: 'Reuniones' }, { v: 'ventas', t: 'Ventas' },
 ];
 
-function etiquetaPeriodo(p: string, gran?: string) {
-  const d = new Date(p.length <= 10 ? `${p}T12:00:00` : p);
-  if (Number.isNaN(d.getTime())) return p;
-  return gran === 'mes' ? d.toLocaleDateString('es-ES', { month: 'short' }) : d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' });
+const FONDO_BARRA = 'color-mix(in srgb, var(--text-primary) 3.5%, var(--surface-1))';
+const BARRA = 'color-mix(in srgb, var(--text-primary) 8.5%, var(--surface-1))';
+const PUNTO_ANTERIOR = 'color-mix(in srgb, var(--text-primary) 14%, var(--surface-1))';
+const DESTACADA = [
+  'repeating-linear-gradient(45deg, rgba(255,255,255,.34) 0 1.6px, transparent 1.6px 8px)',
+  'linear-gradient(180deg, #1f6ff2 0%, #4f8ef5 42%, #a9c7fa 78%, #d6e5fd 100%)',
+].join(', ');
+
+const aFecha = (p: string) => new Date(p.length <= 10 ? `${p}T12:00:00` : p);
+function tramo(desde: string, hasta: string, gran?: string, largo = false) {
+  const a = aFecha(desde), b = aFecha(hasta);
+  if (Number.isNaN(a.getTime())) return desde;
+  if (gran === 'mes') {
+    const t = a.toLocaleDateString('es-ES', largo ? { month: 'long', year: 'numeric' } : { month: 'short' });
+    return largo ? t.charAt(0).toUpperCase() + t.slice(1) : t.replace('.', '');
+  }
+  if (gran === 'semana') return `${largo ? 'Semana del ' : ''}${a.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).replace('.', '')}`;
+  const mismo = desde === hasta;
+  if (!largo) return a.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }).replace('.', '');
+  if (mismo) return a.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' });
+  return `${a.getDate()} al ${b.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}`;
 }
-function corto(n: number, dinero: boolean) {
-  const abs = Math.abs(n);
-  const s = abs >= 1000 ? `${(n / 1000).toLocaleString('es-ES', { maximumFractionDigits: abs >= 10000 ? 0 : 1 })}k` : fmtNum(n);
-  return dinero ? `${s} €` : s;
+
+/** Tope «redondo» del eje y su paso (6 marcas parejas, como la referencia). */
+function escala(max: number) {
+  const bruto = Math.max(1, max) / 5;
+  const p = 10 ** Math.floor(Math.log10(bruto));
+  const paso = [1, 2, 2.5, 5, 10].map((m) => m * p).find((x) => x >= bruto) ?? 10 * p;
+  return { tope: paso * 5, paso };
+}
+function marca(v: number, k: boolean) {
+  if (!k) return fmtNum(v);
+  const n = v / 1000;
+  return `${n.toLocaleString('es-ES', { maximumFractionDigits: n < 10 && n % 1 ? 1 : 0 })}k`;
 }
 
 export function Rendimiento({ datos }: { datos: DatosPanel }) {
@@ -122,79 +150,127 @@ export function Rendimiento({ datos }: { datos: DatosPanel }) {
   const [sobre, setSobre] = useState<number | null>(null);
   const movil = useEsMovil(640);
   const dinero = m === 'ingresos';
-  // Como mucho 12 barras: si hay más días, se agrupan.
+  const H = movil ? 200 : 232;
+  const nombre = METRICAS.find((x) => x.v === m)!.t;
+
+  // Como mucho 12 columnas (6 en el celular): si hay más días, se agrupan.
   const barras = useMemo(() => {
     const s = datos.serie ?? [];
+    const ant = datos.serie_anterior ?? null;
     const tam = Math.max(1, Math.ceil(s.length / (movil ? 6 : 12)));
-    const out: Array<{ etq: string; v: number; ventas: number; leads: number }> = [];
+    const out: Array<{ corta: string; larga: string; v: number; antes: number | null }> = [];
     for (let i = 0; i < s.length; i += tam) {
       const g = s.slice(i, i + tam);
+      const ga = ant ? ant.slice(i, i + tam) : null;
       out.push({
-        etq: etiquetaPeriodo(g[0].periodo, datos.serie_granularidad),
+        corta: tramo(g[0].periodo, g[g.length - 1].periodo, datos.serie_granularidad),
+        larga: tramo(g[0].periodo, g[g.length - 1].periodo, datos.serie_granularidad, true),
         v: g.reduce((a, x) => a + (Number(x[m]) || 0), 0),
-        ventas: g.reduce((a, x) => a + (Number(x.ventas) || 0), 0),
-        leads: g.reduce((a, x) => a + (Number(x.leads) || 0), 0),
+        antes: ga && ga.length ? ga.reduce((a, x) => a + (Number(x[m]) || 0), 0) : null,
       });
     }
     return out;
-  }, [datos.serie, datos.serie_granularidad, m, movil]);
-  const max = Math.max(1, ...barras.map((b) => b.v));
-  const tope = (() => { const p = 10 ** Math.floor(Math.log10(max)); return Math.ceil(max / p) * p; })();
-  const lineas = [0, 0.25, 0.5, 0.75, 1].map((f) => f * tope);
-  const mayor = barras.reduce((bi, b, i) => (b.v > barras[bi].v ? i : bi), 0);
-  const activa = sobre ?? mayor;
-  const H = 230;
+  }, [datos.serie, datos.serie_anterior, datos.serie_granularidad, m, movil]);
+
+  const max = Math.max(1, ...barras.map((b) => Math.max(b.v, b.antes ?? 0)));
+  const { tope, paso } = escala(max);
+  const k = tope >= 1000;
+  const marcas = Array.from({ length: 6 }, (_, i) => tope - i * paso);
+  // Destacada por defecto: la última columna con datos (dónde estás ahora).
+  const ultima = barras.reduce((u, b, i) => (b.v > 0 ? i : u), Math.max(0, barras.length - 1));
+  const activa = sobre ?? ultima;
+  const fmt = (v: number) => (dinero ? fmtDinero(v) : fmtNum(v));
+  const hayAnterior = barras.some((b) => b.antes !== null);
+
   return (
-    <section className={`${TARJETA} min-w-0 p-5 lg:col-span-2`}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-[18px] font-semibold tracking-tight">Rendimiento</h2>
-        <div className="flex max-w-full overflow-x-auto rounded-full bg-[var(--surface-2)] p-1" role="tablist" aria-label="Qué mostrar">
-          {METRICAS.map((x) => (
-            <button key={x.v} type="button" role="tab" aria-selected={m === x.v} onClick={() => setM(x.v)}
-              className="ui-foco shrink-0 rounded-full px-3 py-1.5 text-[12px] font-medium transition-colors"
-              style={m === x.v ? { background: 'var(--surface-1)', color: 'var(--text-primary)', boxShadow: '0 1px 2px rgba(0,0,0,.08)' } : { color: 'var(--text-secondary)' }}>
-              {x.t}
-            </button>
-          ))}
-        </div>
+    <section className={`${TARJETA} min-w-0 p-5 sm:p-6 lg:col-span-2`}>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-[19px] font-medium tracking-[-0.01em] sm:text-[20px]">Rendimiento</h2>
+        <Menu alinear="derecha" ancho={200} titulo="Qué mostrar" disparador={({ abierto, alternar, ref }) => (
+          <button ref={ref} type="button" onClick={alternar} aria-haspopup="menu" aria-expanded={abierto}
+            className="ui-foco inline-flex h-[42px] items-center gap-3 rounded-full pl-4 pr-1 text-[14px]"
+            style={{ background: 'color-mix(in srgb, var(--text-primary) 4%, var(--surface-1))' }}>
+            {nombre}
+            <span className="grid h-[34px] w-[34px] place-items-center rounded-full bg-[var(--surface-1)] shadow-[0_1px_3px_rgba(16,24,40,.10)]">
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden className={`transition-transform ${abierto ? 'rotate-180' : ''}`}>
+                <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </button>
+        )}>
+          {METRICAS.map((x) => <ItemMenu key={x.v} activo={x.v === m} onClick={() => setM(x.v)}>{x.t}</ItemMenu>)}
+        </Menu>
       </div>
+
       {barras.length === 0 ? (
-        <div className="grid h-[230px] place-items-center text-[13px] text-[var(--text-secondary)]">Todavía no hay datos en este período.</div>
+        <div className="grid place-items-center text-[13px] text-[var(--text-secondary)]" style={{ height: H + 60 }}>Todavía no hay datos en este período.</div>
       ) : (
-        <div className="mt-6 flex gap-2 sm:gap-3">
-          <div className="relative w-8 shrink-0 text-right sm:w-10 text-[11px] text-[var(--text-secondary)] tabular-nums" style={{ height: H }}>
-            {lineas.map((v) => <span key={v} className="absolute right-0 -translate-y-1/2" style={{ top: H - (v / tope) * H }}>{corto(v, false)}</span>)}
+        <div className="mt-9 flex">
+          {/* Eje: 6 marcas parejas */}
+          <div className="relative shrink-0 pr-3 text-right text-[12px] text-[var(--text-secondary)] tabular-nums sm:pr-4 sm:text-[13px]" style={{ height: H, width: movil ? 34 : 44 }}>
+            {marcas.map((v) => (
+              <span key={v} className="absolute right-3 -translate-y-1/2 sm:right-4" style={{ top: H - (v / tope) * H }}>{marca(v, k)}</span>
+            ))}
           </div>
           <div className="relative min-w-0 flex-1">
-            {lineas.map((v) => <div key={v} className="absolute inset-x-0 border-t border-dashed border-[var(--border-hairline)]" style={{ top: H - (v / tope) * H }} />)}
-            <div className="relative flex items-end gap-2 sm:gap-3" style={{ height: H }} onPointerLeave={() => setSobre(null)}>
+            {marcas.map((v) => (
+              <div key={v} className="pointer-events-none absolute inset-x-0 border-t border-dashed"
+                style={{ top: H - (v / tope) * H, borderColor: 'color-mix(in srgb, var(--text-primary) 10%, transparent)' }} />
+            ))}
+            <div className="relative flex items-end" style={{ height: H, gap: movil ? 10 : 18 }} onPointerLeave={() => setSobre(null)}>
               {barras.map((b, i) => {
                 const on = i === activa;
-                const alto = Math.max(4, (b.v / tope) * H);
+                const altoFondo = b.antes ? (b.antes / tope) * H : 0;
+                const alto = b.v > 0 ? Math.max(8, (b.v / tope) * H - 3) : 0;
+                const punto = alto + 3; // centro del punto, desde la base
+                const ALTO_GLOBO = hayAnterior ? 104 : 78;
+                const cabeArriba = punto + 6 + ALTO_GLOBO <= H + 30;
+                // Cerca del borde izquierdo el globo abre hacia la derecha (si no, taparía el eje).
+                const aLaDerecha = (i + 0.5) / barras.length < (movil ? 0.62 : 0.32);
                 return (
-                  <div key={i} className="relative flex h-full min-w-0 flex-1 items-end" onPointerEnter={() => setSobre(i)}>
-                    <div className="absolute inset-0 rounded-[10px] bg-[var(--surface-2)] opacity-60" />
-                    <div className="relative w-full rounded-[10px] transition-[height] duration-300"
-                      style={{
-                        height: alto,
-                        background: on
-                          ? `repeating-linear-gradient(135deg, ${AZUL} 0 7px, #5b9cf6 7px 12px)`
-                          : 'color-mix(in srgb, var(--text-primary) 12%, var(--surface-2))',
-                      }} />
+                  <div key={i} className="relative h-full min-w-0 flex-1 cursor-default" onPointerEnter={() => setSobre(i)}
+                    aria-label={`${b.larga}: ${fmt(b.v)}`}>
+                    {altoFondo > alto + 6 && (
+                      <div className="absolute inset-x-0 bottom-0 rounded-[12px]" style={{ height: altoFondo, background: FONDO_BARRA }} />
+                    )}
+                    {alto > 0 && (
+                      <div className="absolute bottom-[3px] left-[3px] right-[3px] rounded-[10px] transition-[height] duration-300"
+                        style={{ height: alto, background: on ? DESTACADA : BARRA }} />
+                    )}
+                    {on && alto > 0 && (
+                      <span className="pointer-events-none absolute left-1/2 z-[2] h-[11px] w-[11px] -translate-x-1/2 translate-y-1/2 rounded-full"
+                        style={{ bottom: punto, background: AZUL, boxShadow: '0 0 0 2.5px var(--surface-1), 0 1px 4px rgba(16,24,40,.25)' }} />
+                    )}
                     {on && (
-                      <div className={`pointer-events-none absolute z-10 w-max rounded-[14px] border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3.5 py-2.5 text-[12px] shadow-[0_12px_32px_-12px_rgba(16,24,40,.35)] ${i > barras.length / 2 ? 'right-[calc(100%+8px)]' : 'left-[calc(100%+8px)]'}`}
-                        style={{ bottom: Math.max(0, Math.min(alto - 30, H - 78)) }}>
-                        <div className="mb-1.5 font-semibold">{b.etq}</div>
-                        <div className="flex items-center justify-between gap-6"><span className="flex items-center gap-1.5 text-[var(--text-secondary)]"><span className="h-2 w-2 rounded-full" style={{ background: AZUL }} />{METRICAS.find((x) => x.v === m)!.t}</span><b className="tabular-nums">{dinero ? fmtDinero(b.v) : fmtNum(b.v)}</b></div>
-                        {m !== 'ventas' && <div className="mt-1 flex items-center justify-between gap-6"><span className="flex items-center gap-1.5 text-[var(--text-secondary)]"><span className="h-2 w-2 rounded-full bg-[var(--text-muted)]" />Ventas</span><b className="tabular-nums">{fmtNum(b.ventas)}</b></div>}
+                      <div className={`pointer-events-none absolute z-[3] w-max rounded-[16px] bg-[var(--surface-1)] ${movil ? 'min-w-[150px] px-3.5 py-3 text-[12px]' : 'min-w-[176px] px-4 py-3.5 text-[13px]'}`}
+                        style={{
+                          boxShadow: '0 12px 32px -8px rgba(16,24,40,.18), 0 0 0 1px color-mix(in srgb, var(--text-primary) 7%, transparent)',
+                          bottom: cabeArriba ? punto + 6 : H + 28 - ALTO_GLOBO,
+                          ...(aLaDerecha
+                            ? { left: cabeArriba ? '50%' : 'calc(100% + 8px)' }
+                            : { right: cabeArriba ? '50%' : 'calc(100% + 8px)' }),
+                        }}>
+                        <div className="text-[14px] font-medium text-[var(--text-primary)]">{b.larga}</div>
+                        {b.antes !== null && (
+                          <div className="mt-2.5 flex items-center justify-between gap-8">
+                            <span className="flex items-center gap-2 text-[var(--text-secondary)]"><span className="h-2 w-2 rounded-full" style={{ background: PUNTO_ANTERIOR }} />Período anterior</span>
+                            <b className="font-semibold tabular-nums text-[var(--text-primary)]">{fmt(b.antes)}</b>
+                          </div>
+                        )}
+                        <div className={`${b.antes !== null ? 'mt-2' : 'mt-2.5'} flex items-center justify-between gap-8`}>
+                          <span className="flex items-center gap-2 text-[var(--text-secondary)]"><span className="h-2 w-2 rounded-full" style={{ background: AZUL }} />{nombre}</span>
+                          <b className="font-semibold tabular-nums text-[var(--text-primary)]">{fmt(b.v)}</b>
+                        </div>
                       </div>
                     )}
                   </div>
                 );
               })}
             </div>
-            <div className="mt-2 flex gap-2 sm:gap-3">
-              {barras.map((b, i) => <span key={i} className="min-w-0 flex-1 truncate text-center text-[11px] text-[var(--text-secondary)]">{b.etq}</span>)}
+            <div className="mt-3 flex" style={{ gap: movil ? 10 : 18 }}>
+              {barras.map((b, i) => (
+                <span key={i} className="min-w-0 flex-1 truncate text-center text-[12px] capitalize text-[var(--text-secondary)] sm:text-[13px]">{b.corta}</span>
+              ))}
             </div>
           </div>
         </div>

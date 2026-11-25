@@ -128,6 +128,8 @@ export interface DatosPanel {
   pipelines?: PipelineResumen[];
   serie: Array<{ periodo: string; leads: number | string; reuniones: number | string; ventas: number | string; ingresos: number | string }>;
   serie_granularidad?: Granularidad;
+  /** La misma serie del período con el que se compara (para la barra de fondo). */
+  serie_anterior?: DatosPanel['serie'] | null;
   closers: Persona[];
   calidad: Calidad;
   angulos: Angulo[];

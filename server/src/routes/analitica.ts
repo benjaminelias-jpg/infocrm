@@ -117,6 +117,8 @@ export default async function rutasAnalitica(app: FastifyInstance) {
       anteriorRango = { desde: new Date(desde - (hasta - desde)).toISOString(), hasta: new Date(desde).toISOString() };
     }
     const anterior = anteriorRango ? await resumen(cuentaId, { ...f, ...anteriorRango }) : null;
+    // La misma serie, pero del período anterior (para comparar barra con barra).
+    const serieAnterior = anteriorRango ? await serieTemporal(cuentaId, gran, { ...f, ...anteriorRango }).catch(() => null) : null;
 
     // Contenido mudo: publicado en el periodo (hace más de 3 días, para darle
     // tiempo) que no trajo ni un lead.
@@ -140,7 +142,7 @@ export default async function rutasAnalitica(app: FastifyInstance) {
     return {
       kpis, anterior, anterior_rango: anteriorRango,
       contenidos, embudo: pasos, embudo_pipeline_id: embudoPipelineId, pipelines,
-      serie, serie_granularidad: gran,
+      serie, serie_granularidad: gran, serie_anterior: serieAnterior,
       closers, calidad, angulos, mezcla, metas, mudos, publicados, estancados,
     };
   });
