@@ -92,7 +92,7 @@ export function SelectorRango({ rango, onCambiar, cargando }: {
       <Menu titulo="Período" alinear="derecha" ancho={220} disparador={({ abierto, alternar, ref }) => (
         <button ref={ref} type="button" onClick={alternar} aria-haspopup="menu" aria-expanded={abierto}
           aria-label={`Período: ${etiquetaRango(rango)}. Cambiar`}
-          className="ui-foco inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3.5 text-[13px] font-medium">
+          className="ui-foco inline-flex h-10 shrink-0 items-center gap-1.5 rounded-full border border-[var(--border-hairline)] bg-[var(--surface-1)] px-3.5 text-[13px] font-medium">
           {cargando && <Girando tam={13} />}
           {etiquetaRango(rango)}
           <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden className={`transition-transform ${abierto ? 'rotate-180' : ''}`}>
@@ -118,15 +118,15 @@ export function SelectorRango({ rango, onCambiar, cargando }: {
     window.requestAnimationFrame(() => grupo.querySelector<HTMLButtonElement>(`[data-rango="${sig.valor}"]`)?.focus());
   }
   return (
-    <div role="radiogroup" aria-label="Período" onKeyDown={tecla} className="flex shrink-0 items-center gap-0.5 rounded-lg p-0.5"
+    <div role="radiogroup" aria-label="Período" onKeyDown={tecla} className="flex shrink-0 items-center gap-0.5 rounded-full p-1"
       style={{ background: 'var(--surface-1)', border: '1px solid var(--border-hairline)' }}>
       {OPCIONES_RANGO.map((o) => {
         const activo = o.valor === rango;
         return (
           <button key={o.valor} type="button" role="radio" aria-checked={activo} onClick={() => onCambiar(o.valor)}
             data-rango={o.valor} tabIndex={activo ? 0 : -1}
-            className={`ui-foco inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-[13px] transition-colors ${activo
-              ? 'bg-[var(--page-plane)] font-semibold text-[var(--text-primary)] shadow-sm'
+            className={`ui-foco inline-flex h-9 items-center gap-1.5 rounded-full px-4 text-[13px] transition-colors ${activo
+              ? 'bg-[var(--text-primary)] font-medium text-[var(--surface-1)]'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'}`}>
             {activo && cargando && <Girando tam={12} />}
             {o.etiqueta}

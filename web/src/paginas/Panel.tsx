@@ -8,7 +8,8 @@ import { Evolucion } from '../componentes/panel/Evolucion';
 import { FilaKpis } from '../componentes/panel/Kpis';
 import { LeadsQuietos } from '../componentes/panel/LeadsQuietos';
 import { DetalleContenido, MejorContenido, useApilado } from '../componentes/panel/MejorContenido';
-import { ObjetivoMes } from '../componentes/panel/Objetivo';
+import { DialogoObjetivo, ObjetivoMes, ritmoDelMes } from '../componentes/panel/Objetivo';
+import { DialogoSimple, EmbudoCaja, FilaNumeros, ParaHoyCaja, QuietosCaja, Rendimiento, TablaContenidos, TarjetaMedidor } from '../componentes/panel/Tablero';
 import { ParaHoy, armarParaHoy } from '../componentes/panel/ParaHoy';
 import { DialogoMudos, PrimerosPasos } from '../componentes/panel/PrimerosPasos';
 import { SelectorRango, etiquetaRango, usarRangoPanel } from '../componentes/panel/Rango';
@@ -35,7 +36,16 @@ function irA(id: string) {
   window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
 }
 
+// Un gris apenas más oscuro que el resto de la app: las tarjetas blancas se despegan del fondo.
+const FONDO = 'color-mix(in srgb, var(--page-plane) 94%, var(--text-primary) 6%)';
+
+function saludo() {
+  const h = new Date().getHours();
+  return h < 13 ? 'Buen día' : h < 20 ? 'Buenas tardes' : 'Buenas noches';
+}
+
 export default function Panel() {
+  const primerNombre = String(leerSesion()?.usuario?.nombre ?? '').trim().split(/\s+/)[0] ?? '';
   const aviso = useAviso();
   const movil = useEsMovil(768);
   const rol = leerSesion()?.usuario?.rol;
@@ -115,6 +125,7 @@ export default function Panel() {
 
   const [editandoObjetivo, setEditandoObjetivo] = useState(false);
   const [verMudos, setVerMudos] = useState(false);
+  const [verDetalle, setVerDetalle] = useState<null | 'evolucion' | 'contenido' | 'analisis'>(null);
   const detalle = useApilado('contenido');
   const contenidoAbierto = datos?.contenidos?.find((c) => c.id && c.id === detalle.valor) ?? null;
 
@@ -123,7 +134,7 @@ export default function Panel() {
 
   const acciones = useMemo(() => (datos ? armarParaHoy(datos, estado, {
     verQuietos: () => { cambiarQuietos(true); irA('leads-quietos'); },
-    verObjetivo: () => irA('objetivo-mes'),
+    verObjetivo: () => setEditandoObjetivo(true),
     verMudos: () => setVerMudos(true),
   }) : []), [datos, estado, cambiarQuietos]);
 
@@ -133,14 +144,11 @@ export default function Panel() {
     <>
       <div ref={centinela} className="h-px" aria-hidden />
       <header className={`sticky top-0 z-20 -mx-4 mb-3 px-4 transition-shadow lg:-mx-8 lg:px-8 ${pegado ? 'border-b border-[var(--border-hairline)] shadow-sm' : ''}`}
-        style={{ background: 'var(--page-plane)' }}>
+        style={{ background: FONDO }}>
         <div className="flex items-center justify-between gap-3 py-2.5 md:py-3">
           <div className="min-w-0">
-            <h1 className="flex items-center gap-1.5 text-[18px] font-semibold tracking-tight sm:text-[20px]">
-              Panel
-              <span className="sm:hidden"><Ayuda titulo="Panel">{SUBTITULO}</Ayuda></span>
-            </h1>
-            <p className="mt-0.5 hidden text-[13px] text-[var(--text-secondary)] sm:block">{SUBTITULO}</p>
+            <h1 className="mt-0.5 text-[22px] font-semibold tracking-tight sm:text-[28px]">{saludo()}{primerNombre ? `, ${primerNombre}` : ''}</h1>
+            <p className="mt-0.5 hidden text-[13px] text-[var(--text-secondary)] sm:block">Tu resumen de ventas y actividad</p>
           </div>
           <SelectorRango rango={rango} onCambiar={setRango} cargando={refrescando} />
         </div>
@@ -165,56 +173,67 @@ export default function Panel() {
   );
 
   return (
-    <div className="px-4 pb-8 lg:px-8">
+    <div className="min-h-full px-4 pb-10 lg:px-8" style={{ background: FONDO }}>
+      <div className="mx-auto max-w-[1280px]">
       {encabezado}
 
-      <div className="space-y-5">
+      <div className="space-y-4">
         {nueva && estado && <PrimerosPasos estado={estado} onObjetivo={() => setEditandoObjetivo(true)} />}
 
         <div className={nueva ? 'pointer-events-none select-none opacity-50' : undefined} aria-hidden={nueva || undefined}>
           {nueva && <p className="mb-2 text-[12px] font-medium text-[var(--text-secondary)]">Así se va a ver tu panel cuando entren leads:</p>}
-          <FilaKpis k={datos.kpis} anterior={nueva ? null : datos.anterior} comparacion={comparacion} texto={texto} cargando={refrescando} />
-        </div>
-
-        {!nueva && <ParaHoy acciones={acciones} />}
-
-        <ObjetivoMes metas={datos.metas} estado={estado} editando={editandoObjetivo}
-          onEditar={() => setEditandoObjetivo(true)} onCerrar={() => setEditandoObjetivo(false)}
-          onGuardado={() => { recargar(true); cargarEstado(); }} />
-
-        {esEquipo && quietos}
-
-        {/* Dos columnas recién desde 1280 px: en una laptop chica (1024) el embudo y la
-            tabla quedaban apretados y la columna de plata se cortaba. */}
-        <div className={`grid gap-4 xl:grid-cols-3 ${nueva ? 'pointer-events-none select-none opacity-50' : ''}`} aria-hidden={nueva || undefined}>
-          <div className="min-w-0 xl:col-span-2"><Evolucion datos={datos} cargando={refrescando} /></div>
-          <EmbudoPanel pipelines={datos.pipelines ?? []} inicial={datos.embudo ?? []} inicialId={datos.embudo_pipeline_id ?? null}
-            paramsRango={cargado?.params ?? params} texto={texto} cargandoPanel={refrescando} />
-        </div>
-
-        <div className="grid items-start gap-4 xl:grid-cols-3">
-          <div className={`min-w-0 ${esEquipo ? 'xl:col-span-3' : 'xl:col-span-2'}`}>
-            <MejorContenido contenidos={datos.contenidos ?? []} texto={texto} cargando={refrescando}
-              onAbrir={(c) => c.id && detalle.abrir(c.id)} />
-          </div>
-          {!esEquipo && quietos}
+          <FilaNumeros k={datos.kpis} anterior={nueva ? null : datos.anterior} />
         </div>
 
         {!nueva && (
-          <div className="space-y-3">
-            <Fiabilidad calidad={datos.calidad} texto={texto} />
-            <Angulos angulos={datos.angulos ?? []} mezcla={datos.mezcla} abiertoInicial={!movil} />
-            <Equipo personas={datos.closers ?? []} abiertoInicial={!movil} texto={texto} />
-          </div>
+          <>
+            <div className="grid gap-4 lg:grid-cols-3">
+              <Rendimiento datos={datos} />
+              <TarjetaMedidor datos={datos} onObjetivo={() => setEditandoObjetivo(true)} />
+            </div>
+            <TablaContenidos datos={datos} onAbrir={(c) => c.id && detalle.abrir(c.id)} onVerTodos={() => setVerDetalle('contenido')} />
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <ParaHoyCaja acciones={acciones} />
+              <QuietosCaja datos={datos} onVer={() => cambiarQuietos(true)} />
+              <EmbudoCaja datos={datos} />
+            </div>
+          </>
         )}
 
-        <p className="flex flex-wrap items-center justify-center gap-x-1 pt-1 text-[12px] text-[var(--text-secondary)]">
-          <span>Actualizado {hace(new Date(cargado!.en))}</span>
-          <span aria-hidden>·</span>
-          <Boton variante="fantasma" onClick={actualizar} cargando={refrescando} className="!text-[var(--series-1)]">Actualizar</Boton>
-        </p>
+        {!nueva && (
+          <p className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 pt-4 text-[12px] text-[var(--text-secondary)]">
+            <button type="button" className="ui-foco hover:text-[var(--text-primary)]" onClick={() => setVerDetalle('evolucion')}>Gráficos día a día</button>
+            <button type="button" className="ui-foco hover:text-[var(--text-primary)]" onClick={() => setVerDetalle('contenido')}>Todos tus contenidos</button>
+            <button type="button" className="ui-foco hover:text-[var(--text-primary)]" onClick={() => setVerDetalle('analisis')}>Análisis completo</button>
+            <span aria-hidden>·</span>
+            <span>Actualizado {hace(new Date(cargado!.en))}</span>
+            <button type="button" className="ui-foco font-medium" style={{ color: 'var(--series-1)' }} onClick={actualizar}>{refrescando ? 'Actualizando…' : 'Actualizar'}</button>
+          </p>
+        )}
       </div>
 
+      </div>
+      <DialogoSimple abierto={quietosAbierto} onCerrar={() => cambiarQuietos(false)} titulo="Leads para retomar">
+        <LeadsQuietos inicial={datos.estancados} plegable={false} abierto onCambiarAbierto={() => {}} soloMios={esEquipo ? true : undefined} />
+      </DialogoSimple>
+      <DialogoSimple abierto={verDetalle === 'evolucion'} onCerrar={() => setVerDetalle(null)} titulo="Día a día">
+        <Evolucion datos={datos} cargando={refrescando} />
+        <div className="mt-4"><EmbudoPanel pipelines={datos.pipelines ?? []} inicial={datos.embudo ?? []} inicialId={datos.embudo_pipeline_id ?? null}
+          paramsRango={cargado?.params ?? params} texto={texto} cargandoPanel={refrescando} /></div>
+      </DialogoSimple>
+      <DialogoSimple abierto={verDetalle === 'contenido'} onCerrar={() => setVerDetalle(null)} titulo="Tus contenidos">
+        <MejorContenido contenidos={datos.contenidos ?? []} texto={texto} cargando={refrescando}
+          onAbrir={(c) => { setVerDetalle(null); if (c.id) detalle.abrir(c.id); }} />
+      </DialogoSimple>
+      <DialogoSimple abierto={verDetalle === 'analisis'} onCerrar={() => setVerDetalle(null)} titulo="Análisis completo">
+        <div className="space-y-3">
+          <Angulos angulos={datos.angulos ?? []} mezcla={datos.mezcla} abiertoInicial />
+          <Equipo personas={datos.closers ?? []} abiertoInicial texto={texto} />
+          <Fiabilidad calidad={datos.calidad} texto={texto} />
+        </div>
+      </DialogoSimple>
+      <DialogoObjetivo abierto={editandoObjetivo} onCerrar={() => setEditandoObjetivo(false)} metas={datos.metas} estado={estado}
+        mes={ritmoDelMes().mes} onGuardado={() => { setEditandoObjetivo(false); recargar(true); cargarEstado(); }} />
       <DetalleContenido contenido={contenidoAbierto} onCerrar={detalle.cerrar} />
       <DialogoMudos abierto={verMudos} onCerrar={() => setVerMudos(false)} mudos={datos.mudos ?? []} texto={texto} />
     </div>

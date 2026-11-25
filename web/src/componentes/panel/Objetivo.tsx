@@ -127,7 +127,7 @@ export function ObjetivoMes({ metas, estado, editando, onEditar, onCerrar, onGua
   );
 }
 
-function DialogoObjetivo({ abierto, onCerrar, metas, estado, mes, onGuardado }: {
+export function DialogoObjetivo({ abierto, onCerrar, metas, estado, mes, onGuardado }: {
   abierto: boolean; onCerrar: () => void; metas: Metas | undefined; estado: EstadoCuenta | null; mes: string;
   onGuardado: () => void;
 }) {
