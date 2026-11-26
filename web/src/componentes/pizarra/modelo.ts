@@ -149,7 +149,7 @@ export function arbolAGrafo(pasos: any[]): Paso[] {
     const ids = validos.map((p) => String(p.id ?? uid()));
     validos.forEach((p, i) => {
       const despues = i + 1 < validos.length ? ids[i + 1] : continuacion;
-      const { si, no, opciones, pasos: _p, ...resto } = p;
+      const { si, no, opciones, sin, pasos: _p, ...resto } = p;
       const n: Paso = { ...resto, id: ids[i], tipo: p.tipo };
       if (p.tipo === 'pregunta') {
         n.opciones = (opciones ?? []).map((o: any) => ({ id: String(o.id ?? uid()), titulo: o.titulo ?? '', siguiente: secuencia(o.pasos ?? [], despues) }));
@@ -157,6 +157,10 @@ export function arbolAGrafo(pasos: any[]): Paso[] {
         n.siguiente_si = secuencia(si ?? [], despues);
         n.siguiente_no = secuencia(no ?? [], despues);
       } else n.siguiente = despues;
+      // «Si no responde en X»: su propio camino (termina ahí).
+      if ((p.tipo === 'pregunta' || p.tipo === 'esperar_respuesta' || p.tipo === 'esperar_agenda') && Number(p.limite_min) > 0) {
+        n.siguiente_sin_respuesta = secuencia(sin ?? [], null);
+      }
       nodos.push(n);
     });
     return ids[0] ?? continuacion;
@@ -170,18 +174,22 @@ export function arbolAGrafo(pasos: any[]): Paso[] {
 export function ordenar(nodos: Paso[]): Paso[] {
   const mapa = new Map(nodos.map((n) => [n.id, n]));
   const nivel = new Map<string, number>([['inicio', 0]]);
+  // Orden en que se descubre cada paso siguiendo las salidas en orden (botón 1, botón 2…;
+  // «Si responde» antes que «Si no responde»): así cada columna respeta ese orden y las flechas no se cruzan.
+  const descubierto = new Map<string, number>([['inicio', 0]]);
   const cola = ['inicio'];
   while (cola.length) {
     const id = cola.shift()!;
     const n = mapa.get(id);
     if (!n) continue;
     for (const [, s] of salidas(n)) {
-      if (s && mapa.has(s) && !nivel.has(s)) { nivel.set(s, nivel.get(id)! + 1); cola.push(s); }
+      if (s && mapa.has(s) && !nivel.has(s)) { nivel.set(s, nivel.get(id)! + 1); descubierto.set(s, descubierto.size); cola.push(s); }
     }
   }
   const columnas = new Map<number, Paso[]>();
   const sueltos: Paso[] = [];
-  for (const n of nodos) {
+  const enOrden = [...nodos].sort((a, b) => (descubierto.get(a.id) ?? Infinity) - (descubierto.get(b.id) ?? Infinity));
+  for (const n of enOrden) {
     const nv = nivel.get(n.id);
     if (nv === undefined) sueltos.push(n);
     else { if (!columnas.has(nv)) columnas.set(nv, []); columnas.get(nv)!.push(n); }

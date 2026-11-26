@@ -38,11 +38,39 @@ const op = (titulo: string, pasos: NodoArbol[] = []) => ({ id: uid(), titulo, pa
 interface Plantilla {
   slug: string; nombre: string; icono: string; disparo: string; palabra_clave: string; desc: string;
   /** Qué tenés que tener para que funcione. */
-  requiere?: 'audio' | 'pdf';
+  requiere?: Requisito | Requisito[];
   pasos: () => NodoArbol[];
 }
 
+type Requisito = 'audio' | 'pdf' | 'leadmagnet';
+/** El lead magnet puede ser una guía en PDF, un link, un video o una imagen (lo primero que tengas). */
+const TIPOS_LEAD_MAGNET = ['pdf', 'link', 'video', 'imagen'];
+const cumple = (r: any, req: Requisito) => (req === 'leadmagnet' ? TIPOS_LEAD_MAGNET.includes(r.tipo) && !r.es_agenda : r.tipo === req);
+
 const PLANTILLAS: Plantilla[] = [
+  {
+    slug: 'lead-magnet-filtro', nombre: 'Lead magnet con filtro y seguimiento', icono: '🧲', disparo: 'comentario', palabra_clave: 'GUIA',
+    requiere: ['audio', 'leadmagnet'],
+    desc: 'Comentan GUIA → una pregunta que filtra (etiqueta según lo que toca) → pasa de etapa → tu audio y tu lead magnet. Si agradece, a las 20 h le preguntás cómo le fue; si no responde en 22 h, seguimiento y otra etiqueta.',
+    pasos: () => [
+      n('responder_comentario', { texto: '¡Te escribí por DM! 📩' }),
+      n('pregunta', { texto: '¡Hola {{nombre}}! 👋 Antes de pasarte la guía, contame: ¿ya vendés algún curso o servicio?', opciones: [
+        op('Sí, ya vendo', [n('etiquetar', { etiqueta: 'ya-vende' })]),
+        op('Todavía no', [n('etiquetar', { etiqueta: 'principiante' })]),
+      ] }),
+      n('mover_etapa', { etapa_slug: '', _prefiere: 'recurso' }),
+      n('enviar_recurso', { recurso_id: '', _prefiere: 'audio' }),
+      n('enviar_recurso', { recurso_id: '', _prefiere: 'leadmagnet' }),
+      // Si responde (un «gracias» o lo que sea) sigue abajo; si en 22 h no responde, va por «sin».
+      // 22 h y 20 h: Instagram solo deja escribirle dentro de las 24 h desde su último mensaje.
+      n('esperar_respuesta', { limite_min: 1320, sin: [
+        n('enviar_dm', { texto: '¡Hola {{nombre}}! ¿Pudiste escuchar el audio y ver la guía? Si te quedó alguna duda, escribime 🙌' }),
+        n('etiquetar', { etiqueta: 'seguimiento-lead-magnet' }),
+      ] }),
+      n('esperar', { minutos: 1200 }),
+      n('enviar_dm', { texto: '¡Hola {{nombre}}! ¿Qué tal te fue con la guía? ¿Pudiste aplicar algo? 🙌' }),
+    ],
+  },
   {
     slug: 'recurso-por-comentario', nombre: 'Recurso por comentario', icono: '📄', disparo: 'comentario', palabra_clave: 'GUIA', requiere: 'pdf',
     desc: 'Comentan GUIA → respondés el comentario y por DM le preguntás; al tocar el botón le llega la guía.',
@@ -113,11 +141,12 @@ const PLANTILLAS: Plantilla[] = [
   },
 ];
 
-const NOMBRE_REQUISITO = { audio: 'un audio 🎙️', pdf: 'una guía en PDF 📄' } as const;
+const NOMBRE_REQUISITO: Record<Requisito, string> = { audio: 'un audio 🎙️', pdf: 'una guía en PDF 📄', leadmagnet: 'tu lead magnet 🧲' };
 
 function contarPasos(pasos: any[]): number {
   return (pasos ?? []).reduce((s: number, p: any) => s + (p.tipo === 'inicio' ? 0 : 1)
-    + (p.tipo === 'pregunta' ? (p.opciones ?? []).reduce((a: number, o: any) => a + contarPasos(o.pasos ?? []), 0) : 0), 0);
+    + (p.tipo === 'pregunta' ? (p.opciones ?? []).reduce((a: number, o: any) => a + contarPasos(o.pasos ?? []), 0) : 0)
+    + contarPasos(p.sin ?? []), 0);
 }
 
 const pasosVacios = (): Paso[] => [{ id: 'inicio', tipo: 'inicio', x: 0, y: 0, siguiente: null }];
@@ -422,7 +451,10 @@ function FilaAutomensaje({ fl, ig, choque, onAbrir, onProbar, onActivo, onDuplic
 
 function TarjetaPlantilla({ p, ctx, onElegir }: { p: Plantilla; ctx: Ctx; onElegir: () => void }) {
   const d = DISPAROS.find((x) => x.v === p.disparo);
-  const tiene = !p.requiere || ctx.recursos.some((r) => r.tipo === p.requiere);
+  const reqs: Requisito[] = p.requiere ? ([] as Requisito[]).concat(p.requiere) : [];
+  const faltan = reqs.filter((q) => !ctx.recursos.some((r) => cumple(r, q)));
+  const tiene = faltan.length === 0;
+  const lista = (xs: Requisito[]) => xs.map((q) => NOMBRE_REQUISITO[q]).join(' y ');
   return (
     <button type="button" onClick={onElegir} className="tarjeta ui-foco flex h-full w-full flex-col gap-1.5 p-3 text-left hover:border-[var(--series-1)]">
       <div className="text-[22px]" aria-hidden>{p.icono}</div>
@@ -431,7 +463,7 @@ function TarjetaPlantilla({ p, ctx, onElegir }: { p: Plantilla; ctx: Ctx; onEleg
       <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-1 text-[11px] text-[var(--text-muted)]">
         <span>{d?.icono} {p.palabra_clave ? `«${p.palabra_clave}»` : d?.t}</span>
         <span>· {plural(contarPasos(p.pasos()), 'paso')}</span>
-        {p.requiere && <Insignia tono={tiene ? 'neutro' : 'amarillo'}>{tiene ? `Usa ${NOMBRE_REQUISITO[p.requiere]}` : `Necesitás ${NOMBRE_REQUISITO[p.requiere]}`}</Insignia>}
+        {reqs.length > 0 && <Insignia tono={tiene ? 'neutro' : 'amarillo'}>{tiene ? `Usa ${lista(reqs)}` : `Necesitás ${lista(faltan)}`}</Insignia>}
       </div>
     </button>
   );
@@ -462,7 +494,9 @@ function prepararPlantilla(pasos: any[], ctx: Ctx): any[] {
     const p = { ...p0 };
     if (p.tipo === 'enviar_recurso' && !p.recurso_id) {
       // Solo el tipo pedido: si no tenés un audio, NO se pone el link del calendario "en su lugar".
-      const r = ctx.recursos.find((x) => x.tipo === (p._prefiere === 'audio' ? 'audio' : 'pdf'));
+      const r = p._prefiere === 'leadmagnet'
+        ? TIPOS_LEAD_MAGNET.map((t) => ctx.recursos.find((x) => x.tipo === t && !x.es_agenda)).find(Boolean)
+        : ctx.recursos.find((x) => x.tipo === (p._prefiere === 'audio' ? 'audio' : 'pdf'));
       p.recurso_id = r?.id ?? '';
     }
     if (p.tipo === 'mover_etapa' && !p.etapa_slug) {
@@ -472,6 +506,7 @@ function prepararPlantilla(pasos: any[], ctx: Ctx): any[] {
     }
     delete p._prefiere;
     if (p.tipo === 'pregunta') p.opciones = (p.opciones ?? []).map((o: any) => ({ ...o, pasos: fijar(o.pasos ?? []) }));
+    if (Array.isArray(p.sin)) p.sin = fijar(p.sin);
     return p;
   });
   return fijar(pasos);
